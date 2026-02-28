@@ -113,6 +113,11 @@
             </div>
 
             <div class="toolbar-controls">
+              <button id="btn-theme-toggle" class="btn-icon" title="Toggle Light/Dark Mode">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M8 12a4 4 0 100-8 4 4 0 000 8zM8 2V1M8 15v-1M2 8H1M15 8h-1M3.75 3.75L3 3M13 13l-.75-.75M3.75 12.25L3 13M13 3l-.75.75" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
               <select id="sort-select">
                 <option value="name">Name</option>
                 <option value="size">Size</option>
@@ -194,10 +199,9 @@
             </div>
           </div>
         </main>
-      </div>
-
-      <!-- 3D Viewer Modal -->
-      <div id="viewer-modal" class="viewer-modal hidden">
+      
+        <!-- 3D Preview Panel -->
+        <aside id="preview-panel" class="preview-panel hidden">
         <div class="viewer-header">
           <div class="viewer-title">
             <h2 id="viewer-filename">model.stl</h2>
@@ -217,6 +221,13 @@
               title="Reset camera"
             >
               Reset
+            </button>
+            <button
+              id="btn-expand-viewer"
+              class="btn-viewer"
+              title="Expand/Collapse Viewer"
+            >
+              Expand
             </button>
             <button
               id="btn-close-viewer"
@@ -239,7 +250,7 @@
           <div class="spinner"></div>
           <span>Loading model...</span>
         </div>
-      </div>
+      </aside>
     </div>
 
     <!-- Hidden canvas for thumbnail generation -->

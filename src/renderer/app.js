@@ -35,15 +35,20 @@ const scanProgress = $("#scan-progress");
 const progressFill = $("#progress-fill");
 const progressText = $("#progress-text");
 const progressCount = $("#progress-count");
-const viewerModal = $("#viewer-modal");
+const previewPanel = $("#preview-panel");
 const viewerFilename = $("#viewer-filename");
 const viewerMeta = $("#viewer-meta");
 const viewerContainer = $("#viewer-container");
 const viewerLoading = $("#viewer-loading");
 const btnWireframe = $("#btn-wireframe");
 const btnResetCamera = $("#btn-reset-camera");
+const btnExpandViewer = $("#btn-expand-viewer");
 const btnCloseViewer = $("#btn-close-viewer");
+const btnThemeToggle = $("#btn-theme-toggle");
 const filterButtons = document.querySelectorAll(".filter-btn");
+
+// Theme
+let isLightMode = false;
 
 // Stats
 const statTotal = $("#stat-total");
@@ -127,12 +132,27 @@ function bindEvents() {
     toggleWireframe();
   });
   btnResetCamera.addEventListener("click", resetCamera);
+  btnExpandViewer.addEventListener("click", () => {
+    previewPanel.classList.toggle("expanded");
+    // Trigger window resize so ThreeJS canvas updates its aspect ratio
+    setTimeout(() => window.dispatchEvent(new Event("resize")), 300);
+  });
   btnCloseViewer.addEventListener("click", closeViewer);
 
-  // ESC to close viewer
+  btnThemeToggle.addEventListener("click", () => {
+    isLightMode = !isLightMode;
+    document.body.classList.toggle("light", isLightMode);
+  });
+
+  // ESC to close viewer or collapse
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !viewerModal.classList.contains("hidden")) {
-      closeViewer();
+    if (e.key === "Escape" && !previewPanel.classList.contains("hidden")) {
+      if (previewPanel.classList.contains("expanded")) {
+        previewPanel.classList.remove("expanded");
+        setTimeout(() => window.dispatchEvent(new Event("resize")), 300);
+      } else {
+        closeViewer();
+      }
     }
   });
 }
@@ -295,12 +315,16 @@ async function updateStats() {
 // ── 3D Viewer ─────────────────────────────────────────────────────
 
 async function openViewer(file) {
-  viewerModal.classList.remove("hidden");
+  previewPanel.classList.remove("hidden");
+  previewPanel.classList.remove("expanded");
   viewerLoading.classList.remove("hidden");
   btnWireframe.classList.remove("active");
 
   viewerFilename.textContent = `${file.name}.${file.extension}`;
   viewerMeta.textContent = `${formatNumber(file.vertex_count)} vertices · ${formatNumber(file.face_count)} faces · ${formatSize(file.size_bytes)} · ${file.extension.toUpperCase()}`;
+
+  // Delay resize trigger to give flex layout a moment to settle
+  setTimeout(() => window.dispatchEvent(new Event("resize")), 50);
 
   try {
     initViewer(viewerContainer);
@@ -314,7 +338,8 @@ async function openViewer(file) {
 }
 
 function closeViewer() {
-  viewerModal.classList.add("hidden");
+  previewPanel.classList.add("hidden");
+  previewPanel.classList.remove("expanded");
   disposeViewer();
 }
 

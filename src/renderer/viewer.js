@@ -92,7 +92,7 @@ function setupLighting() {
   scene.add(dirLight);
 
   // Fill light
-  const fillLight = new THREE.DirectionalLight(0x6e56cf, 0.4);
+  const fillLight = new THREE.DirectionalLight(0x3b82f6, 0.4);
   fillLight.position.set(-3, 2, -3);
   scene.add(fillLight);
 

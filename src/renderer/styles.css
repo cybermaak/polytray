@@ -15,9 +15,9 @@
   --text-secondary: #8888a0;
   --text-muted: #555568;
 
-  --accent-primary: #6e56cf;
-  --accent-hover: #7c66d9;
-  --accent-glow: rgba(110, 86, 207, 0.3);
+  --accent-primary: #3b82f6;
+  --accent-hover: #60a5fa;
+  --accent-glow: rgba(59, 130, 246, 0.3);
 
   --stl-color: #3b82f6;
   --obj-color: #22c55e;
@@ -66,6 +66,23 @@
   --sidebar-width: 220px;
   --titlebar-height: 38px;
   --toolbar-height: 52px;
+}
+
+/* ── Light Mode Tokens ─────────────────────────────────────────── */
+body.light {
+  --bg-base: #f1f3f5;
+  --bg-surface: #ffffff;
+  --bg-elevated: #f8f9fa;
+  --bg-hover: #e9ecef;
+  --bg-active: #dee2e6;
+
+  --border-subtle: rgba(0, 0, 0, 0.05);
+  --border-default: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.15);
+
+  --text-primary: #212529;
+  --text-secondary: #495057;
+  --text-muted: #868e96;
 }
 
 /* ── Reset & Base ──────────────────────────────────────────────── */
@@ -689,28 +706,29 @@ body {
   color: var(--text-secondary);
 }
 
-/* ── 3D Viewer Modal ───────────────────────────────────────────── */
-.viewer-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  background: var(--bg-base);
+/* ── 3D Preview Panel ──────────────────────────────────────────── */
+.preview-panel {
+  width: 380px;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
-  animation: fadeIn 0.2s ease;
+  flex-shrink: 0;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  z-index: 10;
 }
 
-.viewer-modal.hidden {
+.preview-panel.hidden {
   display: none;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+.preview-panel.expanded {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  z-index: 100;
+  border-left: none;
 }
 
 .viewer-header {
