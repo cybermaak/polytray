@@ -513,13 +513,8 @@ async function fix3MF(buffer: ArrayBuffer) {
     const repairedMainXml = repairXmlString(mainXml);
     let modified = repairedMainXml !== mainXml;
 
-    if (modified) {
-      zip.file(mainModelFile, repairedMainXml);
-      mainXml = repairedMainXml;
-    }
-
     const parser = new DOMParser();
-    const doc = parser.parseFromString(mainXml, "application/xml");
+    const doc = parser.parseFromString(repairedMainXml, "application/xml");
     const resources = doc.querySelector("resources");
     if (!resources) return buffer;
 
@@ -530,6 +525,7 @@ async function fix3MF(buffer: ArrayBuffer) {
         comp.getAttribute("path") ||
         comp.getAttribute("p:path") ||
         comp.getAttribute("slic3rpe:path");
+
       if (pathAttr) {
         let subFile = pathAttr;
         if (subFile.startsWith("/")) subFile = subFile.substring(1);
@@ -543,18 +539,23 @@ async function fix3MF(buffer: ArrayBuffer) {
 
           for (const obj of subObjects) {
             const oldId = obj.getAttribute("id");
+            if (!oldId) continue;
+
             const newId = subFile.replace(/[^a-zA-Z0-9]/g, "_") + "_" + oldId;
             obj.setAttribute("id", newId);
 
+            // If this component specifically requested this objectId, update it
             if (comp.getAttribute("objectid") === oldId) {
               comp.setAttribute("objectid", newId);
             }
 
+            // Remove the reference to the external file so ThreeMFLoader looks locally
             comp.removeAttribute("path");
             comp.removeAttribute("p:path");
             comp.removeAttribute("slic3rpe:path");
 
             resources.appendChild(doc.importNode(obj, true));
+            modified = true;
           }
         }
       }
@@ -564,8 +565,7 @@ async function fix3MF(buffer: ArrayBuffer) {
       const serializer = new XMLSerializer();
       const newXml = serializer.serializeToString(doc);
       zip.file(mainModelFile, newXml);
-      const newBufferInfo = await zip.generateAsync({ type: "arraybuffer" });
-      return newBufferInfo;
+      return await zip.generateAsync({ type: "arraybuffer" });
     }
   } catch (e) {
     console.warn("Failed attempting to auto-repair 3MF zip contents:", e);
@@ -580,10 +580,36 @@ function load3MF(arrayBuffer: ArrayBuffer, group: THREE.Group) {
       const fixedBuffer = await fix3MF(arrayBuffer);
       const obj = loader.parse(fixedBuffer);
 
-      obj.traverse((child) => {
+      obj.traverse((child: THREE.Object3D) => {
         if (child instanceof THREE.Mesh) {
-          // Always apply our standard material for consistent appearance
+          // 3MF files often lack pre-computed normals; without them, MeshStandardMaterial renders black
+          if (!child.geometry.attributes.normal) {
+            child.geometry.computeVertexNormals();
+          }
+
+          const mat = child.material as any;
+          let useFallback = true;
+          let originalColor = null;
+
+          // If the material has a color that isn't strict black, try to keep it
+          if (mat && mat.color) {
+            const hex = mat.color.getHex();
+            if (hex !== 0x000000) {
+              useFallback = false;
+              originalColor = mat.color.clone();
+            }
+          }
+
+          // Always upgrade to our standard material for consistent lighting/shading
           child.material = createMaterial();
+          (child.material as THREE.Material).vertexColors = false;
+
+          if (!useFallback && originalColor) {
+            (child.material as THREE.MeshStandardMaterial).color.copy(
+              originalColor,
+            );
+          }
+
           child.castShadow = true;
           child.receiveShadow = true;
         }
@@ -760,61 +786,63 @@ export function renderThumbnail(
     ensureThumbnailRenderer(canvas);
 
     try {
-      let geometry: THREE.BufferGeometry | null = null;
-      const material = new THREE.MeshStandardMaterial({
-        color: 0x8888aa,
-        metalness: 0.15,
-        roughness: 0.6,
-      });
+      const group = new THREE.Group();
 
       if (extension === "stl") {
-        geometry = new STLLoader().parse(arrayBuffer);
+        const loader = new STLLoader();
+        const geometry = loader.parse(arrayBuffer);
+        const mesh = new THREE.Mesh(geometry, createMaterial());
+        group.add(mesh);
       } else if (extension === "obj") {
+        const loader = new OBJLoader();
         const text = new TextDecoder().decode(arrayBuffer);
-        const obj = new OBJLoader().parse(text);
+        const obj = loader.parse(text);
         obj.traverse((child: THREE.Object3D) => {
-          if (child instanceof THREE.Mesh && !geometry) {
-            geometry = child.geometry;
+          if (child instanceof THREE.Mesh) {
+            child.material = createMaterial();
           }
         });
+        group.add(obj);
       } else if (extension === "3mf") {
+        const loader = new ThreeMFLoader();
         const fixedBuffer = await fix3MF(arrayBuffer);
-        const obj = new ThreeMFLoader().parse(fixedBuffer);
+        const obj = loader.parse(fixedBuffer);
         obj.traverse((child: THREE.Object3D) => {
-          if (child instanceof THREE.Mesh && !geometry) {
-            geometry = child.geometry;
+          if (child instanceof THREE.Mesh) {
+            // For thumbnails, we ALWAYS override with the standard color
+            // for brand/UI consistency unless specifically told otherwise
+            child.material = createMaterial();
+            (child.material as THREE.Material).vertexColors = false;
+
+            if (!child.geometry.attributes.normal) {
+              child.geometry.computeVertexNormals();
+            }
           }
         });
+        group.add(obj);
       }
 
-      if (!geometry) {
+      if (group.children.length === 0) {
         resolve(null);
         return;
       }
 
-      // Ensure smooth normals
-      if (!geometry.attributes.normal) {
-        geometry.computeVertexNormals();
-      }
-
-      const mesh = new THREE.Mesh(geometry, material);
-
       // Apply smart orientation heuristics
-      applySmartOrientation(mesh);
+      applySmartOrientation(group);
 
-      thumbScene!.add(mesh);
+      thumbScene!.add(group);
 
       // Fit camera
-      const box = new THREE.Box3().setFromObject(mesh);
+      const box = new THREE.Box3().setFromObject(group);
       const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
 
-      mesh.position.x -= center.x;
-      mesh.position.z -= center.z;
-      mesh.position.y -= box.min.y;
+      group.position.x -= center.x;
+      group.position.z -= center.z;
+      group.position.y -= box.min.y;
 
-      // Re-calculate box after repositioning (match fitCameraToObject logic)
-      box.setFromObject(mesh);
+      // Re-calculate box after repositioning
+      box.setFromObject(group);
       box.getCenter(center);
 
       const maxDim = Math.max(size.x, size.y, size.z);
@@ -830,10 +858,9 @@ export function renderThumbnail(
       // Get data URL
       const dataUrl = canvas.toDataURL("image/png");
 
-      // Cleanup the mesh (but keep the renderer/scene/lights)
-      thumbScene!.remove(mesh);
-      geometry.dispose();
-      material.dispose();
+      // Cleanup
+      thumbScene!.remove(group);
+      disposeObject(group);
 
       resolve(dataUrl);
     } catch (e) {
