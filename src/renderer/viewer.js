@@ -211,9 +211,11 @@ function applySmartOrientation(meshOrGroup) {
     new THREE.Vector3(0, 0, -1),
   ];
 
-  // Also test large flat faces
+  let maxFlatRatio = 0;
   for (const [key, area] of normalAreas.entries()) {
-    if (area / totalArea > 0.05) {
+    const ratio = area / totalArea;
+    if (ratio > maxFlatRatio) maxFlatRatio = ratio;
+    if (ratio > 0.05) {
       const parts = key.split(",").map(parseFloat);
       const nv = new THREE.Vector3(parts[0], parts[1], parts[2]).normalize();
       candidates.push(nv);
@@ -241,11 +243,19 @@ function applySmartOrientation(meshOrGroup) {
 
     let bias = 0;
     if (Math.abs(v.x) + Math.abs(v.y) + Math.abs(v.z) > 0.99) {
-      if (v.y < -0.99) bias = 0.01;
-      if (v.z < -0.99) bias = 0.02;
+      if (v.z < -0.99) bias = 0.5; // Strong bias for standard Z-up exported files (.stl/.3mf)
+      if (v.y < -0.99) bias = 0.1; // Minor fallback for Y-up exports
     }
 
-    const score = flatRatio * 2.0 + shiftScore * 2.0 + bias;
+    // Dampen center-of-area shift calculations for highly organic objects
+    let effectiveShift = shiftScore;
+    if (maxFlatRatio < 0.02) {
+      effectiveShift *= 0.1;
+    } else if (maxFlatRatio < 0.05) {
+      effectiveShift *= 0.5;
+    }
+
+    const score = flatRatio * 3.0 + effectiveShift * 2.0 + bias;
 
     if (score > bestScore) {
       bestScore = score;
