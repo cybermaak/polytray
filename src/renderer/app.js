@@ -29,6 +29,7 @@ const searchClear = $("#search-clear");
 const sortSelect = $("#sort-select");
 const sortOrderBtn = $("#sort-order");
 const btnRescan = $("#btn-rescan");
+const btnClearThumbnails = $("#btn-clear-thumbnails");
 const fileGrid = $("#file-grid");
 const emptyState = $("#empty-state");
 const scanProgress = $("#scan-progress");
@@ -125,6 +126,18 @@ function bindEvents() {
 
   // Rescan
   btnRescan.addEventListener("click", handleRescanAll);
+
+  // Clear Thumbnails
+  btnClearThumbnails.addEventListener("click", async () => {
+    if (
+      confirm(
+        "Are you sure you want to clear and recreate all thumbnails? This might take a while.",
+      )
+    ) {
+      await window.polytray.clearThumbnails();
+      await handleRescanAll();
+    }
+  });
 
   // Viewer controls
   btnWireframe.addEventListener("click", () => {
@@ -326,6 +339,11 @@ async function openViewer(file) {
   // Delay resize trigger to give flex layout a moment to settle
   setTimeout(() => window.dispatchEvent(new Event("resize")), 50);
 
+  // Reset loading UI
+  viewerLoading.querySelector("span").textContent = "Loading model...";
+  const spinner = viewerLoading.querySelector(".spinner");
+  if (spinner) spinner.style.display = "block";
+
   try {
     initViewer(viewerContainer);
     const buffer = await window.polytray.readFileBuffer(file.path);
@@ -333,7 +351,9 @@ async function openViewer(file) {
     viewerLoading.classList.add("hidden");
   } catch (e) {
     console.error("Failed to load model:", e);
-    viewerLoading.querySelector("span").textContent = "Failed to load model";
+    viewerLoading.querySelector("span").textContent =
+      "Failed to load model file";
+    if (spinner) spinner.style.display = "none";
   }
 }
 

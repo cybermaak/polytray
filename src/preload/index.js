@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("polytray", {
   // Scanning
   scanFolder: (folderPath) => ipcRenderer.invoke("scan-folder", folderPath),
   rescan: () => ipcRenderer.invoke("rescan"),
+  clearThumbnails: () => ipcRenderer.invoke("clear-thumbnails"),
 
   // File queries
   getFiles: (opts) => ipcRenderer.invoke("get-files", opts),

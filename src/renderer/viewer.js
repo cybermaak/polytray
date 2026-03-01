@@ -26,7 +26,6 @@ export function initViewer(containerEl) {
 
   // Scene
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0a0a0f);
 
   // Camera
   camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 10000);
@@ -35,7 +34,7 @@ export function initViewer(containerEl) {
   // Renderer
   renderer = new THREE.WebGLRenderer({
     antialias: true,
-    alpha: false,
+    alpha: true,
   });
   renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -77,7 +76,6 @@ function setupLighting() {
   const hemi = new THREE.HemisphereLight(0x8888cc, 0x443322, 0.5);
   scene.add(hemi);
 
-  // Main directional
   const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
   dirLight.position.set(5, 8, 5);
   dirLight.castShadow = true;
@@ -89,17 +87,19 @@ function setupLighting() {
   dirLight.shadow.camera.right = 10;
   dirLight.shadow.camera.top = 10;
   dirLight.shadow.camera.bottom = -10;
-  scene.add(dirLight);
+  camera.add(dirLight);
 
   // Fill light
   const fillLight = new THREE.DirectionalLight(0x3b82f6, 0.4);
   fillLight.position.set(-3, 2, -3);
-  scene.add(fillLight);
+  camera.add(fillLight);
 
   // Rim light
   const rimLight = new THREE.DirectionalLight(0x3b82f6, 0.3);
   rimLight.position.set(0, -2, -5);
-  scene.add(rimLight);
+  camera.add(rimLight);
+
+  scene.add(camera);
 }
 
 function setupGrid() {
@@ -125,6 +125,141 @@ function handleResize() {
 }
 
 // ── Model Loading ─────────────────────────────────────────────────
+
+function applySmartOrientation(meshOrGroup) {
+  let totalArea = 0;
+  const normalAreas = new Map();
+  const coa = new THREE.Vector3();
+
+  meshOrGroup.updateMatrixWorld(true);
+
+  meshOrGroup.traverse((child) => {
+    if (child instanceof THREE.Mesh && child.geometry) {
+      const pos = child.geometry.attributes.position;
+      const index = child.geometry.index;
+      if (!pos) return;
+
+      const matrixWorld = child.matrixWorld;
+
+      const va = new THREE.Vector3();
+      const vb = new THREE.Vector3();
+      const vc = new THREE.Vector3();
+      const cb = new THREE.Vector3();
+      const ab = new THREE.Vector3();
+      const triCenter = new THREE.Vector3();
+
+      function addTriangle(a, b, c) {
+        va.fromBufferAttribute(pos, a).applyMatrix4(matrixWorld);
+        vb.fromBufferAttribute(pos, b).applyMatrix4(matrixWorld);
+        vc.fromBufferAttribute(pos, c).applyMatrix4(matrixWorld);
+
+        cb.subVectors(vc, vb);
+        ab.subVectors(va, vb);
+        cb.cross(ab);
+
+        const area = cb.length() / 2;
+        if (area < 1e-6) return;
+        totalArea += area;
+
+        triCenter.copy(va).add(vb).add(vc).divideScalar(3);
+        coa.add(triCenter.multiplyScalar(area));
+
+        cb.normalize();
+        const px = Math.round(cb.x * 10) / 10;
+        const py = Math.round(cb.y * 10) / 10;
+        const pz = Math.round(cb.z * 10) / 10;
+        const key = `${px},${py},${pz}`;
+
+        let currentArea = normalAreas.get(key) || 0;
+        currentArea += area;
+        normalAreas.set(key, currentArea);
+      }
+
+      if (index) {
+        for (let i = 0; i < index.count; i += 3) {
+          addTriangle(index.getX(i), index.getX(i + 1), index.getX(i + 2));
+        }
+      } else {
+        for (let i = 0; i < pos.count; i += 3) {
+          addTriangle(i, i + 1, i + 2);
+        }
+      }
+    }
+  });
+
+  if (totalArea === 0) return;
+  coa.divideScalar(totalArea);
+
+  const box = new THREE.Box3().setFromObject(meshOrGroup);
+  const boxCenter = box.getCenter(new THREE.Vector3());
+  const boxSize = box.getSize(new THREE.Vector3());
+
+  const shift = new THREE.Vector3().subVectors(coa, boxCenter);
+  const relShift = new THREE.Vector3(
+    boxSize.x > 0 ? shift.x / boxSize.x : 0,
+    boxSize.y > 0 ? shift.y / boxSize.y : 0,
+    boxSize.z > 0 ? shift.z / boxSize.z : 0,
+  );
+
+  const candidates = [
+    new THREE.Vector3(1, 0, 0),
+    new THREE.Vector3(-1, 0, 0),
+    new THREE.Vector3(0, 1, 0),
+    new THREE.Vector3(0, -1, 0),
+    new THREE.Vector3(0, 0, 1),
+    new THREE.Vector3(0, 0, -1),
+  ];
+
+  // Also test large flat faces
+  for (const [key, area] of normalAreas.entries()) {
+    if (area / totalArea > 0.05) {
+      const parts = key.split(",").map(parseFloat);
+      const nv = new THREE.Vector3(parts[0], parts[1], parts[2]).normalize();
+      candidates.push(nv);
+    }
+  }
+
+  let bestCandidate = new THREE.Vector3(0, -1, 0);
+  let bestScore = -Infinity;
+
+  for (const v of candidates) {
+    if (v.lengthSq() < 0.1) continue;
+    v.normalize();
+
+    let flatAreaAlign = 0;
+    for (const [key, area] of normalAreas.entries()) {
+      const parts = key.split(",").map(parseFloat);
+      const nv = new THREE.Vector3(parts[0], parts[1], parts[2]).normalize();
+      if (nv.dot(v) > 0.95) {
+        flatAreaAlign += area;
+      }
+    }
+
+    const flatRatio = flatAreaAlign / totalArea;
+    const shiftScore = relShift.dot(v);
+
+    let bias = 0;
+    if (Math.abs(v.x) + Math.abs(v.y) + Math.abs(v.z) > 0.99) {
+      if (v.y < -0.99) bias = 0.01;
+      if (v.z < -0.99) bias = 0.02;
+    }
+
+    const score = flatRatio * 2.0 + shiftScore * 2.0 + bias;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestCandidate = v.clone();
+    }
+  }
+
+  const down = new THREE.Vector3(0, -1, 0);
+  const quaternion = new THREE.Quaternion().setFromUnitVectors(
+    bestCandidate,
+    down,
+  );
+  meshOrGroup.quaternion.copy(quaternion);
+  meshOrGroup.updateMatrixWorld(true);
+}
 
 export async function loadModel(arrayBuffer, extension, name) {
   // Remove previous model
@@ -152,6 +287,19 @@ export async function loadModel(arrayBuffer, extension, name) {
   } catch (e) {
     console.error("Failed to load model:", e);
     throw e;
+  }
+
+  // Apply smart orientation heuristics
+  applySmartOrientation(group);
+
+  // Normalize scale so max dimension is 10 units relative to the standard plane grid
+  const scaledBox = new THREE.Box3().setFromObject(group);
+  const scaledSize = scaledBox.getSize(new THREE.Vector3());
+  const maxDim = Math.max(scaledSize.x, scaledSize.y, scaledSize.z);
+  if (maxDim > 0) {
+    const scale = 10.0 / maxDim;
+    group.scale.set(scale, scale, scale);
+    group.updateMatrixWorld(true);
   }
 
   scene.add(group);
@@ -242,8 +390,10 @@ function fitCameraToObject(object) {
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
 
-  // Center the object
-  object.position.sub(center);
+  // Center the object in X and Z, and place the bottom at Y = 0
+  object.position.x -= center.x;
+  object.position.z -= center.z;
+  object.position.y -= box.min.y;
 
   const maxDim = Math.max(size.x, size.y, size.z);
   const fov = camera.fov * (Math.PI / 180);
@@ -252,9 +402,9 @@ function fitCameraToObject(object) {
 
   const direction = new THREE.Vector3(1, 0.7, 1).normalize();
   camera.position.copy(direction.multiplyScalar(cameraDistance));
-  camera.lookAt(0, 0, 0);
+  camera.lookAt(0, size.y / 2, 0);
 
-  controls.target.set(0, 0, 0);
+  controls.target.set(0, size.y / 2, 0);
   controls.minDistance = maxDim * 0.1;
   controls.maxDistance = maxDim * 10;
   controls.update();
@@ -329,7 +479,6 @@ function disposeObject(obj) {
 export function renderThumbnail(arrayBuffer, extension, canvas) {
   return new Promise((resolve, reject) => {
     const thumbScene = new THREE.Scene();
-    thumbScene.background = new THREE.Color(0x2a2a3a);
 
     const thumbCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 10000);
 
@@ -337,36 +486,37 @@ export function renderThumbnail(arrayBuffer, extension, canvas) {
       canvas,
       antialias: true,
       preserveDrawingBuffer: true,
+      alpha: true,
     });
     thumbRenderer.setSize(256, 256);
     thumbRenderer.toneMapping = THREE.ACESFilmicToneMapping;
-    thumbRenderer.toneMappingExposure = 2.0;
+    thumbRenderer.toneMappingExposure = 1.2;
 
-    // Strong lighting for visible thumbnails
-    const ambient = new THREE.AmbientLight(0xffffff, 1.5);
+    // Cinematic neutral lighting
+    const ambient = new THREE.AmbientLight(0xffffff, 0.8);
     thumbScene.add(ambient);
 
-    const hemi = new THREE.HemisphereLight(0xccccff, 0x886644, 1.0);
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
     thumbScene.add(hemi);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
-    dirLight.position.set(3, 6, 4);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+    dirLight.position.set(5, 5, 5);
     thumbScene.add(dirLight);
 
-    const fillLight = new THREE.DirectionalLight(0x8888ff, 0.8);
-    fillLight.position.set(-3, 2, -2);
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
+    fillLight.position.set(-5, 0, -5);
     thumbScene.add(fillLight);
 
     const rimLight = new THREE.DirectionalLight(0xffffff, 0.6);
-    rimLight.position.set(0, -1, -4);
+    rimLight.position.set(0, 5, -5);
     thumbScene.add(rimLight);
 
     try {
       let geometry;
       const material = new THREE.MeshStandardMaterial({
-        color: 0xb0b8d0,
+        color: 0x808080,
         metalness: 0.1,
-        roughness: 0.5,
+        roughness: 0.7,
       });
 
       if (extension === "stl") {
@@ -400,20 +550,27 @@ export function renderThumbnail(arrayBuffer, extension, canvas) {
       }
 
       const mesh = new THREE.Mesh(geometry, material);
+
+      // Apply smart orientation heuristics
+      applySmartOrientation(mesh);
+
       thumbScene.add(mesh);
 
       // Fit camera
       const box = new THREE.Box3().setFromObject(mesh);
       const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
-      mesh.position.sub(center);
+
+      mesh.position.x -= center.x;
+      mesh.position.z -= center.z;
+      mesh.position.y -= box.min.y;
 
       const maxDim = Math.max(size.x, size.y, size.z);
       const fov = thumbCamera.fov * (Math.PI / 180);
       let dist = (maxDim / (2 * Math.tan(fov / 2))) * 1.5;
 
-      thumbCamera.position.set(dist * 0.7, dist * 0.5, dist * 0.7);
-      thumbCamera.lookAt(0, 0, 0);
+      thumbCamera.position.set(dist * 0.7, size.y / 2 + dist * 0.5, dist * 0.7);
+      thumbCamera.lookAt(0, size.y / 2, 0);
 
       thumbRenderer.render(thumbScene, thumbCamera);
 

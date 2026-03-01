@@ -201,6 +201,22 @@ function registerIpcHandlers() {
     return folders;
   });
 
+  ipcMain.handle("clear-thumbnails", async () => {
+    const db = getDb();
+    const thumbDir = getThumbnailDir();
+    if (fs.existsSync(thumbDir)) {
+      const files = fs.readdirSync(thumbDir);
+      for (const file of files) {
+        if (file.endsWith(".png")) {
+          fs.unlinkSync(join(thumbDir, file));
+        }
+      }
+    }
+    // Set modified_at to 0 so the scanner regenerates the thumbnails next scan
+    db.prepare("UPDATE files SET modified_at = 0, thumbnail = null").run();
+    return true;
+  });
+
   // ── File Queries ──────────────────────────────────────────────
 
   ipcMain.handle("get-files", (event, opts = {}) => {
