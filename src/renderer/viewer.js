@@ -106,8 +106,8 @@ function setupLighting() {
 }
 
 function setupGrid() {
-  const grid = new THREE.GridHelper(20, 40, 0x222233, 0x161622);
-  grid.material.opacity = 0.5;
+  const grid = new THREE.GridHelper(20, 40, 0x3a3a55, 0x282840);
+  grid.material.opacity = 0.7;
   grid.material.transparent = true;
   scene.add(grid);
 }

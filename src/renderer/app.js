@@ -81,6 +81,7 @@ async function init() {
   window.polytray.onScanProgress(handleScanProgress);
   window.polytray.onScanComplete(handleScanComplete);
   window.polytray.onFilesUpdated(handleFilesUpdated);
+  window.polytray.onThumbnailReady(handleThumbnailReady);
 }
 
 // ── Event Bindings ────────────────────────────────────────────────
@@ -275,6 +276,38 @@ async function handleScanComplete(data) {
 async function handleFilesUpdated() {
   await loadFiles();
   await updateStats();
+}
+
+async function handleThumbnailReady(data) {
+  const { fileId, thumbnailPath } = data;
+  const card = fileGrid.querySelector(`.file-card[data-file-id="${fileId}"]`);
+  if (!card) return;
+
+  const thumbDiv = card.querySelector(".card-thumbnail");
+  if (!thumbDiv) return;
+
+  // Load thumbnail as base64 data URL
+  const dataUrl = await window.polytray.readThumbnail(thumbnailPath);
+  if (!dataUrl) return;
+
+  // Remove loading pulse if present
+  const pulse = thumbDiv.querySelector(".thumbnail-pulse");
+  if (pulse) pulse.remove();
+
+  // Remove placeholder icon if present
+  const placeholder = thumbDiv.querySelector(".placeholder-icon");
+
+  const img = document.createElement("img");
+  img.alt = "thumbnail";
+  img.style.opacity = "0";
+  img.style.transition = "opacity 0.3s ease";
+  img.src = dataUrl;
+  img.onload = () => {
+    img.style.opacity = "1";
+    if (placeholder) placeholder.remove();
+  };
+  // Insert before the badge
+  thumbDiv.insertBefore(img, thumbDiv.querySelector(".card-ext-badge"));
 }
 
 // ── File Loading ──────────────────────────────────────────────────

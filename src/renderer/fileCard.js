@@ -44,6 +44,10 @@ export function createFileCard(file, index) {
         img.remove();
       });
   } else {
+    // No thumbnail yet — show a loading pulse animation
+    const pulse = document.createElement("div");
+    pulse.className = "thumbnail-pulse";
+    thumbDiv.appendChild(pulse);
     thumbDiv.appendChild(createPlaceholderIcon());
   }
 
@@ -70,6 +74,12 @@ export function createFileCard(file, index) {
   meta.className = "card-meta";
   meta.innerHTML = `<span>${formatSize(file.size_bytes)}</span><span>${formatVertices(file.vertex_count)}</span>`;
   info.appendChild(meta);
+
+  // Timestamp row
+  const timestamp = document.createElement("div");
+  timestamp.className = "card-timestamp";
+  timestamp.textContent = formatTimestamp(file.modified_at);
+  info.appendChild(timestamp);
 
   card.appendChild(info);
 
@@ -106,4 +116,28 @@ function formatVertices(count) {
   if (count >= 1000000) return (count / 1000000).toFixed(1) + "M verts";
   if (count >= 1000) return (count / 1000).toFixed(1) + "K verts";
   return count.toString() + " verts";
+}
+
+function formatTimestamp(epochMs) {
+  if (!epochMs) return "";
+  const d = new Date(epochMs);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday = d.toDateString() === yesterday.toDateString();
+
+  const time = d.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  if (isToday) return `Today ${time}`;
+  if (isYesterday) return `Yesterday ${time}`;
+
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }

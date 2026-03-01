@@ -113,18 +113,27 @@ function registerIpcHandlers() {
         .map((r) => r.path),
     );
 
+    // ── Pass 1: Index files quickly (metadata only, no thumbnails) ──
+    const filesToThumbnail = [];
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       existingPaths.delete(file.path);
 
       const existing = db
-        .prepare("SELECT modified_at, size_bytes FROM files WHERE path = ?")
+        .prepare(
+          "SELECT modified_at, size_bytes, thumbnail FROM files WHERE path = ?",
+        )
         .get(file.path);
       if (
         existing &&
         existing.modified_at === file.mtime &&
         existing.size_bytes === file.size
       ) {
+        // Already up to date — skip but mark for thumbnail if missing
+        if (!existing.thumbnail) {
+          filesToThumbnail.push(file);
+        }
         mainWindow.webContents.send("scan-progress", {
           current: i + 1,
           total,
@@ -141,25 +150,9 @@ function registerIpcHandlers() {
         console.warn(`Failed to extract metadata for ${file.path}:`, e.message);
       }
 
-      let thumbnailPath = null;
-      try {
-        thumbnailPath = await generateThumbnail(
-          file.path,
-          file.ext,
-          mainWindow,
-        );
-      } catch (e) {
-        console.warn(
-          `Failed to generate thumbnail for ${file.path}:`,
-          e.message,
-        );
-      }
-
       db.prepare(
-        `
-        INSERT OR REPLACE INTO files (path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, thumbnail, indexed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
+        `INSERT OR REPLACE INTO files (path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, thumbnail, indexed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         file.path,
         file.name,
@@ -169,9 +162,11 @@ function registerIpcHandlers() {
         file.mtime,
         meta.vertexCount,
         meta.faceCount,
-        thumbnailPath,
+        null, // thumbnail will be generated in pass 2
         Date.now(),
       );
+
+      filesToThumbnail.push(file);
 
       mainWindow.webContents.send("scan-progress", {
         current: i + 1,
@@ -179,13 +174,55 @@ function registerIpcHandlers() {
         filename: file.name,
         skipped: false,
       });
+
+      // Emit file-indexed so the renderer can show the card immediately
+      mainWindow.webContents.send("file-indexed", {
+        path: file.path,
+        current: i + 1,
+        total,
+      });
     }
 
     for (const stalePath of existingPaths) {
       db.prepare("DELETE FROM files WHERE path = ?").run(stalePath);
     }
 
+    // Notify scan complete (cards are all visible now)
     mainWindow.webContents.send("scan-complete", { totalFiles: total });
+
+    // ── Pass 2: Generate thumbnails in the background ──
+    for (let i = 0; i < filesToThumbnail.length; i++) {
+      const file = filesToThumbnail[i];
+      try {
+        const thumbnailPath = await generateThumbnail(
+          file.path,
+          file.ext,
+          mainWindow,
+        );
+        if (thumbnailPath) {
+          db.prepare("UPDATE files SET thumbnail = ? WHERE path = ?").run(
+            thumbnailPath,
+            file.path,
+          );
+          // Get the file id for the renderer to locate the card
+          const row = db
+            .prepare("SELECT id FROM files WHERE path = ?")
+            .get(file.path);
+          if (row) {
+            mainWindow.webContents.send("thumbnail-ready", {
+              fileId: row.id,
+              thumbnailPath,
+            });
+          }
+        }
+      } catch (e) {
+        console.warn(
+          `Failed to generate thumbnail for ${file.path}:`,
+          e.message,
+        );
+      }
+    }
+
     return { totalFiles: total };
   });
 

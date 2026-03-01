@@ -41,6 +41,12 @@ contextBridge.exposeInMainWorld("polytray", {
   onFilesUpdated: (callback) => {
     ipcRenderer.on("files-updated", (event, data) => callback(data));
   },
+  onFileIndexed: (callback) => {
+    ipcRenderer.on("file-indexed", (event, data) => callback(data));
+  },
+  onThumbnailReady: (callback) => {
+    ipcRenderer.on("thumbnail-ready", (event, data) => callback(data));
+  },
 
   // Thumbnail generation (main → renderer → main)
   onThumbnailRequest: (callback) => {

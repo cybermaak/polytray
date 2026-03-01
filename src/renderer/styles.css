@@ -635,6 +635,36 @@ body {
   color: var(--text-muted);
 }
 
+.card-timestamp {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+/* Thumbnail loading pulse */
+.thumbnail-pulse {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 25%,
+    rgba(255, 255, 255, 0.04) 37%,
+    transparent 63%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
 /* ── Empty State ───────────────────────────────────────────────── */
 .empty-state {
   flex: 1;
