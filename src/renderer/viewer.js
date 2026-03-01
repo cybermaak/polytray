@@ -561,9 +561,8 @@ function load3MF(arrayBuffer, group) {
 
       obj.traverse((child) => {
         if (child instanceof THREE.Mesh) {
-          if (!child.material || child.material.type === "MeshBasicMaterial") {
-            child.material = createMaterial();
-          }
+          // Always apply our standard material for consistent appearance
+          child.material = createMaterial();
           child.castShadow = true;
           child.receiveShadow = true;
         }
@@ -737,9 +736,9 @@ export function renderThumbnail(arrayBuffer, extension, canvas) {
     try {
       let geometry;
       const material = new THREE.MeshStandardMaterial({
-        color: 0x808080,
-        metalness: 0.1,
-        roughness: 0.7,
+        color: 0x8888aa,
+        metalness: 0.15,
+        roughness: 0.6,
       });
 
       if (extension === "stl") {
@@ -788,12 +787,17 @@ export function renderThumbnail(arrayBuffer, extension, canvas) {
       mesh.position.z -= center.z;
       mesh.position.y -= box.min.y;
 
+      // Re-calculate box after repositioning (match fitCameraToObject logic)
+      box.setFromObject(mesh);
+      box.getCenter(center);
+
       const maxDim = Math.max(size.x, size.y, size.z);
       const fov = thumbCamera.fov * (Math.PI / 180);
-      let dist = (maxDim / (2 * Math.tan(fov / 2))) * 1.5;
+      let dist = Math.abs(maxDim / Math.sin(fov / 2)) * 1.2;
 
-      thumbCamera.position.set(dist * 0.7, size.y / 2 + dist * 0.5, dist * 0.7);
-      thumbCamera.lookAt(0, size.y / 2, 0);
+      const direction = new THREE.Vector3(1, 0.7, 1).normalize();
+      thumbCamera.position.copy(center).add(direction.multiplyScalar(dist));
+      thumbCamera.lookAt(center);
 
       thumbRenderer.render(thumbScene, thumbCamera);
 
