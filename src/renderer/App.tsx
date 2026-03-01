@@ -11,6 +11,8 @@ import { Toolbar } from "./components/Toolbar";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { SettingsModal } from "./components/SettingsModal";
 import { formatSize, formatVertices, formatTimestamp } from "./lib/formatters";
+import { initThumbnailGenerator } from "./lib/thumbnailRenderer";
+import { VirtuosoGrid } from "react-virtuoso";
 
 // Types for file records from the database
 interface FileRecord {
@@ -106,6 +108,8 @@ export const App: React.FC = () => {
     setStats(s);
   }, []);
 
+  const thumbCanvasRef = useRef<HTMLCanvasElement>(null);
+
   // ── IPC Listeners (once) ────────────────────────────────────────
   useEffect(() => {
     // Initial settings load
@@ -119,6 +123,12 @@ export const App: React.FC = () => {
     } catch (e) {}
 
     const cleanups: (() => void)[] = [];
+
+    // Thumbnail Generator (hidden canvas handler)
+    if (thumbCanvasRef.current) {
+      const cleanup = initThumbnailGenerator(thumbCanvasRef.current);
+      cleanups.push(cleanup);
+    }
 
     cleanups.push(
       window.polytray.onScanProgress((data: any) => {
@@ -253,6 +263,18 @@ export const App: React.FC = () => {
       foldersRef.current = f;
 
       const raw = localStorage.getItem("polytray-settings");
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          setSettings((prev) => ({ ...prev, ...parsed }));
+          if (parsed.lightMode) {
+            document.body.classList.add("light");
+          }
+        } catch (e) {
+          console.error("Failed to parse settings", e);
+        }
+      }
+
       const savedSettings = raw ? JSON.parse(raw) : null;
       const shouldAutoScan = savedSettings?.autoScan ?? true;
       const shouldWatch = savedSettings?.watch ?? true;
@@ -278,6 +300,15 @@ export const App: React.FC = () => {
       }
     })();
   }, []);
+
+  // Update body class when lightMode change
+  useEffect(() => {
+    if (settings.lightMode) {
+      document.body.classList.add("light");
+    } else {
+      document.body.classList.remove("light");
+    }
+  }, [settings.lightMode]);
 
   // ── Handlers ────────────────────────────────────────────────────
   const handleAddFolder = useCallback(async () => {
@@ -449,6 +480,8 @@ export const App: React.FC = () => {
             onSearch={handleSearch}
             onRescan={handleRescan}
             onClearThumbnails={handleClearThumbnails}
+            lightMode={settings.lightMode}
+            onSettingsChange={handleSettingsChange}
           />
           {/* file-grid is ALWAYS rendered as a direct child of #content */}
           <div
@@ -520,9 +553,44 @@ export const App: React.FC = () => {
         onSettingsChange={handleSettingsChange}
         onClose={() => setSettingsOpen(false)}
       />
+      <canvas
+        ref={thumbCanvasRef}
+        width="256"
+        height="256"
+        style={{ display: "none" }}
+      />
     </>
   );
 };
+
+// ── Helpers for VirtuosoGrid ────────────────────────────────────
+
+const GridList = React.forwardRef<HTMLDivElement, any>(
+  ({ style, children, ...props }, ref) => {
+    return (
+      <div
+        ref={ref}
+        {...props}
+        className={`file-grid size-medium`} // gridSize from settings should go here
+        style={{
+          ...style,
+          display: "grid",
+          padding: "var(--space-4)",
+          gap: "var(--space-3)",
+          alignContent: "start",
+        }}
+      >
+        {children}
+      </div>
+    );
+  },
+);
+
+const GridItem = ({ children, ...props }: any) => (
+  <div {...props} style={{ display: "flex", flexDirection: "column" }}>
+    {children}
+  </div>
+);
 
 // ── FileCard (memoized to prevent unnecessary re-renders) ─────────
 

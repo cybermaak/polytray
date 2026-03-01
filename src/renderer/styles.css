@@ -1,3 +1,10 @@
+@font-face {
+  font-family: "Inter";
+  src: url("./assets/fonts/Inter.ttf") format("truetype");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 /* ── Design Tokens ─────────────────────────────────────────────── */
 :root {
   /* Colors — Neutral grey/charcoal dark theme */
@@ -703,13 +710,10 @@ body {
 
 /* ── Scan Progress ─────────────────────────────────────────────── */
 .scan-progress {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
   background: var(--bg-surface);
   border-top: 1px solid var(--border-subtle);
   padding: var(--space-3) var(--space-4);
+  flex-shrink: 0;
 }
 
 .scan-progress.hidden {

@@ -48,6 +48,7 @@ export function initViewer(containerEl: HTMLElement) {
   renderer = new THREE.WebGLRenderer({
     antialias: true,
     alpha: true,
+    preserveDrawingBuffer: true, // Needed for capturing sub-model thumbnails
   });
   renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -784,94 +785,91 @@ function ensureThumbnailRenderer(canvas: HTMLCanvasElement) {
   thumbScene.add(rimLight);
 }
 
-export function renderThumbnail(
+export async function renderThumbnail(
   arrayBuffer: ArrayBuffer,
   extension: string,
   canvas: HTMLCanvasElement,
-) {
-  return new Promise<string | null>(async (resolve, reject) => {
-    ensureThumbnailRenderer(canvas);
+): Promise<string | null> {
+  ensureThumbnailRenderer(canvas);
 
-    try {
-      const group = new THREE.Group();
+  try {
+    const group = new THREE.Group();
 
-      if (extension === "stl") {
-        const loader = new STLLoader();
-        const geometry = loader.parse(arrayBuffer);
-        const mesh = new THREE.Mesh(geometry, createMaterial());
-        group.add(mesh);
-      } else if (extension === "obj") {
-        const loader = new OBJLoader();
-        const text = new TextDecoder().decode(arrayBuffer);
-        const obj = loader.parse(text);
-        obj.traverse((child: THREE.Object3D) => {
-          if (child instanceof THREE.Mesh) {
-            child.material = createMaterial();
+    if (extension === "stl") {
+      const loader = new STLLoader();
+      const geometry = loader.parse(arrayBuffer);
+      const mesh = new THREE.Mesh(geometry, createMaterial());
+      group.add(mesh);
+    } else if (extension === "obj") {
+      const loader = new OBJLoader();
+      const text = new TextDecoder().decode(arrayBuffer);
+      const obj = loader.parse(text);
+      obj.traverse((child: THREE.Object3D) => {
+        if (child instanceof THREE.Mesh) {
+          child.material = createMaterial();
+        }
+      });
+      group.add(obj);
+    } else if (extension === "3mf") {
+      const loader = new ThreeMFLoader();
+      const fixedBuffer = await fix3MF(arrayBuffer);
+      const obj = loader.parse(fixedBuffer);
+      obj.traverse((child: THREE.Object3D) => {
+        if (child instanceof THREE.Mesh) {
+          // For thumbnails, we ALWAYS override with the standard color
+          // for brand/UI consistency unless specifically told otherwise
+          child.material = createMaterial();
+          (child.material as THREE.Material).vertexColors = false;
+
+          if (!child.geometry.attributes.normal) {
+            child.geometry.computeVertexNormals();
           }
-        });
-        group.add(obj);
-      } else if (extension === "3mf") {
-        const loader = new ThreeMFLoader();
-        const fixedBuffer = await fix3MF(arrayBuffer);
-        const obj = loader.parse(fixedBuffer);
-        obj.traverse((child: THREE.Object3D) => {
-          if (child instanceof THREE.Mesh) {
-            // For thumbnails, we ALWAYS override with the standard color
-            // for brand/UI consistency unless specifically told otherwise
-            child.material = createMaterial();
-            (child.material as THREE.Material).vertexColors = false;
-
-            if (!child.geometry.attributes.normal) {
-              child.geometry.computeVertexNormals();
-            }
-          }
-        });
-        group.add(obj);
-      }
-
-      if (group.children.length === 0) {
-        resolve(null);
-        return;
-      }
-
-      // Apply smart orientation heuristics
-      applySmartOrientation(group);
-
-      thumbScene!.add(group);
-
-      // Fit camera
-      const box = new THREE.Box3().setFromObject(group);
-      const size = box.getSize(new THREE.Vector3());
-      const center = box.getCenter(new THREE.Vector3());
-
-      group.position.x -= center.x;
-      group.position.z -= center.z;
-      group.position.y -= box.min.y;
-
-      // Re-calculate box after repositioning
-      box.setFromObject(group);
-      box.getCenter(center);
-
-      const maxDim = Math.max(size.x, size.y, size.z);
-      const fov = thumbCamera!.fov * (Math.PI / 180);
-      let dist = Math.abs(maxDim / Math.sin(fov / 2)) * 1.2;
-
-      const direction = new THREE.Vector3(1, 0.7, 1).normalize();
-      thumbCamera!.position.copy(center).add(direction.multiplyScalar(dist));
-      thumbCamera!.lookAt(center);
-
-      thumbRenderer!.render(thumbScene!, thumbCamera!);
-
-      // Get data URL
-      const dataUrl = canvas.toDataURL("image/png");
-
-      // Cleanup
-      thumbScene!.remove(group);
-      disposeObject(group);
-
-      resolve(dataUrl);
-    } catch (e) {
-      reject(e);
+        }
+      });
+      group.add(obj);
     }
-  });
+
+    if (group.children.length === 0) {
+      return null;
+    }
+
+    // Apply smart orientation heuristics
+    applySmartOrientation(group);
+
+    thumbScene!.add(group);
+
+    // Fit camera
+    const box = new THREE.Box3().setFromObject(group);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+
+    group.position.x -= center.x;
+    group.position.z -= center.z;
+    group.position.y -= box.min.y;
+
+    // Re-calculate box after repositioning
+    box.setFromObject(group);
+    box.getCenter(center);
+
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const fov = thumbCamera!.fov * (Math.PI / 180);
+    let dist = Math.abs(maxDim / Math.sin(fov / 2)) * 1.2;
+
+    const direction = new THREE.Vector3(1, 0.7, 1).normalize();
+    thumbCamera!.position.copy(center).add(direction.multiplyScalar(dist));
+    thumbCamera!.lookAt(center);
+
+    thumbRenderer!.render(thumbScene!, thumbCamera!);
+
+    // Get data URL
+    const dataUrl = canvas.toDataURL("image/png");
+
+    // Cleanup
+    thumbScene!.remove(group);
+    disposeObject(group);
+
+    return dataUrl;
+  } catch (e) {
+    throw e;
+  }
 }

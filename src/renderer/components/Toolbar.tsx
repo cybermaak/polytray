@@ -9,6 +9,8 @@ interface Props {
   onSearch: (query: string) => void;
   onRescan: () => void;
   onClearThumbnails: () => void;
+  lightMode: boolean;
+  onSettingsChange: (settings: any) => void;
 }
 
 export const Toolbar: React.FC<Props> = ({
@@ -20,6 +22,8 @@ export const Toolbar: React.FC<Props> = ({
   onSearch,
   onRescan,
   onClearThumbnails,
+  lightMode,
+  onSettingsChange,
 }) => {
   const [searchValue, setSearchValue] = useState(search);
   const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -36,14 +40,7 @@ export const Toolbar: React.FC<Props> = ({
   };
 
   const handleThemeToggle = () => {
-    document.body.classList.toggle("light");
-    // Persist via localStorage (same as vanilla)
-    try {
-      const raw = localStorage.getItem("polytray-settings");
-      const s = raw ? JSON.parse(raw) : {};
-      s.lightMode = document.body.classList.contains("light");
-      localStorage.setItem("polytray-settings", JSON.stringify(s));
-    } catch {}
+    onSettingsChange({ lightMode: !lightMode });
   };
 
   return (

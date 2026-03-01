@@ -304,14 +304,13 @@ function registerIpcHandlers() {
 
     const whereClause = where.length > 0 ? "WHERE " + where.join(" AND ") : "";
 
-    const countRow = db
-      .prepare(`SELECT COUNT(*) as total FROM files ${whereClause}`)
-      .get(...params) as TotalRow;
+    const countQuery = `SELECT COUNT(*) as total FROM files ${whereClause}`;
+    const countRow = db.prepare(countQuery).get(...params) as TotalRow;
+
     const collation = sortCol === "name" ? "COLLATE NOCASE " : "";
+    const query = `SELECT * FROM files ${whereClause} ORDER BY ${sortCol} ${collation}${sortOrder} LIMIT ? OFFSET ?`;
     const files = db
-      .prepare(
-        `SELECT * FROM files ${whereClause} ORDER BY ${sortCol} ${collation}${sortOrder} LIMIT ? OFFSET ?`,
-      )
+      .prepare(query)
       .all(...params, limit, offset) as FileRecord[];
 
     return { files, total: countRow.total };

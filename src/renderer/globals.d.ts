@@ -1,4 +1,16 @@
-import { FileRecord } from "../shared/types";
+interface FileRecord {
+  id: number;
+  path: string;
+  name: string;
+  extension: string;
+  directory: string;
+  size_bytes: number;
+  modified_at: number;
+  vertex_count: number;
+  face_count: number;
+  thumbnail: string | null;
+  indexed_at: number;
+}
 
 interface SortOptions {
   sort?: string;
