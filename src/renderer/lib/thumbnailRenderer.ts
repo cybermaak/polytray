@@ -17,7 +17,11 @@ export function initThumbnailGenerator() {
       const buffer = await window.polytray.readFileBuffer(filePath);
 
       // Render thumbnail
-      const dataUrl = await renderThumbnail(buffer, ext, canvas);
+      const dataUrl = await renderThumbnail(
+        buffer,
+        ext,
+        canvas as HTMLCanvasElement,
+      );
 
       if (dataUrl) {
         // Convert data URL to buffer and save via main process

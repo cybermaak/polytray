@@ -1,24 +1,33 @@
 import fs from "fs";
 import path from "path";
+import { SUPPORTED_EXTENSIONS } from "../shared/types";
 
-const SUPPORTED_EXTENSIONS = new Set(["stl", "obj", "3mf"]);
+const EXT_SET = new Set(SUPPORTED_EXTENSIONS);
+
+interface ScannedFile {
+  path: string;
+  name: string;
+  ext: string;
+  dir: string;
+  size: number;
+  mtime: number;
+}
 
 /**
  * Recursively scans a directory for 3D files.
  * @param {string} rootPath - Root directory to scan
- * @returns {Promise<Array<{path: string, name: string, ext: string, dir: string, size: number, mtime: number}>>}
  */
-export async function scanFolder(rootPath) {
-  const results = [];
+export async function scanFolder(rootPath: string): Promise<ScannedFile[]> {
+  const results: ScannedFile[] = [];
   await walkDir(rootPath, results);
   return results;
 }
 
-async function walkDir(dirPath, results) {
-  let entries;
+async function walkDir(dirPath: string, results: ScannedFile[]): Promise<void> {
+  let entries: fs.Dirent[];
   try {
     entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
-  } catch (e) {
+  } catch (e: any) {
     console.warn(`Cannot read directory ${dirPath}:`, e.message);
     return;
   }
@@ -32,7 +41,7 @@ async function walkDir(dirPath, results) {
       await walkDir(fullPath, results);
     } else if (entry.isFile()) {
       const ext = path.extname(entry.name).toLowerCase().slice(1);
-      if (SUPPORTED_EXTENSIONS.has(ext)) {
+      if (EXT_SET.has(ext)) {
         try {
           const stat = await fs.promises.stat(fullPath);
           results.push({
@@ -43,7 +52,7 @@ async function walkDir(dirPath, results) {
             size: stat.size,
             mtime: Math.floor(stat.mtimeMs),
           });
-        } catch (e) {
+        } catch (e: any) {
           console.warn(`Cannot stat ${fullPath}:`, e.message);
         }
       }

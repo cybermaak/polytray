@@ -7,7 +7,10 @@ import JSZip from "jszip";
  * @param {string} ext - File extension (stl, obj, 3mf)
  * @returns {Promise<{vertexCount: number, faceCount: number}>}
  */
-export async function extractMetadata(filePath, ext) {
+export async function extractMetadata(
+  filePath: string,
+  ext: string,
+): Promise<{ vertexCount: number; faceCount: number }> {
   switch (ext.toLowerCase()) {
     case "stl":
       return extractSTL(filePath);
@@ -23,10 +26,12 @@ export async function extractMetadata(filePath, ext) {
 /**
  * Parse STL file — supports both binary and ASCII formats.
  */
-async function extractSTL(filePath) {
+async function extractSTL(
+  filePath: string,
+): Promise<{ vertexCount: number; faceCount: number }> {
   const buffer = await fs.promises.readFile(filePath);
 
-  // Check if it's ASCII STL (starts with "solid" and contains "facet")
+  // Check if it's ASCII STL (starts with "solid")
   const header = buffer.slice(0, 80).toString("ascii").trim().toLowerCase();
   if (
     header.startsWith("solid") &&
@@ -38,7 +43,10 @@ async function extractSTL(filePath) {
   return extractSTLBinary(buffer);
 }
 
-function extractSTLBinary(buffer) {
+function extractSTLBinary(buffer: Buffer): {
+  vertexCount: number;
+  faceCount: number;
+} {
   // Binary STL: 80 byte header + 4 byte face count + 50 bytes per face
   if (buffer.length < 84) return { vertexCount: 0, faceCount: 0 };
 
@@ -49,7 +57,10 @@ function extractSTLBinary(buffer) {
   };
 }
 
-function extractSTLAscii(buffer) {
+function extractSTLAscii(buffer: Buffer): {
+  vertexCount: number;
+  faceCount: number;
+} {
   const text = buffer.toString("ascii");
   const matches = text.match(/facet\s+normal/gi);
   const faceCount = matches ? matches.length : 0;
@@ -62,7 +73,9 @@ function extractSTLAscii(buffer) {
 /**
  * Parse OBJ file — count lines starting with 'v ' and 'f '.
  */
-async function extractOBJ(filePath) {
+async function extractOBJ(
+  filePath: string,
+): Promise<{ vertexCount: number; faceCount: number }> {
   const text = await fs.promises.readFile(filePath, "utf-8");
   let vertexCount = 0;
   let faceCount = 0;
@@ -80,7 +93,9 @@ async function extractOBJ(filePath) {
 /**
  * Parse 3MF file — it's a ZIP containing XML model files.
  */
-async function extract3MF(filePath) {
+async function extract3MF(
+  filePath: string,
+): Promise<{ vertexCount: number; faceCount: number }> {
   const data = await fs.promises.readFile(filePath);
   const zip = await JSZip.loadAsync(data);
 

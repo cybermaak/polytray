@@ -7,10 +7,18 @@ import { generateThumbnail, getThumbnailDir } from "./thumbnails";
 import { startWatcher, stopWatcher } from "./watcher";
 import fs from "fs";
 
+import {
+  SettingRow,
+  FileRecord,
+  CountRow,
+  TotalRow,
+  ScannedFile,
+} from "../shared/types";
+
 // Set the application name for macOS menu bar
 app.setName("PolyTray");
 
-let mainWindow = null;
+let mainWindow: BrowserWindow | null = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -41,7 +49,7 @@ function registerIpcHandlers() {
   // ── Library Folder Management ─────────────────────────────────
 
   ipcMain.handle("select-folder", async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
+    const result = await dialog.showOpenDialog(mainWindow!, {
       properties: ["openDirectory"],
       title: "Select 3D Models Folder",
     });
@@ -53,8 +61,8 @@ function registerIpcHandlers() {
     // Add to library folders (persist multiple folders)
     const existing = db
       .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("library_folders") as any;
-    let folders = existing ? JSON.parse(existing.value) : [];
+      .get("library_folders") as SettingRow | undefined;
+    let folders: string[] = existing ? JSON.parse(existing.value) : [];
     if (!folders.includes(folderPath)) {
       folders.push(folderPath);
     }
@@ -73,7 +81,7 @@ function registerIpcHandlers() {
     const db = getDb();
     const row = db
       .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("library_folders") as any;
+      .get("library_folders") as SettingRow | undefined;
     return row ? JSON.parse(row.value) : [];
   });
 
@@ -81,9 +89,9 @@ function registerIpcHandlers() {
     const db = getDb();
     const existing = db
       .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("library_folders") as any;
-    let folders = existing ? JSON.parse(existing.value) : [];
-    folders = folders.filter((f) => f !== folderPath);
+      .get("library_folders") as SettingRow | undefined;
+    let folders: string[] = existing ? JSON.parse(existing.value) : [];
+    folders = folders.filter((f: string) => f !== folderPath);
     db.prepare(
       "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
     ).run("library_folders", JSON.stringify(folders));
@@ -98,7 +106,7 @@ function registerIpcHandlers() {
     const db = getDb();
     const row = db
       .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("last_folder") as any;
+      .get("last_folder") as SettingRow | undefined;
     return row ? row.value : null;
   });
 
@@ -137,12 +145,14 @@ function registerIpcHandlers() {
         if (!existing.thumbnail) {
           filesToThumbnail.push(file);
         }
-        mainWindow.webContents.send("scan-progress", {
-          current: i + 1,
-          total,
-          filename: file.name,
-          skipped: true,
-        });
+        if (mainWindow) {
+          mainWindow.webContents.send("scan-progress", {
+            current: i + 1,
+            total,
+            filename: file.name,
+            skipped: true,
+          });
+        }
         continue;
       }
 
@@ -171,19 +181,23 @@ function registerIpcHandlers() {
 
       filesToThumbnail.push(file);
 
-      mainWindow.webContents.send("scan-progress", {
-        current: i + 1,
-        total,
-        filename: file.name,
-        skipped: false,
-      });
+      if (mainWindow) {
+        mainWindow.webContents.send("scan-progress", {
+          current: i + 1,
+          total,
+          filename: file.name,
+          skipped: false,
+        });
+      }
 
       // Emit file-indexed so the renderer can show the card immediately
-      mainWindow.webContents.send("file-indexed", {
-        path: file.path,
-        current: i + 1,
-        total,
-      });
+      if (mainWindow) {
+        mainWindow.webContents.send("file-indexed", {
+          path: file.path,
+          current: i + 1,
+          total,
+        });
+      }
     }
 
     for (const stalePath of existingPaths) {
@@ -191,7 +205,9 @@ function registerIpcHandlers() {
     }
 
     // Notify scan complete (cards are all visible now)
-    mainWindow.webContents.send("scan-complete", { totalFiles: total });
+    if (mainWindow) {
+      mainWindow.webContents.send("scan-complete", { totalFiles: total });
+    }
 
     // ── Pass 2: Generate thumbnails in the background (fire-and-forget) ──
     // Don't await — return immediately so the UI stays responsive
@@ -252,7 +268,7 @@ function registerIpcHandlers() {
       vertices: "vertex_count",
       faces: "face_count",
     };
-    const sortCol = validSorts[sort] || "name";
+    const sortCol = (validSorts as any)[sort] || "name";
     const sortOrder = order === "DESC" ? "DESC" : "ASC";
 
     let where = [];
@@ -271,12 +287,12 @@ function registerIpcHandlers() {
 
     const countRow = db
       .prepare(`SELECT COUNT(*) as total FROM files ${whereClause}`)
-      .get(...params) as any;
+      .get(...params) as TotalRow;
     const files = db
       .prepare(
         `SELECT * FROM files ${whereClause} ORDER BY ${sortCol} ${sortOrder} LIMIT ? OFFSET ?`,
       )
-      .all(...params, limit, offset);
+      .all(...params, limit, offset) as FileRecord[];
 
     return { files, total: countRow.total };
   });
@@ -310,7 +326,7 @@ function registerIpcHandlers() {
     const db = getDb();
     const row = db
       .prepare("SELECT thumbnail FROM files WHERE id = ?")
-      .get(fileId) as any;
+      .get(fileId) as { thumbnail: string | null } | undefined;
     return row ? row.thumbnail : null;
   });
 
@@ -320,7 +336,7 @@ function registerIpcHandlers() {
     const db = getDb();
     const row = db
       .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("last_folder") as any;
+      .get("last_folder") as SettingRow | undefined;
     if (!row) return null;
     return row.value;
   });
@@ -354,7 +370,9 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle("start-watching", (event, folderPath) => {
-    startWatcher(folderPath, mainWindow, getDb());
+    if (mainWindow) {
+      startWatcher(folderPath, mainWindow, getDb());
+    }
   });
 
   ipcMain.handle("stop-watching", () => {
@@ -364,8 +382,11 @@ function registerIpcHandlers() {
 
 // ── Background Thumbnail Generation (throttled) ──────────────
 
-async function generateThumbnailsInBackground(filesToThumbnail, db) {
-  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+async function generateThumbnailsInBackground(
+  filesToThumbnail: ScannedFile[],
+  db: any,
+) {
+  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const total = filesToThumbnail.length;
   if (total === 0) return;
 
@@ -407,7 +428,7 @@ async function generateThumbnailsInBackground(filesToThumbnail, db) {
           });
         }
       }
-    } catch (e) {
+    } catch (e: any) {
       console.warn(`Failed to generate thumbnail for ${file.path}:`, e.message);
     }
 

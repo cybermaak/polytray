@@ -1,6 +1,25 @@
-/**
- * globals.d.ts — Window type augmentation for the polytray preload API.
- */
+import { FileRecord } from "../shared/types";
+
+interface SortOptions {
+  sort?: string;
+  order?: "ASC" | "DESC";
+  extension?: string | null;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+interface ScanProgress {
+  current: number;
+  total: number;
+  filename: string;
+  skipped: boolean;
+}
+
+interface ThumbnailResult {
+  fileId: number;
+  thumbnailPath: string;
+}
 
 interface PolytrayAPI {
   selectFolder: () => Promise<string | null>;
@@ -12,8 +31,10 @@ interface PolytrayAPI {
   rescan: () => Promise<void>;
   clearThumbnails: () => Promise<void>;
 
-  getFiles: (opts: any) => Promise<{ files: any[]; total: number }>;
-  getFileById: (id: number) => Promise<any>;
+  getFiles: (
+    opts: SortOptions,
+  ) => Promise<{ files: FileRecord[]; total: number }>;
+  getFileById: (id: number) => Promise<FileRecord>;
   getStats: () => Promise<{
     total: number;
     stl: number;
@@ -28,15 +49,30 @@ interface PolytrayAPI {
   startWatching: (folderPath: string) => Promise<void>;
   stopWatching: () => Promise<void>;
 
-  onScanProgress: (callback: (data: any) => void) => void;
-  onScanComplete: (callback: (data: any) => void) => void;
-  onFilesUpdated: (callback: (data: any) => void) => void;
-  onFileIndexed: (callback: (data: any) => void) => void;
-  onThumbnailReady: (callback: (data: any) => void) => void;
-  onThumbnailProgress: (callback: (data: any) => void) => void;
+  onScanProgress: (callback: (data: ScanProgress) => void) => void;
+  onScanComplete: (callback: (data: { totalFiles: number }) => void) => void;
+  onFilesUpdated: (callback: (data: { directory: string }) => void) => void;
+  onFileIndexed: (
+    callback: (data: { path: string; current: number; total: number }) => void,
+  ) => void;
+  onThumbnailReady: (callback: (data: ThumbnailResult) => void) => void;
+  onThumbnailProgress: (
+    callback: (data: { current: number; total: number }) => void,
+  ) => void;
 
-  onThumbnailRequest: (callback: (data: any) => void) => void;
-  sendThumbnailResult: (result: any) => void;
+  onThumbnailRequest: (
+    callback: (data: {
+      filePath: string;
+      ext: string;
+      thumbPath: string;
+    }) => void,
+  ) => void;
+  sendThumbnailResult: (result: {
+    filePath: string;
+    thumbPath: string;
+    success: boolean;
+    dataUrl?: string;
+  }) => void;
 }
 
 declare global {

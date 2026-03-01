@@ -1,19 +1,24 @@
 import chokidar, { FSWatcher } from "chokidar";
 import path from "path";
+import fs from "fs";
+import { BrowserWindow } from "electron";
+import { Database } from "better-sqlite3";
 import { extractMetadata } from "./metadata";
 import { generateThumbnail } from "./thumbnails";
+import { SUPPORTED_EXTENSIONS } from "../shared/types";
 
-const SUPPORTED_EXTENSIONS = new Set(["stl", "obj", "3mf"]);
+const EXT_SET = new Set(SUPPORTED_EXTENSIONS);
 
 let watcher: FSWatcher | null = null;
 
 /**
  * Starts watching a folder for 3D file changes.
- * @param {string} folderPath - Directory to watch
- * @param {any} mainWindow - Main window for sending IPC updates
- * @param {any} db - SQLite database instance
  */
-export function startWatcher(folderPath: string, mainWindow: any, db: any) {
+export function startWatcher(
+  folderPath: string,
+  mainWindow: BrowserWindow,
+  db: Database,
+) {
   stopWatcher();
 
   watcher = chokidar.watch(folderPath, {
@@ -52,14 +57,14 @@ export function stopWatcher() {
 async function handleFileChange(
   filePath: string,
   eventType: string,
-  mainWindow: any,
-  db: any,
+  mainWindow: BrowserWindow,
+  db: Database,
 ) {
   const ext = path.extname(filePath).toLowerCase().slice(1);
-  if (!SUPPORTED_EXTENSIONS.has(ext)) return;
+  if (!EXT_SET.has(ext)) return;
 
   try {
-    const stat = await import("fs").then((fs) => fs.promises.stat(filePath));
+    const stat = await fs.promises.stat(filePath);
     const name = path.basename(filePath, "." + ext);
     const dir = path.dirname(filePath);
 
@@ -73,7 +78,7 @@ async function handleFileChange(
       );
     }
 
-    let thumbnailPath = null;
+    let thumbnailPath: string | null = null;
     try {
       thumbnailPath = await generateThumbnail(filePath, ext, mainWindow);
     } catch (e: any) {
@@ -110,9 +115,13 @@ async function handleFileChange(
   }
 }
 
-function handleFileRemove(filePath: string, mainWindow: any, db: any) {
+function handleFileRemove(
+  filePath: string,
+  mainWindow: BrowserWindow,
+  db: Database,
+) {
   const ext = path.extname(filePath).toLowerCase().slice(1);
-  if (!SUPPORTED_EXTENSIONS.has(ext)) return;
+  if (!EXT_SET.has(ext)) return;
 
   db.prepare("DELETE FROM files WHERE path = ?").run(filePath);
   mainWindow.webContents.send("files-updated", { type: "unlink", filePath });

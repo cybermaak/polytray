@@ -5,26 +5,29 @@ import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
 import JSZip from "jszip";
 
-let scene, camera, renderer, controls;
-let currentModel = null;
-let animationId = null;
+let scene: THREE.Scene | null,
+  camera: THREE.PerspectiveCamera | null,
+  renderer: THREE.WebGLRenderer | null,
+  controls: OrbitControls | null;
+let currentModel: THREE.Object3D | null = null;
+let animationId: number | null = null;
 let wireframeMode = false;
 
 // Multi-Model Cache
-let multiModelMeshes = [];
+let multiModelMeshes: THREE.Object3D[] = [];
 let activeSubModelIndex = -1; // -1 means show all
-let _multiModelContainer = null;
+let _multiModelContainer: HTMLElement | null = null;
 function getMultiModelContainer() {
   if (!_multiModelContainer) {
     _multiModelContainer = document.getElementById("viewer-multi-model");
   }
   return _multiModelContainer;
 }
-let container = null;
+let container: HTMLElement | null = null;
 
 // ── Initialization ────────────────────────────────────────────────
 
-export function initViewer(containerEl) {
+export function initViewer(containerEl: HTMLElement) {
   container = containerEl;
 
   // Clean up any previous viewer
@@ -79,11 +82,11 @@ export function initViewer(containerEl) {
 function setupLighting() {
   // Ambient
   const ambient = new THREE.AmbientLight(0x404050, 0.6);
-  scene.add(ambient);
+  scene!.add(ambient);
 
   // Hemisphere
   const hemi = new THREE.HemisphereLight(0x8888cc, 0x443322, 0.5);
-  scene.add(hemi);
+  scene!.add(hemi);
 
   const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
   dirLight.position.set(5, 8, 5);
@@ -96,26 +99,26 @@ function setupLighting() {
   dirLight.shadow.camera.right = 10;
   dirLight.shadow.camera.top = 10;
   dirLight.shadow.camera.bottom = -10;
-  camera.add(dirLight);
+  camera!.add(dirLight);
 
   // Fill light
   const fillLight = new THREE.DirectionalLight(0x3b82f6, 0.4);
   fillLight.position.set(-3, 2, -3);
-  camera.add(fillLight);
+  camera!.add(fillLight);
 
   // Rim light
   const rimLight = new THREE.DirectionalLight(0x3b82f6, 0.3);
   rimLight.position.set(0, -2, -5);
-  camera.add(rimLight);
+  camera!.add(rimLight);
 
-  scene.add(camera);
+  scene!.add(camera!);
 }
 
 function setupGrid() {
   const grid = new THREE.GridHelper(20, 40, 0x3a3a55, 0x282840);
   grid.material.opacity = 0.7;
   grid.material.transparent = true;
-  scene.add(grid);
+  scene!.add(grid);
 }
 
 function animate() {
@@ -135,14 +138,14 @@ function handleResize() {
 
 // ── Model Loading ─────────────────────────────────────────────────
 
-function applySmartOrientation(meshOrGroup) {
+function applySmartOrientation(meshOrGroup: THREE.Object3D) {
   let totalArea = 0;
   const normalAreas = new Map();
   const coa = new THREE.Vector3();
 
   meshOrGroup.updateMatrixWorld(true);
 
-  meshOrGroup.traverse((child) => {
+  meshOrGroup.traverse((child: THREE.Object3D) => {
     if (child instanceof THREE.Mesh && child.geometry) {
       const pos = child.geometry.attributes.position;
       const index = child.geometry.index;
@@ -157,7 +160,7 @@ function applySmartOrientation(meshOrGroup) {
       const ab = new THREE.Vector3();
       const triCenter = new THREE.Vector3();
 
-      function addTriangle(a, b, c) {
+      function addTriangle(a: number, b: number, c: number) {
         va.fromBufferAttribute(pos, a).applyMatrix4(matrixWorld);
         vb.fromBufferAttribute(pos, b).applyMatrix4(matrixWorld);
         vc.fromBufferAttribute(pos, c).applyMatrix4(matrixWorld);
@@ -280,10 +283,14 @@ function applySmartOrientation(meshOrGroup) {
   meshOrGroup.updateMatrixWorld(true);
 }
 
-export async function loadModel(arrayBuffer, extension, name) {
+export async function loadModel(
+  arrayBuffer: ArrayBuffer,
+  extension: string,
+  name: string,
+) {
   // Remove previous model
   if (currentModel) {
-    scene.remove(currentModel);
+    scene!.remove(currentModel);
     disposeObject(currentModel);
     currentModel = null;
   }
@@ -303,7 +310,7 @@ export async function loadModel(arrayBuffer, extension, name) {
         await load3MF(arrayBuffer, group);
         break;
     }
-  } catch (e) {
+  } catch (e: any) {
     console.error("Failed to load model:", e);
     throw e;
   }
@@ -321,7 +328,7 @@ export async function loadModel(arrayBuffer, extension, name) {
     group.updateMatrixWorld(true);
   }
 
-  scene.add(group);
+  scene!.add(group);
   currentModel = group;
 
   // Render multi-model carousel if applicable
@@ -333,7 +340,7 @@ export async function loadModel(arrayBuffer, extension, name) {
   wireframeMode = false;
 }
 
-async function updateMultiModelThumbnailStrip(group) {
+async function updateMultiModelThumbnailStrip(group: THREE.Group) {
   const multiModelContainer = getMultiModelContainer();
   if (!multiModelContainer) return;
 
@@ -379,14 +386,14 @@ async function updateMultiModelThumbnailStrip(group) {
 
     // Render snapshot
     fitCameraToObject(sub); // zoom camera tight on this specific sub-model
-    renderer.render(scene, camera);
+    renderer!.render(scene!, camera!);
 
     const thumbDiv = document.createElement("div");
     thumbDiv.className = "multi-model-thumb";
 
     // We can just grab the data-url right out of our main WebGL canvas since it was preserved!
     const img = document.createElement("img");
-    img.src = renderer.domElement.toDataURL("image/png");
+    img.src = renderer!.domElement.toDataURL("image/png");
 
     thumbDiv.appendChild(img);
     thumbDiv.onclick = () => selectSubModel(i, thumbDiv);
@@ -409,7 +416,7 @@ async function updateMultiModelThumbnailStrip(group) {
   fitCameraToObject(group); // Refit the main camera back to the whole group
 }
 
-function selectSubModel(index, htmlElement) {
+function selectSubModel(index: number, htmlElement: HTMLElement) {
   // Update UI active state
   const mc = getMultiModelContainer();
   if (mc) {
@@ -423,7 +430,7 @@ function selectSubModel(index, htmlElement) {
   if (index === -1) {
     // Show all
     multiModelMeshes.forEach((m) => (m.visible = true));
-    fitCameraToObject(currentModel);
+    fitCameraToObject(currentModel!);
   } else {
     // Show specifically the one clicked
     multiModelMeshes.forEach((m, idx) => {
@@ -433,7 +440,7 @@ function selectSubModel(index, htmlElement) {
   }
 }
 
-function loadSTL(arrayBuffer, group) {
+function loadSTL(arrayBuffer: ArrayBuffer, group: THREE.Group) {
   return new Promise<void>((resolve) => {
     const loader = new STLLoader();
     const geometry = loader.parse(arrayBuffer);
@@ -448,7 +455,7 @@ function loadSTL(arrayBuffer, group) {
   });
 }
 
-function loadOBJ(arrayBuffer, group) {
+function loadOBJ(arrayBuffer: ArrayBuffer, group: THREE.Group) {
   return new Promise<void>((resolve) => {
     const loader = new OBJLoader();
     const text = new TextDecoder().decode(arrayBuffer);
@@ -470,7 +477,7 @@ function loadOBJ(arrayBuffer, group) {
   });
 }
 
-async function fix3MF(buffer) {
+async function fix3MF(buffer: ArrayBuffer) {
   try {
     const zip = await JSZip.loadAsync(buffer);
     let mainModelFile = null;
@@ -485,7 +492,7 @@ async function fix3MF(buffer) {
     }
     if (!mainModelFile) return buffer;
 
-    const repairXmlString = (xmlString) => {
+    const repairXmlString = (xmlString: string) => {
       let fixed = xmlString;
       if (fixed.includes("p:") && !fixed.includes("xmlns:p=")) {
         fixed = fixed.replace(
@@ -502,7 +509,7 @@ async function fix3MF(buffer) {
       return fixed;
     };
 
-    let mainXml = await zip.file(mainModelFile).async("string");
+    let mainXml = await zip.file(mainModelFile)!.async("string");
     const repairedMainXml = repairXmlString(mainXml);
     let modified = repairedMainXml !== mainXml;
 
@@ -528,7 +535,7 @@ async function fix3MF(buffer) {
         if (subFile.startsWith("/")) subFile = subFile.substring(1);
 
         if (zip.file(subFile)) {
-          let subXml = await zip.file(subFile).async("string");
+          let subXml = await zip.file(subFile)!.async("string");
           subXml = repairXmlString(subXml);
 
           const subDoc = parser.parseFromString(subXml, "application/xml");
@@ -566,7 +573,7 @@ async function fix3MF(buffer) {
   return buffer;
 }
 
-function load3MF(arrayBuffer, group) {
+function load3MF(arrayBuffer: ArrayBuffer, group: THREE.Group) {
   return new Promise<void>(async (resolve, reject) => {
     const loader = new ThreeMFLoader();
     try {
@@ -592,7 +599,7 @@ function load3MF(arrayBuffer, group) {
   });
 }
 
-function createMaterial() {
+function createMaterial(): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
     color: 0x8888aa,
     metalness: 0.15,
@@ -603,7 +610,7 @@ function createMaterial() {
 
 // ── Camera Fitting ────────────────────────────────────────────────
 
-function fitCameraToObject(object) {
+function fitCameraToObject(object: THREE.Object3D) {
   const box = new THREE.Box3().setFromObject(object);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
@@ -618,22 +625,22 @@ function fitCameraToObject(object) {
   box.getCenter(center);
 
   const maxDim = Math.max(size.x, size.y, size.z);
-  const fov = camera.fov * (Math.PI / 180);
+  const fov = camera!.fov * (Math.PI / 180);
   let cameraDistance = Math.abs(maxDim / Math.sin(fov / 2));
 
   // Add a little padding
   cameraDistance *= 1.2;
 
   const direction = new THREE.Vector3(1, 0.7, 1).normalize();
-  camera.position.copy(center).add(direction.multiplyScalar(cameraDistance));
-  camera.lookAt(center);
+  camera!.position.copy(center).add(direction.multiplyScalar(cameraDistance));
+  camera!.lookAt(center);
 
-  controls.target.copy(center);
-  controls.minDistance = maxDim * 0.1;
-  controls.maxDistance = maxDim * 10;
-  controls.update();
+  controls!.target.copy(center);
+  controls!.minDistance = maxDim * 0.1;
+  controls!.maxDistance = maxDim * 10;
+  controls!.update();
 
-  camera.updateProjectionMatrix();
+  camera!.updateProjectionMatrix();
 }
 
 export function resetCamera() {
@@ -685,14 +692,15 @@ export function disposeViewer() {
 
   scene = null;
   camera = null;
+  controls = null;
 }
 
-function disposeObject(obj) {
-  obj.traverse((child) => {
+function disposeObject(obj: THREE.Object3D) {
+  obj.traverse((child: any) => {
     if (child.geometry) child.geometry.dispose();
     if (child.material) {
       if (Array.isArray(child.material)) {
-        child.material.forEach((m) => m.dispose());
+        child.material.forEach((m: THREE.Material) => m.dispose());
       } else {
         child.material.dispose();
       }
@@ -702,11 +710,11 @@ function disposeObject(obj) {
 
 // ── Thumbnail Rendering (used by thumbnail generator) ─────────────
 
-let thumbRenderer = null;
-let thumbScene = null;
-let thumbCamera = null;
+let thumbRenderer: THREE.WebGLRenderer | null = null;
+let thumbScene: THREE.Scene | null = null;
+let thumbCamera: THREE.PerspectiveCamera | null = null;
 
-function ensureThumbnailRenderer(canvas) {
+function ensureThumbnailRenderer(canvas: HTMLCanvasElement) {
   if (thumbRenderer) return;
 
   thumbRenderer = new THREE.WebGLRenderer({
@@ -743,12 +751,16 @@ function ensureThumbnailRenderer(canvas) {
   thumbScene.add(rimLight);
 }
 
-export function renderThumbnail(arrayBuffer, extension, canvas) {
-  return new Promise(async (resolve, reject) => {
+export function renderThumbnail(
+  arrayBuffer: ArrayBuffer,
+  extension: string,
+  canvas: HTMLCanvasElement,
+) {
+  return new Promise<string | null>(async (resolve, reject) => {
     ensureThumbnailRenderer(canvas);
 
     try {
-      let geometry;
+      let geometry: THREE.BufferGeometry | null = null;
       const material = new THREE.MeshStandardMaterial({
         color: 0x8888aa,
         metalness: 0.15,
@@ -760,7 +772,7 @@ export function renderThumbnail(arrayBuffer, extension, canvas) {
       } else if (extension === "obj") {
         const text = new TextDecoder().decode(arrayBuffer);
         const obj = new OBJLoader().parse(text);
-        obj.traverse((child) => {
+        obj.traverse((child: THREE.Object3D) => {
           if (child instanceof THREE.Mesh && !geometry) {
             geometry = child.geometry;
           }
@@ -768,7 +780,7 @@ export function renderThumbnail(arrayBuffer, extension, canvas) {
       } else if (extension === "3mf") {
         const fixedBuffer = await fix3MF(arrayBuffer);
         const obj = new ThreeMFLoader().parse(fixedBuffer);
-        obj.traverse((child) => {
+        obj.traverse((child: THREE.Object3D) => {
           if (child instanceof THREE.Mesh && !geometry) {
             geometry = child.geometry;
           }
@@ -790,7 +802,7 @@ export function renderThumbnail(arrayBuffer, extension, canvas) {
       // Apply smart orientation heuristics
       applySmartOrientation(mesh);
 
-      thumbScene.add(mesh);
+      thumbScene!.add(mesh);
 
       // Fit camera
       const box = new THREE.Box3().setFromObject(mesh);
@@ -806,20 +818,20 @@ export function renderThumbnail(arrayBuffer, extension, canvas) {
       box.getCenter(center);
 
       const maxDim = Math.max(size.x, size.y, size.z);
-      const fov = thumbCamera.fov * (Math.PI / 180);
+      const fov = thumbCamera!.fov * (Math.PI / 180);
       let dist = Math.abs(maxDim / Math.sin(fov / 2)) * 1.2;
 
       const direction = new THREE.Vector3(1, 0.7, 1).normalize();
-      thumbCamera.position.copy(center).add(direction.multiplyScalar(dist));
-      thumbCamera.lookAt(center);
+      thumbCamera!.position.copy(center).add(direction.multiplyScalar(dist));
+      thumbCamera!.lookAt(center);
 
-      thumbRenderer.render(thumbScene, thumbCamera);
+      thumbRenderer!.render(thumbScene!, thumbCamera!);
 
       // Get data URL
       const dataUrl = canvas.toDataURL("image/png");
 
       // Cleanup the mesh (but keep the renderer/scene/lights)
-      thumbScene.remove(mesh);
+      thumbScene!.remove(mesh);
       geometry.dispose();
       material.dispose();
 
