@@ -1,30 +1,30 @@
 /* ── Design Tokens ─────────────────────────────────────────────── */
 :root {
-  /* Colors */
-  --bg-base: #0a0a0f;
-  --bg-surface: #12121a;
-  --bg-elevated: #1a1a26;
-  --bg-hover: #222233;
-  --bg-active: #2a2a3d;
+  /* Colors — Neutral grey/charcoal dark theme */
+  --bg-base: #0e0e0e;
+  --bg-surface: #161616;
+  --bg-elevated: #1e1e1e;
+  --bg-hover: #272727;
+  --bg-active: #333333;
 
   --border-subtle: rgba(255, 255, 255, 0.06);
   --border-default: rgba(255, 255, 255, 0.1);
-  --border-strong: rgba(255, 255, 255, 0.15);
+  --border-strong: rgba(255, 255, 255, 0.16);
 
-  --text-primary: #e8e8f0;
-  --text-secondary: #8888a0;
-  --text-muted: #555568;
+  --text-primary: #e4e4e4;
+  --text-secondary: #999999;
+  --text-muted: #5a5a5a;
 
-  --accent-primary: #3b82f6;
-  --accent-hover: #60a5fa;
-  --accent-glow: rgba(59, 130, 246, 0.3);
+  --accent-primary: #6d9fff;
+  --accent-hover: #8ab4ff;
+  --accent-glow: rgba(109, 159, 255, 0.25);
 
-  --stl-color: #3b82f6;
-  --obj-color: #22c55e;
-  --threemf-color: #f59e0b;
+  --stl-color: #6d9fff;
+  --obj-color: #4ade80;
+  --threemf-color: #fbbf24;
 
-  --success: #22c55e;
-  --danger: #ef4444;
+  --success: #4ade80;
+  --danger: #f87171;
 
   /* Typography */
   --font-family:
@@ -42,10 +42,15 @@
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 20px;
-  --header-height: 52px;
-  --panel-width: 640px;
   --space-6: 24px;
   --space-8: 32px;
+
+  /* Layout */
+  --header-height: 52px;
+  --panel-width: 640px;
+  --sidebar-width: 220px;
+  --titlebar-height: 38px;
+  --toolbar-height: 48px;
 
   /* Radius */
   --radius-sm: 6px;
@@ -54,37 +59,36 @@
   --radius-xl: 16px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
   --shadow-glow: 0 0 20px var(--accent-glow);
 
   /* Transitions */
   --transition-fast: 0.15s ease;
   --transition-base: 0.2s ease;
   --transition-slow: 0.3s ease;
-
-  /* Layout */
-  --sidebar-width: 220px;
-  --titlebar-height: 38px;
-  --toolbar-height: 52px;
 }
 
 /* ── Light Mode Tokens ─────────────────────────────────────────── */
 body.light {
-  --bg-base: #f1f3f5;
+  --bg-base: #f4f4f5;
   --bg-surface: #ffffff;
-  --bg-elevated: #f8f9fa;
-  --bg-hover: #e9ecef;
-  --bg-active: #dee2e6;
+  --bg-elevated: #f9f9fa;
+  --bg-hover: #eeeeef;
+  --bg-active: #e0e0e2;
 
-  --border-subtle: rgba(0, 0, 0, 0.05);
+  --border-subtle: rgba(0, 0, 0, 0.06);
   --border-default: rgba(0, 0, 0, 0.1);
-  --border-strong: rgba(0, 0, 0, 0.15);
+  --border-strong: rgba(0, 0, 0, 0.16);
 
-  --text-primary: #212529;
-  --text-secondary: #495057;
-  --text-muted: #868e96;
+  --text-primary: #1a1a1a;
+  --text-secondary: #555555;
+  --text-muted: #999999;
+
+  --accent-primary: #3478f6;
+  --accent-hover: #5a94f8;
+  --accent-glow: rgba(52, 120, 246, 0.2);
 }
 
 /* ── Reset & Base ──────────────────────────────────────────────── */
@@ -133,8 +137,8 @@ body {
 .titlebar-text {
   font-size: var(--font-size-sm);
   font-weight: 600;
-  color: var(--text-secondary);
-  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  letter-spacing: 0.8px;
   text-transform: uppercase;
 }
 
@@ -171,7 +175,7 @@ body {
   margin-bottom: var(--space-3);
 }
 
-/* Select Folder Button */
+/* Add Folder Button */
 .btn-primary {
   width: 100%;
   display: flex;
@@ -198,15 +202,6 @@ body {
 
 .btn-primary:active {
   transform: scale(0.98);
-}
-
-.folder-path {
-  margin-top: var(--space-2);
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* Library Folder List */
@@ -258,7 +253,7 @@ body {
 
 .library-folder-remove:hover {
   color: var(--danger);
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(248, 113, 113, 0.1);
 }
 
 /* Stats */
@@ -349,10 +344,12 @@ body {
 .filter-btn[data-ext="obj"].active {
   background: var(--obj-color);
   border-color: var(--obj-color);
+  color: #111;
 }
 .filter-btn[data-ext="3mf"].active {
   background: var(--threemf-color);
   border-color: var(--threemf-color);
+  color: #111;
 }
 
 /* ── Content Area ──────────────────────────────────────────────── */
@@ -371,7 +368,7 @@ body {
   padding: 0 var(--space-4);
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-3);
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
@@ -596,22 +593,22 @@ body {
 }
 
 .card-ext-badge.stl {
-  background: rgba(59, 130, 246, 0.2);
+  background: rgba(109, 159, 255, 0.15);
   color: var(--stl-color);
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  border: 1px solid rgba(109, 159, 255, 0.25);
 }
 
 .card-ext-badge.obj {
-  background: rgba(34, 197, 94, 0.2);
+  background: rgba(74, 222, 128, 0.15);
   color: var(--obj-color);
-  border: 1px solid rgba(34, 197, 94, 0.3);
+  border: 1px solid rgba(74, 222, 128, 0.25);
 }
 
 .card-ext-badge.threemf,
 .card-ext-badge[class*="3mf"] {
-  background: rgba(245, 158, 11, 0.2);
+  background: rgba(251, 191, 36, 0.15);
   color: var(--threemf-color);
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  border: 1px solid rgba(251, 191, 36, 0.25);
 }
 
 .card-info {
@@ -786,7 +783,7 @@ body {
   gap: 2px;
   overflow: hidden;
   flex: 1;
-  min-width: 0; /* allows text truncation */
+  min-width: 0;
   padding-right: var(--space-3);
 }
 
@@ -813,41 +810,42 @@ body {
 
 .viewer-path {
   font-size: 10px;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  direction: rtl; /* Truncates from the left to show folder name */
+  direction: rtl;
   text-align: left;
 }
 
 .viewer-controls {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
   -webkit-app-region: no-drag;
   flex-shrink: 0;
 }
 
 .btn-viewer {
-  padding: var(--space-1) var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-family: var(--font-family);
-  font-size: var(--font-size-xs);
-  font-weight: 500;
   cursor: pointer;
   transition: all var(--transition-fast);
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
 }
 
 .btn-viewer:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+  border-color: var(--border-default);
 }
 
 .btn-viewer.active {
@@ -914,7 +912,6 @@ body {
 }
 
 /* ── Multi-Model 3MF Strip ─────────────────────────────────────── */
-
 .viewer-multi-model {
   display: flex;
   gap: var(--space-3);
@@ -957,6 +954,189 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* ── Settings Modal ────────────────────────────────────────────── */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.15s ease;
+}
+
+.settings-overlay.hidden {
+  display: none;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.settings-modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  width: 480px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+  animation: slideUp 0.2s ease;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-5) var(--space-5) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-header h2 {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.settings-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.settings-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.settings-body {
+  padding: var(--space-4) var(--space-5);
+}
+
+.settings-group {
+  margin-bottom: var(--space-5);
+}
+
+.settings-group:last-child {
+  margin-bottom: var(--space-3);
+}
+
+.settings-group-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: var(--space-3);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
+}
+
+.settings-row-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+}
+
+.settings-row-desc {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.settings-row select,
+.settings-row input[type="number"] {
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: var(--font-size-sm);
+  outline: none;
+}
+
+.settings-row select:focus,
+.settings-row input[type="number"]:focus {
+  border-color: var(--accent-primary);
+}
+
+/* Toggle switch */
+.toggle-switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-active);
+  border-radius: 11px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.toggle-slider::before {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 3px;
+  top: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: transform var(--transition-fast);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background: var(--accent-primary);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(18px);
 }
 
 /* ── Utility ───────────────────────────────────────────────────── */

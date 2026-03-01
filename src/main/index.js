@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol } from "electron";
+import { app, BrowserWindow, ipcMain, dialog } from "electron";
 import { join } from "path";
 import { initDatabase, getDb } from "./database.js";
 import { scanFolder } from "./scanner.js";
@@ -6,6 +6,9 @@ import { extractMetadata } from "./metadata.js";
 import { generateThumbnail, getThumbnailDir } from "./thumbnails.js";
 import { startWatcher, stopWatcher } from "./watcher.js";
 import fs from "fs";
+
+// Set the application name for macOS menu bar
+app.setName("PolyTray");
 
 let mainWindow = null;
 

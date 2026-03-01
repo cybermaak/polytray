@@ -113,9 +113,19 @@
             </div>
 
             <div class="toolbar-controls">
-              <button id="btn-theme-toggle" class="btn-icon" title="Toggle Light/Dark Mode">
+              <button
+                id="btn-theme-toggle"
+                class="btn-icon"
+                title="Toggle Light/Dark Mode"
+              >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M8 12a4 4 0 100-8 4 4 0 000 8zM8 2V1M8 15v-1M2 8H1M15 8h-1M3.75 3.75L3 3M13 13l-.75-.75M3.75 12.25L3 13M13 3l-.75.75" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path
+                    d="M8 12a4 4 0 100-8 4 4 0 000 8zM8 2V1M8 15v-1M2 8H1M15 8h-1M3.75 3.75L3 3M13 13l-.75-.75M3.75 12.25L3 13M13 3l-.75.75"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
                 </svg>
               </button>
               <select id="sort-select">
@@ -140,7 +150,7 @@
                   />
                 </svg>
               </button>
-              <button id="btn-rescan" class="btn-icon" title="Rescan folder">
+              <button id="btn-rescan" class="btn-icon" title="Rescan folders">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                   <path
                     d="M13.5 8a5.5 5.5 0 01-9.23 4.05M2.5 8a5.5 5.5 0 019.23-4.05"
@@ -157,14 +167,48 @@
                   />
                 </svg>
               </button>
-              <button id="btn-clear-thumbnails" class="btn-icon" title="Clear Thumbnails">
+              <!-- Regenerate Thumbnails (image refresh icon instead of trash) -->
+              <button
+                id="btn-clear-thumbnails"
+                class="btn-icon"
+                title="Regenerate Thumbnails"
+              >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <rect
+                    x="2"
+                    y="3"
+                    width="12"
+                    height="10"
+                    rx="1.5"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    fill="none"
+                  />
+                  <circle cx="5.5" cy="6.5" r="1" fill="currentColor" />
                   <path
-                    d="M3 4h10M4.5 4v9A1.5 1.5 0 006 14.5h4a1.5 1.5 0 001.5-1.5V4M6 4V2.5A1.5 1.5 0 017.5 1h1A1.5 1.5 0 0110 2.5V4"
+                    d="M2 11l3.5-3 2.5 2 2.5-3L14 11"
                     stroke="currentColor"
                     stroke-width="1.5"
                     stroke-linecap="round"
                     stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+              <!-- Settings -->
+              <button id="btn-settings" class="btn-icon" title="Settings">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path
+                    d="M6.86 2h2.28l.32 1.6a5.5 5.5 0 011.32.77l1.55-.52.94 1.62-1.24 1.08a5.5 5.5 0 010 1.54l1.24 1.08-.94 1.62-1.55-.52a5.5 5.5 0 01-1.32.77L9.14 14H6.86l-.32-1.6a5.5 5.5 0 01-1.32-.77l-1.55.52-.94-1.62 1.24-1.08a5.5 5.5 0 010-1.54L2.73 6.83l.94-1.62 1.55.52a5.5 5.5 0 011.32-.77L6.86 2z"
+                    stroke="currentColor"
+                    stroke-width="1.3"
+                    stroke-linejoin="round"
+                  />
+                  <circle
+                    cx="8"
+                    cy="8"
+                    r="2"
+                    stroke="currentColor"
+                    stroke-width="1.3"
                   />
                 </svg>
               </button>
@@ -210,62 +254,299 @@
             </div>
           </div>
         </main>
-      
+
         <!-- 3D Preview Panel -->
         <aside id="preview-panel" class="preview-panel hidden">
-        <div class="viewer-header">
-          <div class="viewer-title">
-            <h2 id="viewer-filename">model_name.stl</h2>
-            <div class="viewer-path" id="viewer-path"></div>
-            <div class="viewer-meta" id="viewer-meta">Vertices: 12,450 &middot; Faces: 24,900 &middot; 2.1 MB &middot; STL</div>
+          <div class="viewer-header">
+            <div class="viewer-title">
+              <h2 id="viewer-filename">model_name.stl</h2>
+              <div class="viewer-path" id="viewer-path"></div>
+              <div class="viewer-meta" id="viewer-meta">
+                Vertices: 12,450 &middot; Faces: 24,900 &middot; 2.1 MB &middot;
+                STL
+              </div>
+            </div>
+            <div class="viewer-controls">
+              <!-- Wireframe toggle (grid icon) -->
+              <button
+                id="btn-wireframe"
+                class="btn-viewer"
+                title="Toggle wireframe"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <rect
+                    x="1"
+                    y="1"
+                    width="14"
+                    height="14"
+                    rx="1"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    fill="none"
+                  />
+                  <line
+                    x1="1"
+                    y1="5.5"
+                    x2="15"
+                    y2="5.5"
+                    stroke="currentColor"
+                    stroke-width="1"
+                  />
+                  <line
+                    x1="1"
+                    y1="10.5"
+                    x2="15"
+                    y2="10.5"
+                    stroke="currentColor"
+                    stroke-width="1"
+                  />
+                  <line
+                    x1="5.5"
+                    y1="1"
+                    x2="5.5"
+                    y2="15"
+                    stroke="currentColor"
+                    stroke-width="1"
+                  />
+                  <line
+                    x1="10.5"
+                    y1="1"
+                    x2="10.5"
+                    y2="15"
+                    stroke="currentColor"
+                    stroke-width="1"
+                  />
+                </svg>
+              </button>
+              <!-- Reset camera (home/target icon) -->
+              <button
+                id="btn-reset-camera"
+                class="btn-viewer"
+                title="Reset camera"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <circle
+                    cx="8"
+                    cy="8"
+                    r="6"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    fill="none"
+                  />
+                  <circle
+                    cx="8"
+                    cy="8"
+                    r="2"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    fill="none"
+                  />
+                  <line
+                    x1="8"
+                    y1="0.5"
+                    x2="8"
+                    y2="3"
+                    stroke="currentColor"
+                    stroke-width="1.2"
+                  />
+                  <line
+                    x1="8"
+                    y1="13"
+                    x2="8"
+                    y2="15.5"
+                    stroke="currentColor"
+                    stroke-width="1.2"
+                  />
+                  <line
+                    x1="0.5"
+                    y1="8"
+                    x2="3"
+                    y2="8"
+                    stroke="currentColor"
+                    stroke-width="1.2"
+                  />
+                  <line
+                    x1="13"
+                    y1="8"
+                    x2="15.5"
+                    y2="8"
+                    stroke="currentColor"
+                    stroke-width="1.2"
+                  />
+                </svg>
+              </button>
+              <!-- Expand/collapse (arrows icon) -->
+              <button
+                id="btn-expand-viewer"
+                class="btn-viewer"
+                title="Expand/Collapse Viewer"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <polyline
+                    points="10,2 14,2 14,6"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    fill="none"
+                  />
+                  <line
+                    x1="14"
+                    y1="2"
+                    x2="9.5"
+                    y2="6.5"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linecap="round"
+                  />
+                  <polyline
+                    points="6,14 2,14 2,10"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    fill="none"
+                  />
+                  <line
+                    x1="2"
+                    y1="14"
+                    x2="6.5"
+                    y2="9.5"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </button>
+              <!-- Close (X icon) -->
+              <button
+                id="btn-close-viewer"
+                class="btn-viewer btn-close"
+                title="Close viewer"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path
+                    d="M4 4l8 8M12 4L4 12"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </button>
+            </div>
           </div>
-          <div class="viewer-controls">
-            <button
-              id="btn-wireframe"
-              class="btn-viewer"
-              title="Toggle wireframe"
-            >
-              Wireframe
-            </button>
-            <button
-              id="btn-reset-camera"
-              class="btn-viewer"
-              title="Reset camera"
-            >
-              Reset
-            </button>
-            <button
-              id="btn-expand-viewer"
-              class="btn-viewer"
-              title="Expand/Collapse Viewer"
-            >
-              Expand
-            </button>
-            <button
-              id="btn-close-viewer"
-              class="btn-viewer btn-close"
-              title="Close viewer"
-            >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <div class="viewer-multi-model hidden" id="viewer-multi-model">
+            <!-- Dynamically injected thumbnails for multi-object 3MFs -->
+          </div>
+          <div id="viewer-container" class="viewer-container"></div>
+          <div id="viewer-loading" class="viewer-loading hidden">
+            <div class="spinner"></div>
+            <span>Loading model...</span>
+          </div>
+        </aside>
+      </div>
+
+      <!-- Settings Modal -->
+      <div id="settings-overlay" class="settings-overlay hidden">
+        <div class="settings-modal">
+          <div class="settings-header">
+            <h2>Settings</h2>
+            <button id="settings-close" class="settings-close">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <path
-                  d="M5 5l10 10M15 5L5 15"
+                  d="M4 4l8 8M12 4L4 12"
                   stroke="currentColor"
-                  stroke-width="2"
+                  stroke-width="1.6"
                   stroke-linecap="round"
                 />
               </svg>
             </button>
           </div>
-        </div>
-            <div class="viewer-multi-model hidden" id="viewer-multi-model">
-              <!-- Dynamically injected thumbnails for multi-object 3MFs will go here -->
+          <div class="settings-body">
+            <div class="settings-group">
+              <div class="settings-group-title">Appearance</div>
+              <div class="settings-row">
+                <div>
+                  <div class="settings-row-label">Light Mode</div>
+                  <div class="settings-row-desc">Use light color scheme</div>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-light-mode" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <div>
+                  <div class="settings-row-label">Grid Size</div>
+                  <div class="settings-row-desc">
+                    Card size in the file grid
+                  </div>
+                </div>
+                <select id="setting-grid-size">
+                  <option value="small">Small</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="large">Large</option>
+                </select>
+              </div>
             </div>
-        <div id="viewer-container" class="viewer-container"></div>
-        <div id="viewer-loading" class="viewer-loading hidden">
-          <div class="spinner"></div>
-          <span>Loading model...</span>
+            <div class="settings-group">
+              <div class="settings-group-title">Scanning</div>
+              <div class="settings-row">
+                <div>
+                  <div class="settings-row-label">Auto-scan on startup</div>
+                  <div class="settings-row-desc">
+                    Rescan library folders when app opens
+                  </div>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-auto-scan" checked />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <div>
+                  <div class="settings-row-label">Watch for changes</div>
+                  <div class="settings-row-desc">
+                    Auto-detect new/modified files
+                  </div>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-watch" checked />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="settings-group">
+              <div class="settings-group-title">3D Viewer</div>
+              <div class="settings-row">
+                <div>
+                  <div class="settings-row-label">Show grid</div>
+                  <div class="settings-row-desc">
+                    Display floor grid in the viewer
+                  </div>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-show-grid" checked />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <div>
+                  <div class="settings-row-label">Thumbnail quality</div>
+                  <div class="settings-row-desc">
+                    Resolution for generated thumbnails
+                  </div>
+                </div>
+                <select id="setting-thumb-quality">
+                  <option value="128">Low (128px)</option>
+                  <option value="256" selected>Medium (256px)</option>
+                  <option value="512">High (512px)</option>
+                </select>
+              </div>
+            </div>
+          </div>
         </div>
-      </aside>
+      </div>
     </div>
 
     <!-- Hidden canvas for thumbnail generation -->
