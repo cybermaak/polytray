@@ -434,7 +434,7 @@ function selectSubModel(index, htmlElement) {
 }
 
 function loadSTL(arrayBuffer, group) {
-  return new Promise((resolve) => {
+  return new Promise<void>((resolve) => {
     const loader = new STLLoader();
     const geometry = loader.parse(arrayBuffer);
 
@@ -449,7 +449,7 @@ function loadSTL(arrayBuffer, group) {
 }
 
 function loadOBJ(arrayBuffer, group) {
-  return new Promise((resolve) => {
+  return new Promise<void>((resolve) => {
     const loader = new OBJLoader();
     const text = new TextDecoder().decode(arrayBuffer);
     const obj = loader.parse(text);
@@ -565,7 +565,7 @@ async function fix3MF(buffer) {
 }
 
 function load3MF(arrayBuffer, group) {
-  return new Promise(async (resolve, reject) => {
+  return new Promise<void>(async (resolve, reject) => {
     const loader = new ThreeMFLoader();
     try {
       const fixedBuffer = await fix3MF(arrayBuffer);

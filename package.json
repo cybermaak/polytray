@@ -4,8 +4,9 @@
   "description": "Local 3D file organizer — scan, index, search, and preview .obj, .stl, .3mf files",
   "main": "./out/main/index.js",
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "npm run typecheck && electron-vite build",
     "start": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps",
     "clean": "rm -rf out dist dist-electron",
