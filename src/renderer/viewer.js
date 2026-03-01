@@ -689,40 +689,50 @@ function disposeObject(obj) {
 
 // ── Thumbnail Rendering (used by thumbnail generator) ─────────────
 
+let thumbRenderer = null;
+let thumbScene = null;
+let thumbCamera = null;
+
+function ensureThumbnailRenderer(canvas) {
+  if (thumbRenderer) return;
+
+  thumbRenderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: true,
+    preserveDrawingBuffer: true,
+    alpha: true,
+  });
+  thumbRenderer.setSize(256, 256);
+  thumbRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+  thumbRenderer.toneMappingExposure = 1.2;
+
+  thumbCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 10000);
+
+  thumbScene = new THREE.Scene();
+
+  // Cinematic neutral lighting (permanent)
+  const ambient = new THREE.AmbientLight(0xffffff, 0.8);
+  thumbScene.add(ambient);
+
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+  thumbScene.add(hemi);
+
+  const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+  dirLight.position.set(5, 5, 5);
+  thumbScene.add(dirLight);
+
+  const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
+  fillLight.position.set(-5, 0, -5);
+  thumbScene.add(fillLight);
+
+  const rimLight = new THREE.DirectionalLight(0xffffff, 0.6);
+  rimLight.position.set(0, 5, -5);
+  thumbScene.add(rimLight);
+}
+
 export function renderThumbnail(arrayBuffer, extension, canvas) {
   return new Promise(async (resolve, reject) => {
-    const thumbScene = new THREE.Scene();
-
-    const thumbCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 10000);
-
-    const thumbRenderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: true,
-      preserveDrawingBuffer: true,
-      alpha: true,
-    });
-    thumbRenderer.setSize(256, 256);
-    thumbRenderer.toneMapping = THREE.ACESFilmicToneMapping;
-    thumbRenderer.toneMappingExposure = 1.2;
-
-    // Cinematic neutral lighting
-    const ambient = new THREE.AmbientLight(0xffffff, 0.8);
-    thumbScene.add(ambient);
-
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
-    thumbScene.add(hemi);
-
-    const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
-    dirLight.position.set(5, 5, 5);
-    thumbScene.add(dirLight);
-
-    const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
-    fillLight.position.set(-5, 0, -5);
-    thumbScene.add(fillLight);
-
-    const rimLight = new THREE.DirectionalLight(0xffffff, 0.6);
-    rimLight.position.set(0, 5, -5);
-    thumbScene.add(rimLight);
+    ensureThumbnailRenderer(canvas);
 
     try {
       let geometry;
@@ -753,7 +763,6 @@ export function renderThumbnail(arrayBuffer, extension, canvas) {
       }
 
       if (!geometry) {
-        thumbRenderer.dispose();
         resolve(null);
         return;
       }
@@ -791,14 +800,13 @@ export function renderThumbnail(arrayBuffer, extension, canvas) {
       // Get data URL
       const dataUrl = canvas.toDataURL("image/png");
 
-      // Cleanup
+      // Cleanup the mesh (but keep the renderer/scene/lights)
+      thumbScene.remove(mesh);
       geometry.dispose();
       material.dispose();
-      thumbRenderer.dispose();
 
       resolve(dataUrl);
     } catch (e) {
-      thumbRenderer.dispose();
       reject(e);
     }
   });

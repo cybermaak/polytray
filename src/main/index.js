@@ -190,38 +190,9 @@ function registerIpcHandlers() {
     // Notify scan complete (cards are all visible now)
     mainWindow.webContents.send("scan-complete", { totalFiles: total });
 
-    // ── Pass 2: Generate thumbnails in the background ──
-    for (let i = 0; i < filesToThumbnail.length; i++) {
-      const file = filesToThumbnail[i];
-      try {
-        const thumbnailPath = await generateThumbnail(
-          file.path,
-          file.ext,
-          mainWindow,
-        );
-        if (thumbnailPath) {
-          db.prepare("UPDATE files SET thumbnail = ? WHERE path = ?").run(
-            thumbnailPath,
-            file.path,
-          );
-          // Get the file id for the renderer to locate the card
-          const row = db
-            .prepare("SELECT id FROM files WHERE path = ?")
-            .get(file.path);
-          if (row) {
-            mainWindow.webContents.send("thumbnail-ready", {
-              fileId: row.id,
-              thumbnailPath,
-            });
-          }
-        }
-      } catch (e) {
-        console.warn(
-          `Failed to generate thumbnail for ${file.path}:`,
-          e.message,
-        );
-      }
-    }
+    // ── Pass 2: Generate thumbnails in the background (fire-and-forget) ──
+    // Don't await — return immediately so the UI stays responsive
+    generateThumbnailsInBackground(filesToThumbnail, db);
 
     return { totalFiles: total };
   });
@@ -372,6 +343,48 @@ function registerIpcHandlers() {
   ipcMain.handle("stop-watching", () => {
     stopWatcher();
   });
+}
+
+// ── Background Thumbnail Generation (throttled) ──────────────
+
+async function generateThumbnailsInBackground(filesToThumbnail, db) {
+  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  for (let i = 0; i < filesToThumbnail.length; i++) {
+    // Bail out if window was closed
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+
+    const file = filesToThumbnail[i];
+    try {
+      const thumbnailPath = await generateThumbnail(
+        file.path,
+        file.ext,
+        mainWindow,
+      );
+      if (thumbnailPath) {
+        db.prepare("UPDATE files SET thumbnail = ? WHERE path = ?").run(
+          thumbnailPath,
+          file.path,
+        );
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+
+        const row = db
+          .prepare("SELECT id FROM files WHERE path = ?")
+          .get(file.path);
+        if (row) {
+          mainWindow.webContents.send("thumbnail-ready", {
+            fileId: row.id,
+            thumbnailPath,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn(`Failed to generate thumbnail for ${file.path}:`, e.message);
+    }
+
+    // Throttle: give the renderer breathing room between renders
+    await delay(150);
+  }
 }
 
 // ── App Lifecycle ─────────────────────────────────────────────
