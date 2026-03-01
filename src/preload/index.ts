@@ -34,29 +34,42 @@ contextBridge.exposeInMainWorld("polytray", {
 
   // Events (main → renderer)
   onScanProgress: (callback: (data: any) => void) => {
-    ipcRenderer.on("scan-progress", (event, data) => callback(data));
+    const subscription = (event: any, data: any) => callback(data);
+    ipcRenderer.on("scan-progress", subscription);
+    return () => ipcRenderer.removeListener("scan-progress", subscription);
   },
   onScanComplete: (callback: (data: any) => void) => {
-    ipcRenderer.on("scan-complete", (event, data) => callback(data));
+    const subscription = (event: any, data: any) => callback(data);
+    ipcRenderer.on("scan-complete", subscription);
+    return () => ipcRenderer.removeListener("scan-complete", subscription);
   },
   onFilesUpdated: (callback: (data: any) => void) => {
-    ipcRenderer.on("files-updated", (event, data) => callback(data));
+    const subscription = (event: any, data: any) => callback(data);
+    ipcRenderer.on("files-updated", subscription);
+    return () => ipcRenderer.removeListener("files-updated", subscription);
   },
   onFileIndexed: (callback: (data: any) => void) => {
-    ipcRenderer.on("file-indexed", (event, data) => callback(data));
+    const subscription = (event: any, data: any) => callback(data);
+    ipcRenderer.on("file-indexed", subscription);
+    return () => ipcRenderer.removeListener("file-indexed", subscription);
   },
   onThumbnailReady: (callback: (data: any) => void) => {
-    ipcRenderer.on("thumbnail-ready", (event, data) => callback(data));
+    const subscription = (event: any, data: any) => callback(data);
+    ipcRenderer.on("thumbnail-ready", subscription);
+    return () => ipcRenderer.removeListener("thumbnail-ready", subscription);
   },
   onThumbnailProgress: (callback: (data: any) => void) => {
-    ipcRenderer.on("thumbnail-progress", (event, data) => callback(data));
+    const subscription = (event: any, data: any) => callback(data);
+    ipcRenderer.on("thumbnail-progress", subscription);
+    return () => ipcRenderer.removeListener("thumbnail-progress", subscription);
   },
 
   // Thumbnail generation (main → renderer → main)
   onThumbnailRequest: (callback: (data: any) => void) => {
-    ipcRenderer.on("generate-thumbnail-request", (event, data) =>
-      callback(data),
-    );
+    const subscription = (event: any, data: any) => callback(data);
+    ipcRenderer.on("generate-thumbnail-request", subscription);
+    return () =>
+      ipcRenderer.removeListener("generate-thumbnail-request", subscription);
   },
   sendThumbnailResult: (result: any) => {
     ipcRenderer.send("thumbnail-generated", result);

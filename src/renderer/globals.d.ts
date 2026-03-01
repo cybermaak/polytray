@@ -49,16 +49,20 @@ interface PolytrayAPI {
   startWatching: (folderPath: string) => Promise<void>;
   stopWatching: () => Promise<void>;
 
-  onScanProgress: (callback: (data: ScanProgress) => void) => void;
-  onScanComplete: (callback: (data: { totalFiles: number }) => void) => void;
-  onFilesUpdated: (callback: (data: { directory: string }) => void) => void;
+  onScanProgress: (callback: (data: ScanProgress) => void) => () => void;
+  onScanComplete: (
+    callback: (data: { totalFiles: number }) => void,
+  ) => () => void;
+  onFilesUpdated: (
+    callback: (data: { directory: string }) => void,
+  ) => () => void;
   onFileIndexed: (
     callback: (data: { path: string; current: number; total: number }) => void,
-  ) => void;
-  onThumbnailReady: (callback: (data: ThumbnailResult) => void) => void;
+  ) => () => void;
+  onThumbnailReady: (callback: (data: ThumbnailResult) => void) => () => void;
   onThumbnailProgress: (
     callback: (data: { current: number; total: number }) => void,
-  ) => void;
+  ) => () => void;
 
   onThumbnailRequest: (
     callback: (data: {
@@ -66,7 +70,7 @@ interface PolytrayAPI {
       ext: string;
       thumbPath: string;
     }) => void,
-  ) => void;
+  ) => () => void;
   sendThumbnailResult: (result: {
     filePath: string;
     thumbPath: string;

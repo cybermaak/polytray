@@ -500,6 +500,14 @@ body {
   align-content: start;
 }
 
+.file-grid.size-small {
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+}
+
+.file-grid.size-large {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
 .file-grid::-webkit-scrollbar {
   width: 8px;
 }
@@ -558,7 +566,7 @@ body {
   position: relative;
   overflow: hidden;
   flex-shrink: 0;
-  min-height: 200px;
+  min-height: 0;
 }
 
 .card-thumbnail img {

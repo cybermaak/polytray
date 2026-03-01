@@ -41,6 +41,25 @@ function createWindow() {
   } else {
     mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
   }
+
+  // Define Content Security Policy
+  mainWindow.webContents.session.webRequest.onHeadersReceived(
+    (details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "Content-Security-Policy": [
+            "default-src 'self'; " +
+              "script-src 'self' 'unsafe-inline'; " +
+              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+              "font-src 'self' https://fonts.gstatic.com; " +
+              "img-src 'self' data: blob:; " +
+              "connect-src 'self' http://localhost:* ws://localhost:*;",
+          ],
+        },
+      });
+    },
+  );
 }
 
 // ── IPC Handlers ──────────────────────────────────────────────
@@ -304,6 +323,15 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle("read-file-buffer", async (event, filePath) => {
+    // Validate that the file is part of the indexed library
+    const db = getDb();
+    const record = db
+      .prepare("SELECT id FROM files WHERE path = ?")
+      .get(filePath);
+    if (!record) {
+      throw new Error("Access denied: File not in library");
+    }
+
     const buffer = await fs.promises.readFile(filePath);
     return buffer.buffer.slice(
       buffer.byteOffset,
@@ -315,6 +343,13 @@ function registerIpcHandlers() {
 
   ipcMain.handle("read-thumbnail", async (event, thumbnailPath) => {
     if (!thumbnailPath) return null;
+
+    // Security check: Ensure we only read from the dedicated thumbnail directory
+    const thumbDir = getThumbnailDir();
+    if (!thumbnailPath.startsWith(thumbDir)) {
+      throw new Error("Access denied: Path is outside thumbnail directory");
+    }
+
     try {
       const data = await fs.promises.readFile(thumbnailPath);
       return `data:image/png;base64,${data.toString("base64")}`;

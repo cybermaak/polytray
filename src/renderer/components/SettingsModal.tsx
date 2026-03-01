@@ -1,65 +1,27 @@
-import React, { useEffect } from "react";
+import React from "react";
+
+interface Settings {
+  lightMode: boolean;
+  gridSize: string;
+  autoScan: boolean;
+  watch: boolean;
+  showGrid: boolean;
+  thumbQuality: string;
+}
 
 interface Props {
   open: boolean;
   onClose: () => void;
+  settings: Settings;
+  onSettingsChange: (newSettings: Partial<Settings>) => void;
 }
 
-export const SettingsModal: React.FC<Props> = ({ open, onClose }) => {
-  // Load/save settings via localStorage (same as vanilla version)
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("polytray-settings");
-      if (!raw) return;
-      const s = JSON.parse(raw);
-      if (s.lightMode) document.body.classList.add("light");
-      if (s.gridSize) {
-        const el = document.getElementById(
-          "setting-grid-size",
-        ) as HTMLSelectElement;
-        if (el) el.value = s.gridSize;
-      }
-    } catch {}
-  }, []);
-
-  const handleLightModeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    document.body.classList.toggle("light", e.target.checked);
-    saveSettings();
-  };
-
-  const handleGridSizeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const grid = document.getElementById("file-grid");
-    if (grid) {
-      switch (e.target.value) {
-        case "small":
-          grid.style.gridTemplateColumns =
-            "repeat(auto-fill, minmax(160px, 1fr))";
-          break;
-        case "large":
-          grid.style.gridTemplateColumns =
-            "repeat(auto-fill, minmax(260px, 1fr))";
-          break;
-        default:
-          grid.style.gridTemplateColumns =
-            "repeat(auto-fill, minmax(200px, 1fr))";
-      }
-    }
-    saveSettings();
-  };
-
-  const saveSettings = () => {
-    const lightMode =
-      (document.getElementById("setting-light-mode") as HTMLInputElement)
-        ?.checked ?? false;
-    const gridSize =
-      (document.getElementById("setting-grid-size") as HTMLSelectElement)
-        ?.value ?? "medium";
-    localStorage.setItem(
-      "polytray-settings",
-      JSON.stringify({ lightMode, gridSize }),
-    );
-  };
-
+export const SettingsModal: React.FC<Props> = ({
+  open,
+  onClose,
+  settings,
+  onSettingsChange,
+}) => {
   return (
     <div
       id="settings-overlay"
@@ -99,7 +61,10 @@ export const SettingsModal: React.FC<Props> = ({ open, onClose }) => {
                 <input
                   type="checkbox"
                   id="setting-light-mode"
-                  onChange={handleLightModeChange}
+                  checked={settings.lightMode}
+                  onChange={(e) =>
+                    onSettingsChange({ lightMode: e.target.checked })
+                  }
                 />
                 <span className="toggle-slider" />
               </label>
@@ -113,8 +78,8 @@ export const SettingsModal: React.FC<Props> = ({ open, onClose }) => {
               </div>
               <select
                 id="setting-grid-size"
-                onChange={handleGridSizeChange}
-                defaultValue="medium"
+                value={settings.gridSize}
+                onChange={(e) => onSettingsChange({ gridSize: e.target.value })}
               >
                 <option value="small">Small</option>
                 <option value="medium">Medium</option>
@@ -134,7 +99,14 @@ export const SettingsModal: React.FC<Props> = ({ open, onClose }) => {
                 </div>
               </div>
               <label className="toggle-switch">
-                <input type="checkbox" id="setting-auto-scan" defaultChecked />
+                <input
+                  type="checkbox"
+                  id="setting-auto-scan"
+                  checked={settings.autoScan}
+                  onChange={(e) =>
+                    onSettingsChange({ autoScan: e.target.checked })
+                  }
+                />
                 <span className="toggle-slider" />
               </label>
             </div>
@@ -146,7 +118,14 @@ export const SettingsModal: React.FC<Props> = ({ open, onClose }) => {
                 </div>
               </div>
               <label className="toggle-switch">
-                <input type="checkbox" id="setting-watch" defaultChecked />
+                <input
+                  type="checkbox"
+                  id="setting-watch"
+                  checked={settings.watch}
+                  onChange={(e) =>
+                    onSettingsChange({ watch: e.target.checked })
+                  }
+                />
                 <span className="toggle-slider" />
               </label>
             </div>
@@ -163,7 +142,14 @@ export const SettingsModal: React.FC<Props> = ({ open, onClose }) => {
                 </div>
               </div>
               <label className="toggle-switch">
-                <input type="checkbox" id="setting-show-grid" defaultChecked />
+                <input
+                  type="checkbox"
+                  id="setting-show-grid"
+                  checked={settings.showGrid}
+                  onChange={(e) =>
+                    onSettingsChange({ showGrid: e.target.checked })
+                  }
+                />
                 <span className="toggle-slider" />
               </label>
             </div>
@@ -174,7 +160,13 @@ export const SettingsModal: React.FC<Props> = ({ open, onClose }) => {
                   Resolution for generated thumbnails
                 </div>
               </div>
-              <select id="setting-thumb-quality" defaultValue="256">
+              <select
+                id="setting-thumb-quality"
+                value={settings.thumbQuality}
+                onChange={(e) =>
+                  onSettingsChange({ thumbQuality: e.target.value })
+                }
+              >
                 <option value="128">Low (128px)</option>
                 <option value="256">Medium (256px)</option>
                 <option value="512">High (512px)</option>

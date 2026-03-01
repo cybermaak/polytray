@@ -10,6 +10,7 @@ let scene: THREE.Scene | null,
   renderer: THREE.WebGLRenderer | null,
   controls: OrbitControls | null;
 let currentModel: THREE.Object3D | null = null;
+let gridHelper: THREE.GridHelper | null = null;
 let animationId: number | null = null;
 let wireframeMode = false;
 
@@ -115,10 +116,16 @@ function setupLighting() {
 }
 
 function setupGrid() {
-  const grid = new THREE.GridHelper(20, 40, 0x3a3a55, 0x282840);
-  grid.material.opacity = 0.7;
-  grid.material.transparent = true;
-  scene!.add(grid);
+  gridHelper = new THREE.GridHelper(20, 40, 0x3a3a55, 0x282840);
+  (gridHelper.material as THREE.Material).opacity = 0.7;
+  (gridHelper.material as THREE.Material).transparent = true;
+  scene!.add(gridHelper);
+}
+
+export function toggleGrid(visible: boolean) {
+  if (gridHelper) {
+    gridHelper.visible = visible;
+  }
 }
 
 function animate() {

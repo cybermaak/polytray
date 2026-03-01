@@ -6,6 +6,7 @@ import {
   disposeViewer,
   toggleWireframe,
   resetCamera,
+  toggleGrid,
 } from "../lib/viewer";
 
 interface FileRecord {
@@ -21,10 +22,11 @@ interface FileRecord {
 
 interface Props {
   file: FileRecord | null;
+  showGrid: boolean;
   onClose: () => void;
 }
 
-export const PreviewPanel: React.FC<Props> = ({ file, onClose }) => {
+export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -102,6 +104,12 @@ export const PreviewPanel: React.FC<Props> = ({ file, onClose }) => {
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [file, expanded, handleClose]);
+
+  useEffect(() => {
+    if (file) {
+      toggleGrid(showGrid);
+    }
+  }, [showGrid, file]);
 
   const panelClasses = [
     "preview-panel",

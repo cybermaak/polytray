@@ -65,6 +65,14 @@ export const App: React.FC = () => {
     text: "",
     count: "",
   });
+  const [settings, setSettings] = useState({
+    lightMode: false,
+    gridSize: "medium",
+    autoScan: true,
+    watch: true,
+    showGrid: true,
+    thumbQuality: "256",
+  });
 
   // Refs to get latest state in IPC callbacks
   const foldersRef = useRef(folders);
@@ -100,123 +108,138 @@ export const App: React.FC = () => {
 
   // ── IPC Listeners (once) ────────────────────────────────────────
   useEffect(() => {
-    window.polytray.onScanProgress((data: any) => {
-      const pct = Math.round((data.current / data.total) * 100);
-      setProgress({
-        visible: true,
-        percent: pct,
-        text: data.filename + (data.skipped ? " (cached)" : ""),
-        count: `${data.current} / ${data.total}`,
-      });
-    });
-
-    window.polytray.onScanComplete(async (data: any) => {
-      setProgress((p) => ({
-        ...p,
-        percent: 100,
-        text: `Scan complete — ${data.totalFiles} files`,
-      }));
-
-      // Reload data using refs for current filter state
-      const result = await window.polytray.getFiles({
-        sort: sortRef.current,
-        order: orderRef.current,
-        extension: extensionRef.current,
-        search: searchRef.current,
-        limit: 500,
-        offset: 0,
-      });
-      setFiles(result.files);
-
-      const s = await window.polytray.getStats();
-      setStats(s);
-
-      // Start watching
-      for (const folder of foldersRef.current) {
-        window.polytray.startWatching(folder);
+    // Initial settings load
+    try {
+      const raw = localStorage.getItem("polytray-settings");
+      if (raw) {
+        const s = JSON.parse(raw);
+        setSettings((prev) => ({ ...prev, ...s }));
+        if (s.lightMode) document.body.classList.add("light");
       }
+    } catch (e) {}
 
-      setTimeout(() => {
-        if (!isGeneratingRef.current) {
-          setProgress((p) => ({ ...p, visible: false }));
-        }
-      }, 2000);
-    });
+    const cleanups: (() => void)[] = [];
 
-    window.polytray.onThumbnailProgress((data: any) => {
-      const { current, total, filename, phase } = data;
-      if (phase === "start") {
-        isGeneratingRef.current = true;
+    cleanups.push(
+      window.polytray.onScanProgress((data: any) => {
+        const pct = Math.round((data.current / data.total) * 100);
         setProgress({
           visible: true,
-          percent: 0,
-          text: "Generating thumbnails...",
-          count: `0 / ${total}`,
+          percent: pct,
+          text: data.filename + (data.skipped ? " (cached)" : ""),
+          count: `${data.current} / ${data.total}`,
         });
-        return;
-      }
-      if (phase === "done") {
-        isGeneratingRef.current = false;
-        setProgress({
-          visible: true,
+      }),
+    );
+
+    cleanups.push(
+      window.polytray.onScanComplete(async (data: any) => {
+        setProgress((p) => ({
+          ...p,
           percent: 100,
-          text: `Thumbnails complete — ${total} generated`,
-          count: `${total} / ${total}`,
+          text: `Scan complete — ${data.totalFiles} files`,
+        }));
+
+        // Reload data using refs for current filter state
+        const result = await window.polytray.getFiles({
+          sort: sortRef.current,
+          order: orderRef.current,
+          extension: extensionRef.current,
+          search: searchRef.current,
+          limit: 500,
+          offset: 0,
         });
-        setTimeout(() => setProgress((p) => ({ ...p, visible: false })), 2000);
-        return;
-      }
-      const pct = Math.round((current / total) * 100);
-      setProgress({
-        visible: true,
-        percent: pct,
-        text: `Thumbnail: ${filename}`,
-        count: `${current} / ${total}`,
-      });
-    });
+        setFiles(result.files);
 
-    window.polytray.onThumbnailReady(async (data: any) => {
-      const { fileId, thumbnailPath } = data;
-      // Update directly in DOM for instant feedback (same as vanilla version)
-      const card = document.querySelector(
-        `.file-card[data-file-id="${fileId}"]`,
-      );
-      if (!card) return;
-      const thumbDiv = card.querySelector(".card-thumbnail");
-      if (!thumbDiv) return;
+        const s = await window.polytray.getStats();
+        setStats(s);
 
-      const dataUrl = await window.polytray.readThumbnail(thumbnailPath);
-      if (!dataUrl) return;
+        // Start watching
+        for (const folder of foldersRef.current) {
+          window.polytray.startWatching(folder);
+        }
 
-      const pulse = thumbDiv.querySelector(".thumbnail-pulse");
-      if (pulse) pulse.remove();
-      const placeholder = thumbDiv.querySelector(".placeholder-icon");
+        setTimeout(() => {
+          setProgress((p) => {
+            if (!isGeneratingRef.current) {
+              return { ...p, visible: false };
+            }
+            return p;
+          });
+        }, 2000);
+      }),
+    );
 
-      const img = document.createElement("img");
-      img.alt = "thumbnail";
-      img.style.opacity = "0";
-      img.style.transition = "opacity 0.3s ease";
-      img.src = dataUrl;
-      img.onload = () => {
-        img.style.opacity = "1";
-        if (placeholder) placeholder.remove();
-      };
-      thumbDiv.insertBefore(img, thumbDiv.querySelector(".card-ext-badge"));
-    });
+    cleanups.push(
+      window.polytray.onThumbnailProgress((data: any) => {
+        const { current, total, filename, phase } = data;
+        if (phase === "start") {
+          isGeneratingRef.current = true;
+          setProgress({
+            visible: true,
+            percent: 0,
+            text: "Generating thumbnails...",
+            count: `0 / ${total}`,
+          });
+          return;
+        }
+        if (phase === "done") {
+          isGeneratingRef.current = false;
+          setProgress({
+            visible: true,
+            percent: 100,
+            text: `Thumbnails complete — ${total} generated`,
+            count: `${total} / ${total}`,
+          });
+          setTimeout(
+            () => setProgress((p) => ({ ...p, visible: false })),
+            2000,
+          );
+          return;
+        }
+        const pct = Math.round((current / total) * 100);
+        setProgress({
+          visible: true,
+          percent: pct,
+          text: `Thumbnail: ${filename}`,
+          count: `${current} / ${total}`,
+        });
+      }),
+    );
 
-    window.polytray.onFilesUpdated(async () => {
-      const result = await window.polytray.getFiles({
-        sort: sortRef.current,
-        order: orderRef.current,
-        extension: extensionRef.current,
-        search: searchRef.current,
-        limit: 500,
-        offset: 0,
-      });
-      setFiles(result.files);
-      const s = await window.polytray.getStats();
-      setStats(s);
-    });
+    cleanups.push(
+      window.polytray.onThumbnailReady(async (data: any) => {
+        const { fileId, thumbnailPath } = data;
+        const dataUrl = await window.polytray.readThumbnail(thumbnailPath);
+        if (!dataUrl) return;
+
+        setFiles((prevFiles) =>
+          prevFiles.map((f) =>
+            f.id === fileId ? { ...f, thumbnail: dataUrl } : f,
+          ),
+        );
+      }),
+    );
+
+    cleanups.push(
+      window.polytray.onFilesUpdated(async () => {
+        const result = await window.polytray.getFiles({
+          sort: sortRef.current,
+          order: orderRef.current,
+          extension: extensionRef.current,
+          search: searchRef.current,
+          limit: 500,
+          offset: 0,
+        });
+        setFiles(result.files);
+        const s = await window.polytray.getStats();
+        setStats(s);
+      }),
+    );
+
+    return () => {
+      cleanups.forEach((c) => c());
+    };
   }, []);
 
   // ── Boot ────────────────────────────────────────────────────────
@@ -229,6 +252,11 @@ export const App: React.FC = () => {
       setFolders(f);
       foldersRef.current = f;
 
+      const raw = localStorage.getItem("polytray-settings");
+      const savedSettings = raw ? JSON.parse(raw) : null;
+      const shouldAutoScan = savedSettings?.autoScan ?? true;
+      const shouldWatch = savedSettings?.watch ?? true;
+
       if (f.length > 0) {
         const result = await window.polytray.getFiles({
           limit: 500,
@@ -237,8 +265,15 @@ export const App: React.FC = () => {
         setFiles(result.files);
         const s = await window.polytray.getStats();
         setStats(s);
-        for (const folder of f) {
-          window.polytray.startWatching(folder);
+
+        if (shouldWatch) {
+          for (const folder of f) {
+            window.polytray.startWatching(folder);
+          }
+        }
+
+        if (shouldAutoScan) {
+          handleRescan();
         }
       }
     })();
@@ -355,6 +390,19 @@ export const App: React.FC = () => {
     setFiles(result.files);
   }, []);
 
+  const handleSettingsChange = useCallback((newSettings: any) => {
+    setSettings((prev) => {
+      const merged = { ...prev, ...newSettings };
+      localStorage.setItem("polytray-settings", JSON.stringify(merged));
+
+      // Immediate side effects
+      if (typeof newSettings.lightMode !== "undefined") {
+        document.body.classList.toggle("light", newSettings.lightMode);
+      }
+      return merged;
+    });
+  }, []);
+
   // Keyboard: Escape
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -405,7 +453,7 @@ export const App: React.FC = () => {
           {/* file-grid is ALWAYS rendered as a direct child of #content */}
           <div
             id="file-grid"
-            className="file-grid"
+            className={`file-grid size-${settings.gridSize}`}
             style={{ display: hasFiles ? "grid" : "none" }}
           >
             {files.map((file, index) => (
@@ -460,10 +508,16 @@ export const App: React.FC = () => {
             </div>
           </div>
         </main>
-        <PreviewPanel file={previewFile} onClose={() => setPreviewFile(null)} />
+        <PreviewPanel
+          file={previewFile}
+          showGrid={settings.showGrid}
+          onClose={() => setPreviewFile(null)}
+        />
       </div>
       <SettingsModal
         open={settingsOpen}
+        settings={settings}
+        onSettingsChange={handleSettingsChange}
         onClose={() => setSettingsOpen(false)}
       />
     </>
@@ -563,6 +617,11 @@ const ThumbnailImage: React.FC<{ thumbnailPath: string; name: string }> = ({
   }, []);
 
   useEffect(() => {
+    if (thumbnailPath.startsWith("data:")) {
+      setSrc(thumbnailPath);
+      return;
+    }
+
     let cancelled = false;
     window.polytray
       .readThumbnail(thumbnailPath)
