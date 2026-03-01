@@ -1,4 +1,4 @@
-import { renderThumbnail } from "./viewer.js";
+import { renderThumbnail } from "./viewer";
 
 /**
  * Initializes the thumbnail generator that listens for requests from the main process.

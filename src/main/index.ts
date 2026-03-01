@@ -1,10 +1,10 @@
 import { app, BrowserWindow, ipcMain, dialog } from "electron";
 import { join } from "path";
-import { initDatabase, getDb } from "./database.js";
-import { scanFolder } from "./scanner.js";
-import { extractMetadata } from "./metadata.js";
-import { generateThumbnail, getThumbnailDir } from "./thumbnails.js";
-import { startWatcher, stopWatcher } from "./watcher.js";
+import { initDatabase, getDb } from "./database";
+import { scanFolder } from "./scanner";
+import { extractMetadata } from "./metadata";
+import { generateThumbnail, getThumbnailDir } from "./thumbnails";
+import { startWatcher, stopWatcher } from "./watcher";
 import fs from "fs";
 
 // Set the application name for macOS menu bar

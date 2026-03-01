@@ -1,19 +1,19 @@
-import chokidar from "chokidar";
+import chokidar, { FSWatcher } from "chokidar";
 import path from "path";
-import { extractMetadata } from "./metadata.js";
-import { generateThumbnail } from "./thumbnails.js";
+import { extractMetadata } from "./metadata";
+import { generateThumbnail } from "./thumbnails";
 
 const SUPPORTED_EXTENSIONS = new Set(["stl", "obj", "3mf"]);
 
-let watcher = null;
+let watcher: FSWatcher | null = null;
 
 /**
  * Starts watching a folder for 3D file changes.
  * @param {string} folderPath - Directory to watch
- * @param {BrowserWindow} mainWindow - Main window for sending IPC updates
- * @param {Database} db - SQLite database instance
+ * @param {any} mainWindow - Main window for sending IPC updates
+ * @param {any} db - SQLite database instance
  */
-export function startWatcher(folderPath, mainWindow, db) {
+export function startWatcher(folderPath: string, mainWindow: any, db: any) {
   stopWatcher();
 
   watcher = chokidar.watch(folderPath, {
@@ -27,17 +27,17 @@ export function startWatcher(folderPath, mainWindow, db) {
     },
   });
 
-  watcher.on("add", (filePath) =>
+  watcher.on("add", (filePath: string) =>
     handleFileChange(filePath, "add", mainWindow, db),
   );
-  watcher.on("change", (filePath) =>
+  watcher.on("change", (filePath: string) =>
     handleFileChange(filePath, "change", mainWindow, db),
   );
-  watcher.on("unlink", (filePath) =>
+  watcher.on("unlink", (filePath: string) =>
     handleFileRemove(filePath, mainWindow, db),
   );
 
-  watcher.on("error", (error) => {
+  watcher.on("error", (error: any) => {
     console.error("Watcher error:", error);
   });
 }
@@ -49,7 +49,12 @@ export function stopWatcher() {
   }
 }
 
-async function handleFileChange(filePath, eventType, mainWindow, db) {
+async function handleFileChange(
+  filePath: string,
+  eventType: string,
+  mainWindow: any,
+  db: any,
+) {
   const ext = path.extname(filePath).toLowerCase().slice(1);
   if (!SUPPORTED_EXTENSIONS.has(ext)) return;
 
@@ -61,7 +66,7 @@ async function handleFileChange(filePath, eventType, mainWindow, db) {
     let meta = { vertexCount: 0, faceCount: 0 };
     try {
       meta = await extractMetadata(filePath, ext);
-    } catch (e) {
+    } catch (e: any) {
       console.warn(
         `Watcher: Failed to extract metadata for ${filePath}:`,
         e.message,
@@ -71,7 +76,7 @@ async function handleFileChange(filePath, eventType, mainWindow, db) {
     let thumbnailPath = null;
     try {
       thumbnailPath = await generateThumbnail(filePath, ext, mainWindow);
-    } catch (e) {
+    } catch (e: any) {
       console.warn(
         `Watcher: Failed to generate thumbnail for ${filePath}:`,
         e.message,
@@ -97,7 +102,7 @@ async function handleFileChange(filePath, eventType, mainWindow, db) {
     );
 
     mainWindow.webContents.send("files-updated", { type: eventType, filePath });
-  } catch (e) {
+  } catch (e: any) {
     console.warn(
       `Watcher: Error processing ${eventType} for ${filePath}:`,
       e.message,
@@ -105,7 +110,7 @@ async function handleFileChange(filePath, eventType, mainWindow, db) {
   }
 }
 
-function handleFileRemove(filePath, mainWindow, db) {
+function handleFileRemove(filePath: string, mainWindow: any, db: any) {
   const ext = path.extname(filePath).toLowerCase().slice(1);
   if (!SUPPORTED_EXTENSIONS.has(ext)) return;
 

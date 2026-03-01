@@ -13,7 +13,13 @@ let wireframeMode = false;
 // Multi-Model Cache
 let multiModelMeshes = [];
 let activeSubModelIndex = -1; // -1 means show all
-const multiModelContainer = document.getElementById("viewer-multi-model");
+let _multiModelContainer = null;
+function getMultiModelContainer() {
+  if (!_multiModelContainer) {
+    _multiModelContainer = document.getElementById("viewer-multi-model");
+  }
+  return _multiModelContainer;
+}
 let container = null;
 
 // ── Initialization ────────────────────────────────────────────────
@@ -328,6 +334,9 @@ export async function loadModel(arrayBuffer, extension, name) {
 }
 
 async function updateMultiModelThumbnailStrip(group) {
+  const multiModelContainer = getMultiModelContainer();
+  if (!multiModelContainer) return;
+
   multiModelMeshes = [];
   activeSubModelIndex = -1;
   multiModelContainer.innerHTML = "";
@@ -402,8 +411,11 @@ async function updateMultiModelThumbnailStrip(group) {
 
 function selectSubModel(index, htmlElement) {
   // Update UI active state
-  const thumbs = multiModelContainer.querySelectorAll(".multi-model-thumb");
-  thumbs.forEach((el) => el.classList.remove("active"));
+  const mc = getMultiModelContainer();
+  if (mc) {
+    const thumbs = mc.querySelectorAll(".multi-model-thumb");
+    thumbs.forEach((el) => el.classList.remove("active"));
+  }
   htmlElement.classList.add("active");
 
   activeSubModelIndex = index;

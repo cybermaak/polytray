@@ -8,18 +8,30 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps",
-    "clean": "rm -rf out dist dist-electron"
+    "clean": "rm -rf out dist dist-electron",
+    "test:e2e": "node tests/generate-fixtures.js && npx playwright test"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
     "chokidar": "^4.0.0",
     "jszip": "^3.10.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "three": "^0.170.0"
   },
   "devDependencies": {
-    "electron": "^34.0.0",
+    "@playwright/test": "^1.58.2",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.3.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/three": "^0.183.1",
+    "@vitejs/plugin-react": "^5.1.4",
+    "electron": "^34.5.8",
     "electron-builder": "^25.1.0",
     "electron-vite": "^3.0.0",
+    "playwright": "^1.58.2",
+    "typescript": "^5.9.3",
     "vite": "^6.0.0"
   },
   "build": {
