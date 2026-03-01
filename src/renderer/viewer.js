@@ -5,13 +5,15 @@ import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
 import JSZip from "jszip";
 
-let renderer = null;
-let scene = null;
-let camera = null;
-let controls = null;
+let scene, camera, renderer, controls;
 let currentModel = null;
-let wireframeMode = false;
 let animationId = null;
+let wireframeMode = false;
+
+// Multi-Model Cache
+let multiModelMeshes = [];
+let activeSubModelIndex = -1; // -1 means show all
+const multiModelContainer = document.getElementById("viewer-multi-model");
 let container = null;
 
 // ── Initialization ────────────────────────────────────────────────
@@ -316,10 +318,107 @@ export async function loadModel(arrayBuffer, extension, name) {
   scene.add(group);
   currentModel = group;
 
+  // Render multi-model carousel if applicable
+  await updateMultiModelThumbnailStrip(group);
+
   // Auto-fit camera
   fitCameraToObject(group);
 
   wireframeMode = false;
+}
+
+async function updateMultiModelThumbnailStrip(group) {
+  multiModelMeshes = [];
+  activeSubModelIndex = -1;
+  multiModelContainer.innerHTML = "";
+  multiModelContainer.classList.add("hidden");
+
+  // Only extract sub-meshes if it's actually complicated (like 3MF splits)
+  // We collect direct Mesh children or Group children that contain Meshes
+  for (const child of group.children) {
+    if (child instanceof THREE.Mesh || child instanceof THREE.Group) {
+      // Find how many actual triangles this child has before counting it as a valid "sub model"
+      let hasGeometry = false;
+      child.traverse((n) => {
+        if (n instanceof THREE.Mesh && n.geometry) hasGeometry = true;
+      });
+      if (hasGeometry) multiModelMeshes.push(child);
+    }
+  }
+
+  // If there's only 1 thing, no need for a carousel
+  if (multiModelMeshes.length < 2) return;
+
+  // We have multiple distinct models! Let's build a thumbnail strip.
+  multiModelContainer.classList.remove("hidden");
+
+  // We need a temporary offscreen canvas for rendering mini-thumbnails
+  const tempCanvas = document.createElement("canvas");
+  tempCanvas.width = 128; // high-res enough for 64px display
+  tempCanvas.height = 128;
+
+  // Wait a frame so the UI flexbox can settle before generating thumbs
+  await new Promise((r) => setTimeout(r, 10));
+
+  for (let i = 0; i < multiModelMeshes.length; i++) {
+    const sub = multiModelMeshes[i];
+
+    // Hide everything else temporarily to take a picture
+    multiModelMeshes.forEach((m, idx) => {
+      m.visible = idx === i;
+    });
+
+    // Render snapshot
+    fitCameraToObject(sub); // zoom camera tight on this specific sub-model
+    renderer.render(scene, camera);
+
+    const thumbDiv = document.createElement("div");
+    thumbDiv.className = "multi-model-thumb";
+
+    // We can just grab the data-url right out of our main WebGL canvas since it was preserved!
+    const img = document.createElement("img");
+    img.src = renderer.domElement.toDataURL("image/png");
+
+    thumbDiv.appendChild(img);
+    thumbDiv.onclick = () => selectSubModel(i, thumbDiv);
+    multiModelContainer.appendChild(thumbDiv);
+  }
+
+  // Add a "Show All" button at the start? Or just rely on re-clicking to toggle.
+  const showAllDiv = document.createElement("div");
+  showAllDiv.className = "multi-model-thumb active";
+  showAllDiv.style.flexDirection = "column";
+  showAllDiv.style.fontSize = "10px";
+  showAllDiv.style.fontWeight = "bold";
+  showAllDiv.style.color = "var(--text-secondary)";
+  showAllDiv.innerHTML = "Show<br/>All";
+  showAllDiv.onclick = () => selectSubModel(-1, showAllDiv);
+  multiModelContainer.insertBefore(showAllDiv, multiModelContainer.firstChild);
+
+  // Restore visibility to ALL objects to start
+  multiModelMeshes.forEach((m) => (m.visible = true));
+  fitCameraToObject(group); // Refit the main camera back to the whole group
+}
+
+function selectSubModel(index, htmlElement) {
+  // Update UI active state
+  const thumbs = multiModelContainer.querySelectorAll(".multi-model-thumb");
+  thumbs.forEach((el) => el.classList.remove("active"));
+  htmlElement.classList.add("active");
+
+  activeSubModelIndex = index;
+
+  if (index === -1) {
+    // Show all
+    multiModelMeshes.forEach((m) => (m.visible = true));
+    fitCameraToObject(currentModel);
+  } else {
+    // Show specifically the one clicked
+    multiModelMeshes.forEach((m, idx) => {
+      m.visible = idx === index;
+    });
+    fitCameraToObject(multiModelMeshes[index]);
+  }
 }
 
 function loadSTL(arrayBuffer, group) {
@@ -501,19 +600,27 @@ function fitCameraToObject(object) {
   object.position.z -= center.z;
   object.position.y -= box.min.y;
 
+  // Re-calculate box after moving the object to origin
+  box.setFromObject(object);
+  box.getCenter(center);
+
   const maxDim = Math.max(size.x, size.y, size.z);
   const fov = camera.fov * (Math.PI / 180);
-  let cameraDistance = maxDim / (2 * Math.tan(fov / 2));
-  cameraDistance *= 1.6; // Add some padding
+  let cameraDistance = Math.abs(maxDim / Math.sin(fov / 2));
+
+  // Add a little padding
+  cameraDistance *= 1.2;
 
   const direction = new THREE.Vector3(1, 0.7, 1).normalize();
-  camera.position.copy(direction.multiplyScalar(cameraDistance));
-  camera.lookAt(0, size.y / 2, 0);
+  camera.position.copy(center).add(direction.multiplyScalar(cameraDistance));
+  camera.lookAt(center);
 
-  controls.target.set(0, size.y / 2, 0);
+  controls.target.copy(center);
   controls.minDistance = maxDim * 0.1;
   controls.maxDistance = maxDim * 10;
   controls.update();
+
+  camera.updateProjectionMatrix();
 }
 
 export function resetCamera() {

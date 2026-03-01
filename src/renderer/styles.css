@@ -42,6 +42,8 @@
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 20px;
+  --header-height: 52px;
+  --panel-width: 640px;
   --space-6: 24px;
   --space-8: 32px;
 
@@ -708,7 +710,7 @@ body {
 
 /* ── 3D Preview Panel ──────────────────────────────────────────── */
 .preview-panel {
-  width: 380px;
+  width: var(--panel-width);
   background: var(--bg-surface);
   border-left: 1px solid var(--border-subtle);
   display: flex;
@@ -731,6 +733,10 @@ body {
   border-left: none;
 }
 
+.preview-panel.expanded .viewer-header {
+  padding-left: 80px; /* macOS window controls space */
+}
+
 .viewer-header {
   height: 52px;
   padding: 0 var(--space-4);
@@ -746,9 +752,12 @@ body {
 .viewer-title {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 2px;
   overflow: hidden;
   flex: 1;
+  min-width: 0; /* allows text truncation */
+  padding-right: var(--space-3);
 }
 
 .viewer-title h2 {
@@ -762,12 +771,24 @@ body {
 }
 
 .viewer-meta {
+  display: flex;
+  gap: var(--space-2);
   font-size: var(--font-size-xs);
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   width: 100%;
+}
+
+.viewer-path {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl; /* Truncates from the left to show folder name */
+  text-align: left;
 }
 
 .viewer-controls {
@@ -860,6 +881,52 @@ body {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ── Multi-Model 3MF Strip ─────────────────────────────────────── */
+
+.viewer-multi-model {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.viewer-multi-model.hidden {
+  display: none;
+}
+
+.multi-model-thumb {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border: 2px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.multi-model-thumb:hover {
+  border-color: var(--text-muted);
+}
+
+.multi-model-thumb.active {
+  border-color: var(--accent-primary);
+}
+
+.multi-model-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 /* ── Utility ───────────────────────────────────────────────────── */

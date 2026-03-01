@@ -215,8 +215,9 @@
         <aside id="preview-panel" class="preview-panel hidden">
         <div class="viewer-header">
           <div class="viewer-title">
-            <h2 id="viewer-filename">model.stl</h2>
-            <span id="viewer-meta" class="viewer-meta"></span>
+            <h2 id="viewer-filename">model_name.stl</h2>
+            <div class="viewer-path" id="viewer-path"></div>
+            <div class="viewer-meta" id="viewer-meta">Vertices: 12,450 &middot; Faces: 24,900 &middot; 2.1 MB &middot; STL</div>
           </div>
           <div class="viewer-controls">
             <button
@@ -256,6 +257,9 @@
             </button>
           </div>
         </div>
+            <div class="viewer-multi-model hidden" id="viewer-multi-model">
+              <!-- Dynamically injected thumbnails for multi-object 3MFs will go here -->
+            </div>
         <div id="viewer-container" class="viewer-container"></div>
         <div id="viewer-loading" class="viewer-loading hidden">
           <div class="spinner"></div>
