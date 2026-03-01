@@ -3,6 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
+import JSZip from "jszip";
 
 let renderer = null;
 let scene = null;
@@ -348,11 +349,106 @@ function loadOBJ(arrayBuffer, group) {
   });
 }
 
+async function fix3MF(buffer) {
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+    let mainModelFile = null;
+    for (const filename of Object.keys(zip.files)) {
+      if (
+        filename.toLowerCase() === "3d/3dmodel.model" ||
+        filename.toLowerCase() === "/3d/3dmodel.model"
+      ) {
+        mainModelFile = filename;
+        break;
+      }
+    }
+    if (!mainModelFile) return buffer;
+
+    const repairXmlString = (xmlString) => {
+      let fixed = xmlString;
+      if (fixed.includes("p:") && !fixed.includes("xmlns:p=")) {
+        fixed = fixed.replace(
+          /<model\s+/,
+          '<model xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" ',
+        );
+      }
+      if (fixed.includes("slic3rpe:") && !fixed.includes("xmlns:slic3rpe=")) {
+        fixed = fixed.replace(
+          /<model\s+/,
+          '<model xmlns:slic3rpe="http://schemas.slic3r.org/3mf/2017/06" ',
+        );
+      }
+      return fixed;
+    };
+
+    let mainXml = await zip.file(mainModelFile).async("string");
+    mainXml = repairXmlString(mainXml);
+
+    // We strictly overwrite the zip file with the repaired XML to save Three.js parser down the line
+    zip.file(mainModelFile, mainXml);
+    let modified = true;
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(mainXml, "application/xml");
+    const resources = doc.querySelector("resources");
+    if (!resources) return buffer;
+
+    const components = doc.querySelectorAll("component");
+
+    for (const comp of components) {
+      const pathAttr =
+        comp.getAttribute("path") ||
+        comp.getAttribute("p:path") ||
+        comp.getAttribute("slic3rpe:path");
+      if (pathAttr) {
+        let subFile = pathAttr;
+        if (subFile.startsWith("/")) subFile = subFile.substring(1);
+
+        if (zip.file(subFile)) {
+          let subXml = await zip.file(subFile).async("string");
+          subXml = repairXmlString(subXml);
+
+          const subDoc = parser.parseFromString(subXml, "application/xml");
+          const subObjects = subDoc.querySelectorAll("object");
+
+          for (const obj of subObjects) {
+            const oldId = obj.getAttribute("id");
+            const newId = subFile.replace(/[^a-zA-Z0-9]/g, "_") + "_" + oldId;
+            obj.setAttribute("id", newId);
+
+            if (comp.getAttribute("objectid") === oldId) {
+              comp.setAttribute("objectid", newId);
+            }
+
+            comp.removeAttribute("path");
+            comp.removeAttribute("p:path");
+            comp.removeAttribute("slic3rpe:path");
+
+            resources.appendChild(doc.importNode(obj, true));
+          }
+        }
+      }
+    }
+
+    if (modified) {
+      const serializer = new XMLSerializer();
+      const newXml = serializer.serializeToString(doc);
+      zip.file(mainModelFile, newXml);
+      const newBufferInfo = await zip.generateAsync({ type: "arraybuffer" });
+      return newBufferInfo;
+    }
+  } catch (e) {
+    console.warn("Failed attempting to auto-repair 3MF zip contents:", e);
+  }
+  return buffer;
+}
+
 function load3MF(arrayBuffer, group) {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const loader = new ThreeMFLoader();
     try {
-      const obj = loader.parse(arrayBuffer);
+      const fixedBuffer = await fix3MF(arrayBuffer);
+      const obj = loader.parse(fixedBuffer);
 
       obj.traverse((child) => {
         if (child instanceof THREE.Mesh) {
@@ -477,7 +573,7 @@ function disposeObject(obj) {
 // ── Thumbnail Rendering (used by thumbnail generator) ─────────────
 
 export function renderThumbnail(arrayBuffer, extension, canvas) {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const thumbScene = new THREE.Scene();
 
     const thumbCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 10000);
@@ -530,7 +626,8 @@ export function renderThumbnail(arrayBuffer, extension, canvas) {
           }
         });
       } else if (extension === "3mf") {
-        const obj = new ThreeMFLoader().parse(arrayBuffer);
+        const fixedBuffer = await fix3MF(arrayBuffer);
+        const obj = new ThreeMFLoader().parse(fixedBuffer);
         obj.traverse((child) => {
           if (child instanceof THREE.Mesh && !geometry) {
             geometry = child.geometry;
