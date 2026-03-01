@@ -53,7 +53,7 @@ function registerIpcHandlers() {
     // Add to library folders (persist multiple folders)
     const existing = db
       .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("library_folders");
+      .get("library_folders") as any;
     let folders = existing ? JSON.parse(existing.value) : [];
     if (!folders.includes(folderPath)) {
       folders.push(folderPath);
@@ -73,7 +73,7 @@ function registerIpcHandlers() {
     const db = getDb();
     const row = db
       .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("library_folders");
+      .get("library_folders") as any;
     return row ? JSON.parse(row.value) : [];
   });
 
@@ -81,7 +81,7 @@ function registerIpcHandlers() {
     const db = getDb();
     const existing = db
       .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("library_folders");
+      .get("library_folders") as any;
     let folders = existing ? JSON.parse(existing.value) : [];
     folders = folders.filter((f) => f !== folderPath);
     db.prepare(
@@ -98,13 +98,13 @@ function registerIpcHandlers() {
     const db = getDb();
     const row = db
       .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("last_folder");
+      .get("last_folder") as any;
     return row ? row.value : null;
   });
 
   // ── Scanning ──────────────────────────────────────────────────
 
-  ipcMain.handle("scan-folder", async (event, folderPath) => {
+  async function performScan(folderPath: string) {
     const db = getDb();
     const files = await scanFolder(folderPath);
     const total = files.length;
@@ -113,7 +113,7 @@ function registerIpcHandlers() {
       db
         .prepare("SELECT path FROM files WHERE directory LIKE ?")
         .all(folderPath + "%")
-        .map((r) => r.path),
+        .map((r) => (r as any).path),
     );
 
     // ── Pass 1: Index files quickly (metadata only, no thumbnails) ──
@@ -127,7 +127,7 @@ function registerIpcHandlers() {
         .prepare(
           "SELECT modified_at, size_bytes, thumbnail FROM files WHERE path = ?",
         )
-        .get(file.path);
+        .get(file.path) as any;
       if (
         existing &&
         existing.modified_at === file.mtime &&
@@ -149,7 +149,7 @@ function registerIpcHandlers() {
       let meta = { vertexCount: 0, faceCount: 0 };
       try {
         meta = await extractMetadata(file.path, file.ext);
-      } catch (e) {
+      } catch (e: any) {
         console.warn(`Failed to extract metadata for ${file.path}:`, e.message);
       }
 
@@ -198,16 +198,20 @@ function registerIpcHandlers() {
     generateThumbnailsInBackground(filesToThumbnail, db);
 
     return { totalFiles: total };
+  }
+
+  ipcMain.handle("scan-folder", async (event, folderPath) => {
+    return performScan(folderPath);
   });
 
   ipcMain.handle("scan-all-library", async () => {
     const db = getDb();
     const row = db
       .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("library_folders");
+      .get("library_folders") as any;
     const folders = row ? JSON.parse(row.value) : [];
     for (const folder of folders) {
-      await ipcMain.emit("scan-folder-internal", folder);
+      await performScan(folder);
     }
     return folders;
   });
@@ -267,7 +271,7 @@ function registerIpcHandlers() {
 
     const countRow = db
       .prepare(`SELECT COUNT(*) as total FROM files ${whereClause}`)
-      .get(...params);
+      .get(...params) as any;
     const files = db
       .prepare(
         `SELECT * FROM files ${whereClause} ORDER BY ${sortCol} ${sortOrder} LIMIT ? OFFSET ?`,
@@ -306,7 +310,7 @@ function registerIpcHandlers() {
     const db = getDb();
     const row = db
       .prepare("SELECT thumbnail FROM files WHERE id = ?")
-      .get(fileId);
+      .get(fileId) as any;
     return row ? row.thumbnail : null;
   });
 
@@ -316,26 +320,36 @@ function registerIpcHandlers() {
     const db = getDb();
     const row = db
       .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("last_folder");
+      .get("last_folder") as any;
     if (!row) return null;
     return row.value;
   });
 
   ipcMain.handle("get-stats", () => {
     const db = getDb();
-    const total = db.prepare("SELECT COUNT(*) as count FROM files").get().count;
-    const stl = db
-      .prepare("SELECT COUNT(*) as count FROM files WHERE extension = 'stl'")
-      .get().count;
-    const obj = db
-      .prepare("SELECT COUNT(*) as count FROM files WHERE extension = 'obj'")
-      .get().count;
-    const threemf = db
-      .prepare("SELECT COUNT(*) as count FROM files WHERE extension = '3mf'")
-      .get().count;
-    const totalSize = db
-      .prepare("SELECT COALESCE(SUM(size_bytes), 0) as total FROM files")
-      .get().total;
+    const total = (
+      db.prepare("SELECT COUNT(*) as count FROM files").get() as any
+    ).count;
+    const stl = (
+      db
+        .prepare("SELECT COUNT(*) as count FROM files WHERE extension = 'stl'")
+        .get() as any
+    ).count;
+    const obj = (
+      db
+        .prepare("SELECT COUNT(*) as count FROM files WHERE extension = 'obj'")
+        .get() as any
+    ).count;
+    const threemf = (
+      db
+        .prepare("SELECT COUNT(*) as count FROM files WHERE extension = '3mf'")
+        .get() as any
+    ).count;
+    const totalSize = (
+      db
+        .prepare("SELECT COALESCE(SUM(size_bytes), 0) as total FROM files")
+        .get() as any
+    ).total;
     return { total, stl, obj, threemf, totalSize };
   });
 

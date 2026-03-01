@@ -503,11 +503,13 @@ async function fix3MF(buffer) {
     };
 
     let mainXml = await zip.file(mainModelFile).async("string");
-    mainXml = repairXmlString(mainXml);
+    const repairedMainXml = repairXmlString(mainXml);
+    let modified = repairedMainXml !== mainXml;
 
-    // We strictly overwrite the zip file with the repaired XML to save Three.js parser down the line
-    zip.file(mainModelFile, mainXml);
-    let modified = true;
+    if (modified) {
+      zip.file(mainModelFile, repairedMainXml);
+      mainXml = repairedMainXml;
+    }
 
     const parser = new DOMParser();
     const doc = parser.parseFromString(mainXml, "application/xml");

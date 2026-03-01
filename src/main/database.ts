@@ -3,10 +3,12 @@ import { app } from "electron";
 import path from "path";
 import fs from "fs";
 
-let db = null;
+let db: Database.Database | null = null;
 
 export function initDatabase() {
-  const dbDir = path.join(app.getPath("userData"), "data");
+  const userDataPath =
+    process.env.ELECTRON_USER_DATA || app.getPath("userData");
+  const dbDir = path.join(userDataPath, "data");
   fs.mkdirSync(dbDir, { recursive: true });
 
   const dbPath = path.join(dbDir, "polytray.db");
