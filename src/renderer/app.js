@@ -18,6 +18,7 @@ const state = {
   extension: null,
   search: "",
   isScanning: false,
+  isGeneratingThumbnails: false,
 };
 
 // ── DOM Elements ──────────────────────────────────────────────────
@@ -82,6 +83,7 @@ async function init() {
   window.polytray.onScanComplete(handleScanComplete);
   window.polytray.onFilesUpdated(handleFilesUpdated);
   window.polytray.onThumbnailReady(handleThumbnailReady);
+  window.polytray.onThumbnailProgress(handleThumbnailProgress);
 }
 
 // ── Event Bindings ────────────────────────────────────────────────
@@ -261,7 +263,10 @@ async function handleScanComplete(data) {
   progressText.textContent = `Scan complete — ${data.totalFiles} files`;
 
   setTimeout(() => {
-    scanProgress.classList.add("hidden");
+    // Only hide if thumbnail generation hasn't taken over
+    if (!state.isGeneratingThumbnails) {
+      scanProgress.classList.add("hidden");
+    }
   }, 2000);
 
   await loadFiles();
@@ -271,6 +276,36 @@ async function handleScanComplete(data) {
   for (const folder of state.libraryFolders) {
     window.polytray.startWatching(folder);
   }
+}
+
+function handleThumbnailProgress(data) {
+  const { current, total, filename, phase } = data;
+
+  if (phase === "start") {
+    state.isGeneratingThumbnails = true;
+    scanProgress.classList.remove("hidden");
+    progressFill.style.width = "0%";
+    progressText.textContent = "Generating thumbnails...";
+    progressCount.textContent = `0 / ${total}`;
+    return;
+  }
+
+  if (phase === "done") {
+    state.isGeneratingThumbnails = false;
+    progressFill.style.width = "100%";
+    progressText.textContent = `Thumbnails complete — ${total} generated`;
+    progressCount.textContent = `${total} / ${total}`;
+    setTimeout(() => {
+      scanProgress.classList.add("hidden");
+    }, 2000);
+    return;
+  }
+
+  // phase === "progress"
+  const pct = Math.round((current / total) * 100);
+  progressFill.style.width = `${pct}%`;
+  progressText.textContent = `Thumbnail: ${filename}`;
+  progressCount.textContent = `${current} / ${total}`;
 }
 
 async function handleFilesUpdated() {

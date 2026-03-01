@@ -349,8 +349,20 @@ function registerIpcHandlers() {
 
 async function generateThumbnailsInBackground(filesToThumbnail, db) {
   const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+  const total = filesToThumbnail.length;
+  if (total === 0) return;
 
-  for (let i = 0; i < filesToThumbnail.length; i++) {
+  // Notify renderer that thumbnail generation is starting
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("thumbnail-progress", {
+      current: 0,
+      total,
+      filename: "",
+      phase: "start",
+    });
+  }
+
+  for (let i = 0; i < total; i++) {
     // Bail out if window was closed
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
@@ -382,8 +394,28 @@ async function generateThumbnailsInBackground(filesToThumbnail, db) {
       console.warn(`Failed to generate thumbnail for ${file.path}:`, e.message);
     }
 
+    // Send progress update
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("thumbnail-progress", {
+        current: i + 1,
+        total,
+        filename: file.name,
+        phase: "progress",
+      });
+    }
+
     // Throttle: give the renderer breathing room between renders
     await delay(150);
+  }
+
+  // Notify renderer that thumbnail generation is done
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("thumbnail-progress", {
+      current: total,
+      total,
+      filename: "",
+      phase: "done",
+    });
   }
 }
 

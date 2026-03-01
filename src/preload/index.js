@@ -47,6 +47,9 @@ contextBridge.exposeInMainWorld("polytray", {
   onThumbnailReady: (callback) => {
     ipcRenderer.on("thumbnail-ready", (event, data) => callback(data));
   },
+  onThumbnailProgress: (callback) => {
+    ipcRenderer.on("thumbnail-progress", (event, data) => callback(data));
+  },
 
   // Thumbnail generation (main → renderer → main)
   onThumbnailRequest: (callback) => {
