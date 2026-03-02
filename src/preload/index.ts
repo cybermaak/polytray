@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld("polytray", {
   // Thumbnails — served as base64 data URLs
   readThumbnail: (thumbnailPath: string) =>
     ipcRenderer.invoke("read-thumbnail", thumbnailPath),
+  requestThumbnailGeneration: (filePath: string, ext: string) =>
+    ipcRenderer.invoke("request-thumbnail-generation", filePath, ext),
 
   // File watching
   startWatching: (folderPath: string) =>

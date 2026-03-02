@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, protocol, net } from "electron";
 import { join } from "path";
 import { initDatabase, getDb } from "./database";
 import { scanFolder } from "./scanner";
@@ -17,6 +17,19 @@ import {
 
 // Set the application name for macOS menu bar
 app.setName("PolyTray");
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "polytray",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      bypassCSP: true,
+      corsEnabled: true,
+    },
+  },
+]);
 
 // ── Portable Mode Initialization ─────────────────────────────────────
 const exePath = app.getPath("exe");
@@ -74,7 +87,7 @@ function createWindow() {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
               "font-src 'self' https://fonts.gstatic.com; " +
               "img-src 'self' data: blob:; " +
-              "connect-src 'self' http://localhost:* ws://localhost:*;",
+              "connect-src 'self' http://localhost:* ws://localhost:* polytray:;",
           ],
         },
       });
@@ -178,7 +191,7 @@ function registerIpcHandlers() {
 
       const existing = db
         .prepare(
-          "SELECT modified_at, size_bytes, thumbnail FROM files WHERE path = ?",
+          "SELECT modified_at, size_bytes, thumbnail, thumbnail_failed FROM files WHERE path = ?",
         )
         .get(file.path) as any;
       if (
@@ -186,8 +199,8 @@ function registerIpcHandlers() {
         existing.modified_at === file.mtime &&
         existing.size_bytes === file.size
       ) {
-        // Already up to date — skip but mark for thumbnail if missing
-        if (!existing.thumbnail) {
+        // Already up to date — skip but mark for thumbnail if missing and hasn't failed previously
+        if (!existing.thumbnail && !existing.thumbnail_failed) {
           filesToThumbnail.push(file);
         }
         if (mainWindow) {
@@ -209,8 +222,8 @@ function registerIpcHandlers() {
       }
 
       db.prepare(
-        `INSERT OR REPLACE INTO files (path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, thumbnail, indexed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO files (path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, thumbnail, thumbnail_failed, indexed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         file.path,
         file.name,
@@ -221,6 +234,7 @@ function registerIpcHandlers() {
         meta.vertexCount,
         meta.faceCount,
         null, // thumbnail will be generated in pass 2
+        0, // thumbnail_failed
         Date.now(),
       );
 
@@ -391,6 +405,25 @@ function registerIpcHandlers() {
     return row ? row.thumbnail : null;
   });
 
+  ipcMain.handle(
+    "request-thumbnail-generation",
+    async (event, filePath, ext) => {
+      if (!mainWindow) return null;
+      const thumbnailPath = await generateThumbnail(filePath, ext, mainWindow);
+      const db = getDb();
+      if (thumbnailPath) {
+        db.prepare(
+          "UPDATE files SET thumbnail = ?, thumbnail_failed = 0 WHERE path = ?",
+        ).run(thumbnailPath, filePath);
+      } else {
+        db.prepare("UPDATE files SET thumbnail_failed = 1 WHERE path = ?").run(
+          filePath,
+        );
+      }
+      return thumbnailPath;
+    },
+  );
+
   // ── Other ─────────────────────────────────────────────────────
 
   ipcMain.handle("rescan", async () => {
@@ -492,6 +525,10 @@ async function generateThumbnailsInBackground(
             thumbnailPath,
           });
         }
+      } else {
+        db.prepare("UPDATE files SET thumbnail_failed = 1 WHERE path = ?").run(
+          file.path,
+        );
       }
     } catch (e: any) {
       console.warn(`Failed to generate thumbnail for ${file.path}:`, e.message);
@@ -525,6 +562,12 @@ async function generateThumbnailsInBackground(
 // ── App Lifecycle ─────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  protocol.handle("polytray", (request) => {
+    const urlStr = request.url.slice("polytray://local/".length);
+    const filePath = decodeURIComponent(urlStr.split("?")[0]);
+    return net.fetch("file://" + filePath);
+  });
+
   initDatabase();
   createWindow();
   registerIpcHandlers();

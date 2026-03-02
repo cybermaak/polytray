@@ -218,9 +218,66 @@ test("clicking a file card opens the 3D preview panel", async () => {
   expect(meta).toBeTruthy();
 
   // The viewer container should have a canvas (Three.js renderer)
-  await window.waitForTimeout(2000); // Wait for Three.js to init
-  const canvasCount = await window.locator("#viewer-container canvas").count();
-  expect(canvasCount).toBe(1);
+  const canvasLocator = window.locator("#viewer-container canvas");
+  await expect(canvasLocator).toHaveCount(1);
+
+  // Wait for loading to finish
+  const loadingIndicator = window.locator("#viewer-loading");
+  await expect(loadingIndicator).toHaveClass(/hidden/);
+
+  // Wait an extra moment for the render loop to draw
+  await window.waitForTimeout(1000);
+
+  // Verify that the canvas actually rendered something (not just the background)
+  const isRendered = await window.evaluate(() => {
+    const canvas = document.querySelector("#viewer-container canvas");
+    if (!canvas) return false;
+
+    // Create a generic 2D canvas to read the WebGL buffer
+    const tempCanvas = document.createElement("canvas");
+    tempCanvas.width = canvas.width;
+    tempCanvas.height = canvas.height;
+    const tempCtx = tempCanvas.getContext("2d");
+    if (!tempCtx) return false;
+
+    tempCtx.drawImage(canvas, 0, 0);
+    const imgData = tempCtx.getImageData(
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    ).data;
+
+    // Background color is #0a0a0f (10, 10, 15). Let's see if any pixel differs significantly.
+    for (let i = 0; i < imgData.length; i += 4) {
+      if (
+        Math.abs(imgData[i] - 10) > 10 ||
+        Math.abs(imgData[i + 1] - 10) > 10 ||
+        Math.abs(imgData[i + 2] - 15) > 10
+      ) {
+        return true; // Found content pixel
+      }
+    }
+    return false;
+  });
+
+  expect(isRendered).toBe(true);
+
+  // Verify that the scale normalization logic ran constraint the model size
+  const modelMetrics = await window.evaluate(() => {
+    const model = window.__POLYTRAY_CURRENT_MODEL;
+    if (!model) return null;
+    return {
+      scaleX: model.scale.x,
+      scaleY: model.scale.y,
+      scaleZ: model.scale.z,
+    };
+  });
+  expect(modelMetrics).not.toBeNull();
+
+  // A generic model will have a calculated scale (very rarely exactly 1.0 across floating point math)
+  // We mostly care that the attribute is populated and valid, which means `loadModel` successfully attached the normalized group
+  expect(typeof modelMetrics.scaleX).toBe("number");
 });
 
 // ── Test 6: Preview panel controls work ────────────────────────────

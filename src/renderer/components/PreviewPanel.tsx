@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 import { formatSize, formatNumber } from "../lib/formatters";
 import {
   initViewer,
-  loadModel,
+  loadModelFromUrl,
   disposeViewer,
   toggleWireframe,
   resetCamera,
@@ -18,6 +18,7 @@ interface FileRecord {
   size_bytes: number;
   vertex_count: number;
   face_count: number;
+  thumbnail?: string | null;
 }
 
 interface Props {
@@ -29,6 +30,7 @@ interface Props {
 export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(false);
+  const [loadProgress, setLoadProgress] = useState<number>(-1);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [wireframe, setWireframe] = useState(false);
@@ -50,11 +52,21 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
 
       try {
         initViewer(containerRef.current);
-        const buffer = await window.polytray.readFileBuffer(file.path);
-        if (cancelled) return;
-        await loadModel(buffer, file.extension, file.name);
+        await loadModelFromUrl(
+          file.path,
+          file.extension,
+          file.name,
+          (percent) => {
+            if (!cancelled) setLoadProgress(percent);
+          },
+        );
         if (cancelled) return;
         setLoading(false);
+
+        // Thumbnail robustness: attempt one last generation if missing
+        if (!file.thumbnail) {
+          window.polytray.requestThumbnailGeneration(file.path, file.extension);
+        }
       } catch (e) {
         if (cancelled) return;
         console.error("Failed to load model:", e);
@@ -323,7 +335,13 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
           className="spinner"
           style={{ display: loadError ? "none" : "block" }}
         />
-        <span>{loadError || "Loading model..."}</span>
+        <span>
+          {loadError
+            ? loadError
+            : loadProgress >= 0
+              ? `Downloading model (${loadProgress}%)...`
+              : "Processing 3D data..."}
+        </span>
       </div>
     </aside>
   );

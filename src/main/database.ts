@@ -29,6 +29,7 @@ export function initDatabase() {
       vertex_count  INTEGER DEFAULT 0,
       face_count    INTEGER DEFAULT 0,
       thumbnail     TEXT,
+      thumbnail_failed INTEGER DEFAULT 0,
       indexed_at    INTEGER NOT NULL
     );
 
@@ -41,6 +42,18 @@ export function initDatabase() {
       value TEXT
     );
   `);
+
+  // Schema migration for existing databases
+  try {
+    db.prepare(
+      "ALTER TABLE files ADD COLUMN thumbnail_failed INTEGER DEFAULT 0",
+    ).run();
+  } catch (e: any) {
+    // If column already exists (e.g. "duplicate column name"), ignore the error
+    if (!e.message.includes("duplicate column name")) {
+      console.warn("Schema migration warning:", e.message);
+    }
+  }
 
   return db;
 }

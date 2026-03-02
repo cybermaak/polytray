@@ -15,6 +15,19 @@ const os = require("os");
   });
 
   const window = await app.firstWindow();
+  let hasErrors = false;
+  window.on("console", (msg) => {
+    if (msg.type() === "error") {
+      console.error(`[Browser Console Error] ${msg.text()}`);
+      hasErrors = true;
+    } else {
+      console.log(`[Browser Console] ${msg.type()}: ${msg.text()}`);
+    }
+  });
+  window.on("pageerror", (error) => {
+    console.error(`[Browser Error]: ${error.message}`);
+    hasErrors = true;
+  });
   await window.waitForLoadState("domcontentloaded");
   await window.waitForTimeout(1000);
 
@@ -64,7 +77,25 @@ const os = require("os");
 
   await window.waitForTimeout(2000);
 
+  // 5. Check for Preview Panel Load Errors
+  const loadErrorStatus = await window.evaluate(() => {
+    const errorEl = document.querySelector("#viewer-loading span");
+    return errorEl ? errorEl.innerText : "";
+  });
+  if (loadErrorStatus.includes("Failed")) {
+    console.error("UI indicates model failed to load:", loadErrorStatus);
+    hasErrors = true;
+  }
+
   await app.close();
   fs.rmSync(tempUserData, { recursive: true, force: true });
   console.log("Verification complete.");
-})().catch(console.error);
+
+  if (hasErrors) {
+    console.error("TEST FAILED: Browser errors were encountered.");
+    process.exit(1);
+  }
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

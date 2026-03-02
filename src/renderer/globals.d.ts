@@ -57,6 +57,10 @@ interface PolytrayAPI {
 
   readFileBuffer: (filePath: string) => Promise<ArrayBuffer>;
   readThumbnail: (thumbnailPath: string) => Promise<string | null>;
+  requestThumbnailGeneration: (
+    filePath: string,
+    ext: string,
+  ) => Promise<string | null>;
 
   startWatching: (folderPath: string) => Promise<void>;
   stopWatching: () => Promise<void>;

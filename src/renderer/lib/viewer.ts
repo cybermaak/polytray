@@ -291,6 +291,47 @@ function applySmartOrientation(meshOrGroup: THREE.Object3D) {
   meshOrGroup.updateMatrixWorld(true);
 }
 
+export async function loadModelFromUrl(
+  fileUrl: string,
+  extension: string,
+  fileName: string,
+  onProgress?: (percent: number) => void,
+) {
+  const loadUrl = fileUrl.startsWith("polytray://local/")
+    ? fileUrl
+    : `polytray://local/${encodeURIComponent(fileUrl)}`;
+
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", loadUrl, true);
+    xhr.responseType = "arraybuffer";
+
+    xhr.onprogress = (event) => {
+      if (onProgress && event.lengthComputable && event.total > 0) {
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      } else if (onProgress) {
+        onProgress(-1); // Indeterminate or parsing phase
+      }
+    };
+
+    xhr.onload = async () => {
+      if (xhr.status === 200 || xhr.status === 0) {
+        try {
+          await loadModel(xhr.response, extension, fileName);
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
+      } else {
+        reject(new Error(`Failed to load ${loadUrl}: status ${xhr.status}`));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error("Network error loading model"));
+    xhr.send();
+  });
+}
+
 export async function loadModel(
   arrayBuffer: ArrayBuffer,
   extension: string,
@@ -336,11 +377,23 @@ export async function loadModel(
     group.updateMatrixWorld(true);
   }
 
+  // Final recenter to bring the base of the model to the grid floor
+  const finalBox = new THREE.Box3().setFromObject(group);
+  const finalCenter = finalBox.getCenter(new THREE.Vector3());
+  group.position.x -= finalCenter.x;
+  group.position.y -= finalBox.min.y;
+  group.position.z -= finalCenter.z;
+
   scene!.add(group);
   currentModel = group;
 
   // Render multi-model carousel if applicable
   await updateMultiModelThumbnailStrip(group);
+
+  // Expose current model for E2E testing diagnostics
+  if (typeof window !== "undefined") {
+    (window as any).__POLYTRAY_CURRENT_MODEL = currentModel;
+  }
 
   // Auto-fit camera
   fitCameraToObject(group);

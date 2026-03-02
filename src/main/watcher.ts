@@ -79,19 +79,22 @@ async function handleFileChange(
     }
 
     let thumbnailPath: string | null = null;
+    let thumbnailFailed = 0;
     try {
       thumbnailPath = await generateThumbnail(filePath, ext, mainWindow);
+      if (!thumbnailPath) thumbnailFailed = 1;
     } catch (e: any) {
       console.warn(
         `Watcher: Failed to generate thumbnail for ${filePath}:`,
         e.message,
       );
+      thumbnailFailed = 1;
     }
 
     db.prepare(
       `
-      INSERT OR REPLACE INTO files (path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, thumbnail, indexed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO files (path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, thumbnail, thumbnail_failed, indexed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     ).run(
       filePath,
@@ -103,6 +106,7 @@ async function handleFileChange(
       meta.vertexCount,
       meta.faceCount,
       thumbnailPath,
+      thumbnailFailed,
       Date.now(),
     );
 
