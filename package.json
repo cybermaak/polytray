@@ -11,7 +11,11 @@
     "postinstall": "electron-builder install-app-deps",
     "clean": "rm -rf out dist dist-electron",
     "test:e2e": "node tests/generate-fixtures.js && npx playwright test",
-    "release": "electron-builder --publish always"
+    "release": "electron-builder --publish always",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux",
+    "build:all": "electron-builder -mwl"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",

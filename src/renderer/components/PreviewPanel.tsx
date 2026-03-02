@@ -123,9 +123,16 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
     <aside id="preview-panel" className={panelClasses}>
       <div className="viewer-header">
         <div className="viewer-title">
-          <h2 id="viewer-filename">
+          <h2 id="viewer-filename" style={{ userSelect: "text" }}>
             {file ? `${file.name}.${file.extension}` : "model_name.stl"}
           </h2>
+          <div
+            className="viewer-path"
+            id="viewer-path"
+            title={file?.path || ""}
+          >
+            {file?.path || ""}
+          </div>
           <div className="viewer-meta" id="viewer-meta">
             {file
               ? `Volume: ${formatSize(file.size_bytes)} | ${formatNumber(file.face_count)} Faces | ${formatNumber(file.vertex_count)} Vertices | ${file.extension.toUpperCase()}`
@@ -139,49 +146,19 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
             title="Toggle wireframe"
             onClick={handleWireframe}
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <rect
-                x="1"
-                y="1"
-                width="14"
-                height="14"
-                rx="1"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                fill="none"
-              />
-              <line
-                x1="1"
-                y1="5.5"
-                x2="15"
-                y2="5.5"
-                stroke="currentColor"
-                strokeWidth="1"
-              />
-              <line
-                x1="1"
-                y1="10.5"
-                x2="15"
-                y2="10.5"
-                stroke="currentColor"
-                strokeWidth="1"
-              />
-              <line
-                x1="5.5"
-                y1="1"
-                x2="5.5"
-                y2="15"
-                stroke="currentColor"
-                strokeWidth="1"
-              />
-              <line
-                x1="10.5"
-                y1="1"
-                x2="10.5"
-                y2="15"
-                stroke="currentColor"
-                strokeWidth="1"
-              />
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="2" y1="12" x2="22" y2="12"></line>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
             </svg>
           </button>
           <button

@@ -54,8 +54,8 @@ export function initViewer(containerEl: HTMLElement) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.2;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.enabled = false;
+  // renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   container.appendChild(renderer.domElement);
 
   // Controls
@@ -92,15 +92,15 @@ function setupLighting() {
 
   const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
   dirLight.position.set(5, 8, 5);
-  dirLight.castShadow = true;
-  dirLight.shadow.mapSize.width = 2048;
-  dirLight.shadow.mapSize.height = 2048;
-  dirLight.shadow.camera.near = 0.1;
-  dirLight.shadow.camera.far = 50;
-  dirLight.shadow.camera.left = -10;
-  dirLight.shadow.camera.right = 10;
-  dirLight.shadow.camera.top = 10;
-  dirLight.shadow.camera.bottom = -10;
+  // dirLight.castShadow = true;
+  // dirLight.shadow.mapSize.width = 2048;
+  // dirLight.shadow.mapSize.height = 2048;
+  // dirLight.shadow.camera.near = 0.1;
+  // dirLight.shadow.camera.far = 50;
+  // dirLight.shadow.camera.left = -10;
+  // dirLight.shadow.camera.right = 10;
+  // dirLight.shadow.camera.top = 10;
+  // dirLight.shadow.camera.bottom = -10;
   camera!.add(dirLight);
 
   // Fill light
@@ -452,6 +452,12 @@ function loadSTL(arrayBuffer: ArrayBuffer, group: THREE.Group) {
   return new Promise<void>((resolve) => {
     const loader = new STLLoader();
     const geometry = loader.parse(arrayBuffer);
+
+    // Some STLs incorrectly specify vertex colors (which default to black)
+    // We explicitly remove the color attribute so our designated material color applies
+    if (geometry.hasAttribute("color")) {
+      geometry.deleteAttribute("color");
+    }
 
     const material = createMaterial();
     const mesh = new THREE.Mesh(geometry, material);

@@ -9,8 +9,6 @@ interface Props {
   onSearch: (query: string) => void;
   onRescan: () => void;
   onClearThumbnails: () => void;
-  lightMode: boolean;
-  onSettingsChange: (settings: any) => void;
 }
 
 export const Toolbar: React.FC<Props> = ({
@@ -22,8 +20,6 @@ export const Toolbar: React.FC<Props> = ({
   onSearch,
   onRescan,
   onClearThumbnails,
-  lightMode,
-  onSettingsChange,
 }) => {
   const [searchValue, setSearchValue] = useState(search);
   const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -37,10 +33,6 @@ export const Toolbar: React.FC<Props> = ({
   const clearSearch = () => {
     setSearchValue("");
     onSearch("");
-  };
-
-  const handleThemeToggle = () => {
-    onSettingsChange({ lightMode: !lightMode });
   };
 
   return (
@@ -85,23 +77,6 @@ export const Toolbar: React.FC<Props> = ({
       </div>
 
       <div className="toolbar-controls">
-        <button
-          id="btn-theme-toggle"
-          className="btn-icon"
-          title="Toggle Light/Dark Mode"
-          onClick={handleThemeToggle}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M8 12a4 4 0 100-8 4 4 0 000 8zM8 2V1M8 15v-1M2 8H1M15 8h-1M3.75 3.75L3 3M13 13l-.75-.75M3.75 12.25L3 13M13 3l-.75.75"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-
         <select
           id="sort-select"
           value={sort}

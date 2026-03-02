@@ -569,7 +569,11 @@ body {
 .card-thumbnail {
   width: 100%;
   aspect-ratio: 1 / 1;
-  background: var(--bg-hover);
+  background: radial-gradient(
+    circle at center,
+    var(--bg-hover) 0%,
+    var(--bg-surface) 100%
+  );
   position: relative;
   overflow: hidden;
   flex-shrink: 0;
@@ -826,8 +830,9 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  direction: rtl;
+  direction: ltr;
   text-align: left;
+  user-select: text;
 }
 
 .viewer-controls {
@@ -883,7 +888,7 @@ body {
   overflow: hidden;
   background: radial-gradient(
     circle at center,
-    #2a2a2a 0%,
+    var(--bg-hover) 0%,
     var(--bg-surface) 100%
   );
 }

@@ -469,6 +469,8 @@ export const App: React.FC = () => {
           onRemoveFolder={handleRemoveFolder}
           onFilterChange={handleExtensionFilter}
           onOpenSettings={() => setSettingsOpen(true)}
+          lightMode={settings.lightMode}
+          onSettingsChange={handleSettingsChange}
         />
         <main id="content">
           <Toolbar
@@ -480,8 +482,6 @@ export const App: React.FC = () => {
             onSearch={handleSearch}
             onRescan={handleRescan}
             onClearThumbnails={handleClearThumbnails}
-            lightMode={settings.lightMode}
-            onSettingsChange={handleSettingsChange}
           />
           {/* file-grid is ALWAYS rendered as a direct child of #content */}
           <div

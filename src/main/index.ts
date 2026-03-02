@@ -80,6 +80,12 @@ function createWindow() {
       });
     },
   );
+
+  // Force quit when the main window is closed, especially on macOS
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+    app.quit();
+  });
 }
 
 // ── IPC Handlers ──────────────────────────────────────────────
@@ -460,6 +466,10 @@ async function generateThumbnailsInBackground(
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
     const file = filesToThumbnail[i];
+
+    // Yield to the event loop so IPC and the renderer don't starve/freeze
+    await delay(50);
+
     try {
       const thumbnailPath = await generateThumbnail(
         file.path,
@@ -528,7 +538,5 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   stopWatcher();
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+  app.quit();
 });
