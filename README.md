@@ -13,7 +13,7 @@
 
 ## 📸 Screenshots
 
-![Polytray Preview](tests/preview-screenshot.png)
+![Polytray Preview](build/screenshot.png)
 
 ## 💻 Usage
 
