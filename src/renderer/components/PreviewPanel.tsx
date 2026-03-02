@@ -133,52 +133,7 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
 
   return (
     <aside id="preview-panel" className={panelClasses}>
-      <div className="viewer-header">
-        <div className="viewer-title">
-          <h2 id="viewer-filename" style={{ userSelect: "text" }}>
-            {file ? `${file.name}.${file.extension}` : "model_name.stl"}
-          </h2>
-          <div
-            className="viewer-path"
-            id="viewer-path"
-            title={file?.path || ""}
-          >
-            <span
-              style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}
-            >
-              {file?.path || ""}
-            </span>
-            {file && (
-              <button
-                className="btn-copy-path"
-                title="Copy full path"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigator.clipboard.writeText(file.path);
-                }}
-              >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                </svg>
-              </button>
-            )}
-          </div>
-          <div className="viewer-meta" id="viewer-meta">
-            {file
-              ? `Volume: ${formatSize(file.size_bytes)} | ${formatNumber(file.face_count)} Faces | ${formatNumber(file.vertex_count)} Vertices | ${file.extension.toUpperCase()}`
-              : ""}
-          </div>
-        </div>
+      <div className="viewer-header" style={{ justifyContent: "flex-end" }}>
         <div className="viewer-controls">
           <button
             id="btn-wireframe"
@@ -342,6 +297,54 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
               ? `Downloading model (${loadProgress}%)...`
               : "Processing 3D data..."}
         </span>
+      </div>
+
+      <div className="viewer-footer">
+        <div className="viewer-title">
+          <h2 id="viewer-filename" style={{ userSelect: "text" }}>
+            {file ? `${file.name}.${file.extension}` : "model_name.stl"}
+          </h2>
+          <div
+            className="viewer-path"
+            id="viewer-path"
+            title={file?.path || ""}
+          >
+            <span
+              style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}
+            >
+              {file?.path || ""}
+            </span>
+            {file && (
+              <button
+                className="btn-copy-path"
+                title="Copy full path"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigator.clipboard.writeText(file.path);
+                }}
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              </button>
+            )}
+          </div>
+          <div className="viewer-meta" id="viewer-meta">
+            {file
+              ? `Volume: ${formatSize(file.size_bytes)} | ${formatNumber(file.face_count)} Faces | ${formatNumber(file.vertex_count)} Vertices | ${file.extension.toUpperCase()}`
+              : ""}
+          </div>
+        </div>
       </div>
     </aside>
   );

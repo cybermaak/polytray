@@ -16,52 +16,59 @@ function createBinarySTL(filename) {
   //   80-byte header
   //   4-byte uint32 triangle count
   //   Per triangle: 12 floats (normal + 3 vertices) + 2-byte attribute
-  const triangleCount = 2; // A simple square = 2 triangles
+  const triangleCount = 12; // A simple cube = 12 triangles
   const bufferSize = 80 + 4 + triangleCount * 50;
   const buf = Buffer.alloc(bufferSize);
 
   // Header (80 bytes)
-  buf.write("Binary STL test fixture", 0, "ascii");
+  buf.write("Binary STL test fixture - solid cube", 0, "ascii");
 
   // Triangle count
   buf.writeUInt32LE(triangleCount, 80);
 
-  // Triangle 1: (0,0,0) (1,0,0) (1,1,0) — normal (0,0,1)
-  let offset = 84;
-  // Normal
-  buf.writeFloatLE(0, offset);
-  buf.writeFloatLE(0, offset + 4);
-  buf.writeFloatLE(1, offset + 8);
-  // Vertex 1
-  buf.writeFloatLE(0, offset + 12);
-  buf.writeFloatLE(0, offset + 16);
-  buf.writeFloatLE(0, offset + 20);
-  // Vertex 2
-  buf.writeFloatLE(1, offset + 24);
-  buf.writeFloatLE(0, offset + 28);
-  buf.writeFloatLE(0, offset + 32);
-  // Vertex 3
-  buf.writeFloatLE(1, offset + 36);
-  buf.writeFloatLE(1, offset + 40);
-  buf.writeFloatLE(0, offset + 44);
-  // Attribute byte count
-  buf.writeUInt16LE(0, offset + 48);
+  const triangles = [
+    // z=0 face (normal 0,0,-1)
+    [0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 1, 0],
+    [0, 0, -1, 0, 0, 0, 1, 1, 0, 1, 0, 0],
+    // z=1 face (normal 0,0,1)
+    [0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1],
+    [0, 0, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1],
+    // x=0 face (normal -1,0,0)
+    [-1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1],
+    [-1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0],
+    // x=1 face (normal 1,0,0)
+    [1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1],
+    [1, 0, 0, 1, 0, 0, 1, 1, 1, 1, 0, 1],
+    // y=0 face (normal 0,-1,0)
+    [0, -1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1],
+    [0, -1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1],
+    // y=1 face (normal 0,1,0)
+    [0, 1, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1],
+    [0, 1, 0, 0, 1, 0, 1, 1, 1, 1, 1, 0],
+  ];
 
-  // Triangle 2: (0,0,0) (1,1,0) (0,1,0) — normal (0,0,1)
-  offset = 84 + 50;
-  buf.writeFloatLE(0, offset);
-  buf.writeFloatLE(0, offset + 4);
-  buf.writeFloatLE(1, offset + 8);
-  buf.writeFloatLE(0, offset + 12);
-  buf.writeFloatLE(0, offset + 16);
-  buf.writeFloatLE(0, offset + 20);
-  buf.writeFloatLE(1, offset + 24);
-  buf.writeFloatLE(1, offset + 28);
-  buf.writeFloatLE(0, offset + 32);
-  buf.writeFloatLE(0, offset + 36);
-  buf.writeFloatLE(1, offset + 40);
-  buf.writeFloatLE(0, offset + 44);
-  buf.writeUInt16LE(0, offset + 48);
+  let offset = 84;
+  for (const tri of triangles) {
+    // Normal
+    buf.writeFloatLE(tri[0], offset);
+    buf.writeFloatLE(tri[1], offset + 4);
+    buf.writeFloatLE(tri[2], offset + 8);
+    // Vertex 1
+    buf.writeFloatLE(tri[3], offset + 12);
+    buf.writeFloatLE(tri[4], offset + 16);
+    buf.writeFloatLE(tri[5], offset + 20);
+    // Vertex 2
+    buf.writeFloatLE(tri[6], offset + 24);
+    buf.writeFloatLE(tri[7], offset + 28);
+    buf.writeFloatLE(tri[8], offset + 32);
+    // Vertex 3
+    buf.writeFloatLE(tri[9], offset + 36);
+    buf.writeFloatLE(tri[10], offset + 40);
+    buf.writeFloatLE(tri[11], offset + 44);
+    // Attribute byte count
+    buf.writeUInt16LE(0, offset + 48);
+    offset += 50;
+  }
 
   fs.writeFileSync(path.join(FIXTURE_DIR, filename), buf);
   console.log(
