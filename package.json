@@ -10,7 +10,8 @@
     "start": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps",
     "clean": "rm -rf out dist dist-electron",
-    "test:e2e": "node tests/generate-fixtures.js && npx playwright test"
+    "test:e2e": "node tests/generate-fixtures.js && npx playwright test",
+    "release": "electron-builder --publish always"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
@@ -43,14 +44,25 @@
       "output": "dist"
     },
     "mac": {
-      "target": "dmg",
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "build/icon.png"
     },
     "win": {
-      "target": "portable"
+      "target": [
+        "nsis",
+        "portable"
+      ]
     },
     "linux": {
-      "target": "AppImage"
-    }
+      "target": [
+        "AppImage"
+      ]
+    },
+    "publish": [
+      "github"
+    ]
   }
 }

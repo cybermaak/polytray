@@ -18,6 +18,26 @@ import {
 // Set the application name for macOS menu bar
 app.setName("PolyTray");
 
+// ── Portable Mode Initialization ─────────────────────────────────────
+const exePath = app.getPath("exe");
+let exeDir = join(exePath, "..");
+
+// On macOS, the actual executable is inside MyApp.app/Contents/MacOS/
+if (process.platform === "darwin" && exePath.includes(".app/Contents/MacOS")) {
+  exeDir = join(exePath, "../../../.."); // Point to the directory containing MyApp.app
+}
+
+const portableDataDir = join(exeDir, "polytray-data");
+const portableFlag = join(exeDir, ".portable");
+
+// Use portable data directory if it exists, or if the .portable flag file exists
+if (fs.existsSync(portableDataDir)) {
+  app.setPath("userData", portableDataDir);
+} else if (fs.existsSync(portableFlag)) {
+  app.setPath("userData", portableDataDir);
+}
+// ───────────────────────────────────────────────────────────────────
+
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow() {

@@ -126,16 +126,9 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
           <h2 id="viewer-filename">
             {file ? `${file.name}.${file.extension}` : "model_name.stl"}
           </h2>
-          <div
-            className="viewer-path"
-            id="viewer-path"
-            title={file?.path || ""}
-          >
-            {file?.directory || ""}
-          </div>
           <div className="viewer-meta" id="viewer-meta">
             {file
-              ? `${formatNumber(file.vertex_count)} vertices · ${formatNumber(file.face_count)} faces · ${formatSize(file.size_bytes)} · ${file.extension.toUpperCase()}`
+              ? `Volume: ${formatSize(file.size_bytes)} | ${formatNumber(file.face_count)} Faces | ${formatNumber(file.vertex_count)} Vertices | ${file.extension.toUpperCase()}`
               : ""}
           </div>
         </div>
