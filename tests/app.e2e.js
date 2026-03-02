@@ -40,12 +40,18 @@ test.beforeAll(async () => {
   // Create isolated userData
   tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), "polytray-test-"));
 
+  const args = [
+    path.join(APP_DIR, "out/main/index.js"),
+    `--user-data-dir=${tempUserData}`,
+  ];
+
+  if (process.platform === "linux") {
+    args.push("--no-sandbox", "--disable-gpu");
+  }
+
   // Launch Electron with explicit user-data-dir to strictly isolate DB/settings from production
   app = await electron.launch({
-    args: [
-      path.join(APP_DIR, "out/main/index.js"),
-      `--user-data-dir=${tempUserData}`,
-    ],
+    args,
     env: {
       ...process.env,
       ELECTRON_USER_DATA: tempUserData,
