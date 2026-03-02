@@ -36,8 +36,9 @@ async function walkDir(dirPath: string, results: ScannedFile[]): Promise<void> {
     const fullPath = path.join(dirPath, entry.name);
 
     if (entry.isDirectory()) {
-      // Skip hidden directories
-      if (entry.name.startsWith(".")) continue;
+      // Skip tests/fixtures directory
+      if (entry.name === "fixtures" && dirPath.includes(path.sep + "tests"))
+        continue;
       await walkDir(fullPath, results);
     } else if (entry.isFile()) {
       const ext = path.extname(entry.name).toLowerCase().slice(1);

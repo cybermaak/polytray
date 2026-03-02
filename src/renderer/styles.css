@@ -781,7 +781,7 @@ body {
 }
 
 .viewer-header {
-  height: 52px;
+  height: var(--toolbar-height);
   padding: 0 var(--space-4);
   display: flex;
   align-items: center;
@@ -833,6 +833,28 @@ body {
   direction: ltr;
   text-align: left;
   user-select: text;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.btn-copy-path {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.btn-copy-path:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 .viewer-controls {

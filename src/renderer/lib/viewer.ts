@@ -458,6 +458,11 @@ function loadSTL(arrayBuffer: ArrayBuffer, group: THREE.Group) {
     if (geometry.hasAttribute("color")) {
       geometry.deleteAttribute("color");
     }
+    // Also explicitly override the custom flag STLLoader might set
+    (geometry as any).hasColors = false;
+
+    // Ensure we have correct normals for lighting calculations (prevents black rendering)
+    geometry.computeVertexNormals();
 
     const material = createMaterial();
     const mesh = new THREE.Mesh(geometry, material);
