@@ -11,7 +11,7 @@ import {
   clipboard,
 } from "electron";
 import { join } from "path";
-import { initDatabase, getDb } from "./database";
+import { initDatabase, getDb, getSetting, setSetting } from "./database";
 import { scanFolder } from "./scanner";
 import { extractMetadata } from "./metadata";
 import { generateThumbnail, getThumbnailDir } from "./thumbnails";
@@ -19,7 +19,6 @@ import { startWatcher, stopWatcher } from "./watcher";
 import fs from "fs";
 
 import {
-  SettingRow,
   FileRecord,
   CountRow,
   TotalRow,
@@ -126,46 +125,26 @@ function registerIpcHandlers() {
     if (result.canceled || result.filePaths.length === 0) return null;
 
     const folderPath = result.filePaths[0];
-    const db = getDb();
-
-    // Add to library folders (persist multiple folders)
-    const existing = db
-      .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("library_folders") as SettingRow | undefined;
-    let folders: string[] = existing ? JSON.parse(existing.value) : [];
+    const folders = getSetting<string[]>("library_folders", []);
     if (!folders.includes(folderPath)) {
       folders.push(folderPath);
     }
-    db.prepare(
-      "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-    ).run("library_folders", JSON.stringify(folders));
-    // Also update last_folder for quick access
-    db.prepare(
-      "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-    ).run("last_folder", folderPath);
+    setSetting("library_folders", folders);
+    setSetting("last_folder", folderPath);
 
     return folderPath;
   });
 
   ipcMain.handle(IPC.GET_LIBRARY_FOLDERS, () => {
-    const db = getDb();
-    const row = db
-      .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("library_folders") as SettingRow | undefined;
-    return row ? JSON.parse(row.value) : [];
+    return getSetting<string[]>("library_folders", []);
   });
 
   ipcMain.handle(IPC.REMOVE_LIBRARY_FOLDER, (event, folderPath) => {
-    const db = getDb();
-    const existing = db
-      .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("library_folders") as SettingRow | undefined;
-    let folders: string[] = existing ? JSON.parse(existing.value) : [];
+    let folders = getSetting<string[]>("library_folders", []);
     folders = folders.filter((f: string) => f !== folderPath);
-    db.prepare(
-      "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-    ).run("library_folders", JSON.stringify(folders));
+    setSetting("library_folders", folders);
     // Remove files from this folder
+    const db = getDb();
     db.prepare("DELETE FROM files WHERE directory LIKE ?").run(
       folderPath + "%",
     );
@@ -173,11 +152,7 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle(IPC.GET_LAST_FOLDER, () => {
-    const db = getDb();
-    const row = db
-      .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("last_folder") as SettingRow | undefined;
-    return row ? row.value : null;
+    return getSetting<string | null>("last_folder", null);
   });
 
   // ── Scanning ──────────────────────────────────────────────────
@@ -292,11 +267,7 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle(IPC.SCAN_ALL_LIBRARY, async () => {
-    const db = getDb();
-    const row = db
-      .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("library_folders") as any;
-    const folders = row ? JSON.parse(row.value) : [];
+    const folders = getSetting<string[]>("library_folders", []);
     for (const folder of folders) {
       await performScan(folder);
     }
@@ -469,12 +440,7 @@ function registerIpcHandlers() {
   // ── Other ─────────────────────────────────────────────────────
 
   ipcMain.handle(IPC.RESCAN, async () => {
-    const db = getDb();
-    const row = db
-      .prepare("SELECT value FROM settings WHERE key = ?")
-      .get("last_folder") as SettingRow | undefined;
-    if (!row) return null;
-    return row.value;
+    return getSetting<string | null>("last_folder", null);
   });
 
   ipcMain.handle(IPC.GET_STATS, () => {

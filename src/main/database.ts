@@ -74,3 +74,25 @@ export function getDb() {
     throw new Error("Database not initialized. Call initDatabase() first.");
   return db;
 }
+
+export function getSetting<T>(key: string, defaultValue: T): T {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT value FROM settings WHERE key = ?")
+    .get(key) as { key: string; value: string } | undefined;
+  if (!row) return defaultValue;
+  try {
+    return JSON.parse(row.value) as T;
+  } catch {
+    return row.value as unknown as T;
+  }
+}
+
+export function setSetting<T>(key: string, value: T): void {
+  const db = getDb();
+  const serialized = typeof value === "string" ? value : JSON.stringify(value);
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+    key,
+    serialized,
+  );
+}

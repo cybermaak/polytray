@@ -1,16 +1,5 @@
-interface FileRecord {
-  id: number;
-  path: string;
-  name: string;
-  extension: string;
-  directory: string;
-  size_bytes: number;
-  modified_at: number;
-  vertex_count: number;
-  face_count: number;
-  thumbnail: string | null;
-  indexed_at: number;
-}
+import type { FileRecord } from "../shared/types";
+export type { FileRecord };
 
 interface SortOptions {
   sort?: string;

@@ -369,6 +369,34 @@ export async function loadModelFromUrl(
   });
 }
 
+// ── Shared Model Parsing ──────────────────────────────────────────
+
+async function parseModelToGroup(
+  arrayBuffer: ArrayBuffer,
+  extension: string,
+): Promise<THREE.Group> {
+  const group = new THREE.Group();
+
+  try {
+    switch (extension.toLowerCase()) {
+      case "stl":
+        loadSTL(arrayBuffer, group);
+        break;
+      case "obj":
+        loadOBJ(arrayBuffer, group);
+        break;
+      case "3mf":
+        await load3MF(arrayBuffer, group);
+        break;
+    }
+  } catch (e: any) {
+    console.error("Failed to parse model:", e);
+    throw e;
+  }
+
+  return group;
+}
+
 export async function loadModel(
   arrayBuffer: ArrayBuffer,
   extension: string,
@@ -381,25 +409,8 @@ export async function loadModel(
     currentModel = null;
   }
 
-  const group = new THREE.Group();
+  const group = await parseModelToGroup(arrayBuffer, extension);
   group.name = name;
-
-  try {
-    switch (extension.toLowerCase()) {
-      case "stl":
-        await loadSTL(arrayBuffer, group);
-        break;
-      case "obj":
-        await loadOBJ(arrayBuffer, group);
-        break;
-      case "3mf":
-        await load3MF(arrayBuffer, group);
-        break;
-    }
-  } catch (e: any) {
-    console.error("Failed to load model:", e);
-    throw e;
-  }
 
   // Apply smart orientation heuristics
   applySmartOrientation(group);
@@ -538,52 +549,46 @@ function selectSubModel(index: number, htmlElement: HTMLElement) {
   }
 }
 
-function loadSTL(arrayBuffer: ArrayBuffer, group: THREE.Group) {
-  return new Promise<void>((resolve) => {
-    const loader = new STLLoader();
-    const geometry = loader.parse(arrayBuffer);
+function loadSTL(arrayBuffer: ArrayBuffer, group: THREE.Group): void {
+  const loader = new STLLoader();
+  const geometry = loader.parse(arrayBuffer);
 
-    // Some STLs incorrectly specify vertex colors (which default to black)
-    // We explicitly remove the color attribute so our designated material color applies
-    if (geometry.hasAttribute("color")) {
-      geometry.deleteAttribute("color");
-    }
-    // Also explicitly override the custom flag STLLoader might set
-    (geometry as any).hasColors = false;
+  // Some STLs incorrectly specify vertex colors (which default to black)
+  // We explicitly remove the color attribute so our designated material color applies
+  if (geometry.hasAttribute("color")) {
+    geometry.deleteAttribute("color");
+  }
+  // Also explicitly override the custom flag STLLoader might set
+  (geometry as any).hasColors = false;
 
-    // Ensure we have correct normals for lighting calculations (prevents black rendering)
-    geometry.computeVertexNormals();
+  // Ensure we have correct normals for lighting calculations (prevents black rendering)
+  geometry.computeVertexNormals();
 
-    const material = createMaterial();
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+  const material = createMaterial();
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
 
-    group.add(mesh);
-    resolve();
-  });
+  group.add(mesh);
 }
 
-function loadOBJ(arrayBuffer: ArrayBuffer, group: THREE.Group) {
-  return new Promise<void>((resolve) => {
-    const loader = new OBJLoader();
-    const text = new TextDecoder().decode(arrayBuffer);
-    const obj = loader.parse(text);
+function loadOBJ(arrayBuffer: ArrayBuffer, group: THREE.Group): void {
+  const loader = new OBJLoader();
+  const text = new TextDecoder().decode(arrayBuffer);
+  const obj = loader.parse(text);
 
-    obj.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        child.material = createMaterial();
-        child.castShadow = true;
-        child.receiveShadow = true;
-      }
-    });
-
-    // Copy children to our group
-    while (obj.children.length > 0) {
-      group.add(obj.children[0]);
+  obj.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      child.material = createMaterial();
+      child.castShadow = true;
+      child.receiveShadow = true;
     }
-    resolve();
   });
+
+  // Copy children to our group
+  while (obj.children.length > 0) {
+    group.add(obj.children[0]);
+  }
 }
 
 async function fix3MF(buffer: ArrayBuffer) {
@@ -682,37 +687,33 @@ async function fix3MF(buffer: ArrayBuffer) {
   return buffer;
 }
 
-function load3MF(arrayBuffer: ArrayBuffer, group: THREE.Group) {
-  return new Promise<void>(async (resolve, reject) => {
-    const loader = new ThreeMFLoader();
-    try {
-      const fixedBuffer = await fix3MF(arrayBuffer);
-      const obj = loader.parse(fixedBuffer);
+async function load3MF(
+  arrayBuffer: ArrayBuffer,
+  group: THREE.Group,
+): Promise<void> {
+  const loader = new ThreeMFLoader();
+  const fixedBuffer = await fix3MF(arrayBuffer);
+  const obj = loader.parse(fixedBuffer);
 
-      obj.traverse((child: THREE.Object3D) => {
-        if (child instanceof THREE.Mesh) {
-          // 3MF files often lack pre-computed normals; without them, MeshStandardMaterial renders black
-          if (!child.geometry.attributes.normal) {
-            child.geometry.computeVertexNormals();
-          }
-
-          // Always upgrade to our standard material for consistent lighting/shading
-          child.material = createMaterial();
-          (child.material as THREE.Material).vertexColors = false;
-
-          child.castShadow = true;
-          child.receiveShadow = true;
-        }
-      });
-
-      while (obj.children.length > 0) {
-        group.add(obj.children[0]);
+  obj.traverse((child: THREE.Object3D) => {
+    if (child instanceof THREE.Mesh) {
+      // 3MF files often lack pre-computed normals; without them, MeshStandardMaterial renders black
+      if (!child.geometry.attributes.normal) {
+        child.geometry.computeVertexNormals();
       }
-      resolve();
-    } catch (e) {
-      reject(e);
+
+      // Always upgrade to our standard material for consistent lighting/shading
+      child.material = createMaterial();
+      (child.material as THREE.Material).vertexColors = false;
+
+      child.castShadow = true;
+      child.receiveShadow = true;
     }
   });
+
+  while (obj.children.length > 0) {
+    group.add(obj.children[0]);
+  }
 }
 
 function createMaterial(): THREE.MeshStandardMaterial {
@@ -727,7 +728,10 @@ function createMaterial(): THREE.MeshStandardMaterial {
 
 // ── Camera Fitting ────────────────────────────────────────────────
 
-function fitCameraToObject(object: THREE.Object3D) {
+function computeCameraFit(
+  object: THREE.Object3D,
+  cam: THREE.PerspectiveCamera,
+) {
   const box = new THREE.Box3().setFromObject(object);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
@@ -742,15 +746,19 @@ function fitCameraToObject(object: THREE.Object3D) {
   box.getCenter(center);
 
   const maxDim = Math.max(size.x, size.y, size.z);
-  const fov = camera!.fov * (Math.PI / 180);
+  const fov = cam.fov * (Math.PI / 180);
   let cameraDistance = Math.abs(maxDim / Math.sin(fov / 2));
-
-  // Add a little padding
   cameraDistance *= VIEWER_CONFIG.camera.padding;
 
   const direction = new THREE.Vector3(1, 0.7, 1).normalize();
-  camera!.position.copy(center).add(direction.multiplyScalar(cameraDistance));
-  camera!.lookAt(center);
+  cam.position.copy(center).add(direction.multiplyScalar(cameraDistance));
+  cam.lookAt(center);
+
+  return { center, maxDim };
+}
+
+function fitCameraToObject(object: THREE.Object3D) {
+  const { center, maxDim } = computeCameraFit(object, camera!);
 
   controls!.target.copy(center);
   controls!.minDistance = maxDim * 0.1;
@@ -889,41 +897,7 @@ export async function renderThumbnail(
   ensureThumbnailRenderer(canvas);
 
   try {
-    const group = new THREE.Group();
-
-    if (extension === "stl") {
-      const loader = new STLLoader();
-      const geometry = loader.parse(arrayBuffer);
-      const mesh = new THREE.Mesh(geometry, createMaterial());
-      group.add(mesh);
-    } else if (extension === "obj") {
-      const loader = new OBJLoader();
-      const text = new TextDecoder().decode(arrayBuffer);
-      const obj = loader.parse(text);
-      obj.traverse((child: THREE.Object3D) => {
-        if (child instanceof THREE.Mesh) {
-          child.material = createMaterial();
-        }
-      });
-      group.add(obj);
-    } else if (extension === "3mf") {
-      const loader = new ThreeMFLoader();
-      const fixedBuffer = await fix3MF(arrayBuffer);
-      const obj = loader.parse(fixedBuffer);
-      obj.traverse((child: THREE.Object3D) => {
-        if (child instanceof THREE.Mesh) {
-          // For thumbnails, we ALWAYS override with the standard color
-          // for brand/UI consistency unless specifically told otherwise
-          child.material = createMaterial();
-          (child.material as THREE.Material).vertexColors = false;
-
-          if (!child.geometry.attributes.normal) {
-            child.geometry.computeVertexNormals();
-          }
-        }
-      });
-      group.add(obj);
-    }
+    const group = await parseModelToGroup(arrayBuffer, extension);
 
     if (group.children.length === 0) {
       return null;
@@ -934,27 +908,8 @@ export async function renderThumbnail(
 
     thumbScene!.add(group);
 
-    // Fit camera
-    const box = new THREE.Box3().setFromObject(group);
-    const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
-
-    group.position.x -= center.x;
-    group.position.z -= center.z;
-    group.position.y -= box.min.y;
-
-    // Re-calculate box after repositioning
-    box.setFromObject(group);
-    box.getCenter(center);
-
-    const maxDim = Math.max(size.x, size.y, size.z);
-    const fov = thumbCamera!.fov * (Math.PI / 180);
-    let dist =
-      Math.abs(maxDim / Math.sin(fov / 2)) * VIEWER_CONFIG.camera.padding;
-
-    const direction = new THREE.Vector3(1, 0.7, 1).normalize();
-    thumbCamera!.position.copy(center).add(direction.multiplyScalar(dist));
-    thumbCamera!.lookAt(center);
+    // Fit camera using shared logic
+    computeCameraFit(group, thumbCamera!);
 
     thumbRenderer!.render(thumbScene!, thumbCamera!);
 

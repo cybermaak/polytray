@@ -9,6 +9,7 @@ export interface FileRecord {
   vertex_count: number;
   face_count: number;
   thumbnail: string | null;
+  thumbnail_failed: number;
   indexed_at: number;
 }
 
