@@ -1,6 +1,14 @@
 {
   "name": "polytray",
   "version": "1.0.0",
+  "author": {
+    "name": "cybermaak",
+    "email": "cybermaak@users.noreply.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cybermaak/polytray.git"
+  },
   "description": "Local 3D file organizer — scan, index, search, and preview .obj, .stl, .3mf files",
   "main": "./out/main/index.js",
   "scripts": {
