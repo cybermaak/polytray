@@ -117,8 +117,8 @@ function setupLighting() {
 }
 
 function setupGrid() {
-  gridHelper = new THREE.GridHelper(20, 40, 0x3a3a55, 0x282840);
-  (gridHelper.material as THREE.Material).opacity = 0.7;
+  gridHelper = new THREE.GridHelper(20, 40, 0x8a8b94, 0x5c5d66);
+  (gridHelper.material as THREE.Material).opacity = 0.4;
   (gridHelper.material as THREE.Material).transparent = true;
   scene!.add(gridHelper);
 }
@@ -659,28 +659,9 @@ function load3MF(arrayBuffer: ArrayBuffer, group: THREE.Group) {
             child.geometry.computeVertexNormals();
           }
 
-          const mat = child.material as any;
-          let useFallback = true;
-          let originalColor = null;
-
-          // If the material has a color that isn't strict black, try to keep it
-          if (mat && mat.color) {
-            const hex = mat.color.getHex();
-            if (hex !== 0x000000) {
-              useFallback = false;
-              originalColor = mat.color.clone();
-            }
-          }
-
           // Always upgrade to our standard material for consistent lighting/shading
           child.material = createMaterial();
           (child.material as THREE.Material).vertexColors = false;
-
-          if (!useFallback && originalColor) {
-            (child.material as THREE.MeshStandardMaterial).color.copy(
-              originalColor,
-            );
-          }
 
           child.castShadow = true;
           child.receiveShadow = true;

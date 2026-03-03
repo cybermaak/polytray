@@ -516,23 +516,28 @@ body {
 }
 
 .file-grid::-webkit-scrollbar,
-[data-virtuoso-scroller]::-webkit-scrollbar {
+[data-virtuoso-scroller]::-webkit-scrollbar,
+.viewer-multi-model::-webkit-scrollbar {
   width: 8px;
+  height: 8px;
 }
 
 .file-grid::-webkit-scrollbar-track,
-[data-virtuoso-scroller]::-webkit-scrollbar-track {
+[data-virtuoso-scroller]::-webkit-scrollbar-track,
+.viewer-multi-model::-webkit-scrollbar-track {
   background: transparent;
 }
 
 .file-grid::-webkit-scrollbar-thumb,
-[data-virtuoso-scroller]::-webkit-scrollbar-thumb {
+[data-virtuoso-scroller]::-webkit-scrollbar-thumb,
+.viewer-multi-model::-webkit-scrollbar-thumb {
   background: var(--bg-active);
   border-radius: 4px;
 }
 
 .file-grid::-webkit-scrollbar-thumb:hover,
-[data-virtuoso-scroller]::-webkit-scrollbar-thumb:hover {
+[data-virtuoso-scroller]::-webkit-scrollbar-thumb:hover,
+.viewer-multi-model::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
 
