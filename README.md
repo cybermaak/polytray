@@ -11,7 +11,11 @@
 - **Auto-Generated Thumbnails**: Visual grid with automatically generated thumbnails for your 3D assets.
 - **Offline & Private**: Everything is stored securely in your local SQLite database.
 
-## 📸 Screenshots
+## 📸 Screenshots & Demo
+
+<p align="center">
+  <img src="docs/assets/polytray_demo.webp" alt="Polytray Demo" width="800"/>
+</p>
 
 ![Polytray Preview](build/screenshot.png)
 
