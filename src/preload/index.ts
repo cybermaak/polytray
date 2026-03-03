@@ -1,5 +1,47 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, IpcRendererEvent } from "electron";
 import { IPC } from "../shared/types";
+
+// ── Typed callback helpers ──────────────────────────────────────────
+
+interface ScanProgressData {
+  current: number;
+  total: number;
+  filename: string;
+  skipped: boolean;
+}
+
+interface ThumbnailReadyData {
+  fileId: number;
+  thumbnailPath: string;
+}
+
+interface ThumbnailProgressData {
+  current: number;
+  total: number;
+  filename: string;
+  phase: "start" | "progress" | "done";
+}
+
+interface ThumbnailRequestData {
+  filePath: string;
+  ext: string;
+  thumbPath: string;
+}
+
+interface ThumbnailResultData {
+  filePath: string;
+  thumbPath: string;
+  success: boolean;
+  dataUrl?: string;
+}
+
+function onChannel<T>(channel: string, callback: (data: T) => void) {
+  const subscription = (_event: IpcRendererEvent, data: T) => callback(data);
+  ipcRenderer.on(channel, subscription);
+  return () => ipcRenderer.removeListener(channel, subscription);
+}
+
+// ── Exposed API ─────────────────────────────────────────────────────
 
 contextBridge.exposeInMainWorld("polytray", {
   // Folder management
@@ -16,7 +58,8 @@ contextBridge.exposeInMainWorld("polytray", {
   clearThumbnails: () => ipcRenderer.invoke(IPC.CLEAR_THUMBNAILS),
 
   // File queries
-  getFiles: (opts: any) => ipcRenderer.invoke(IPC.GET_FILES, opts),
+  getFiles: (opts: Record<string, unknown>) =>
+    ipcRenderer.invoke(IPC.GET_FILES, opts),
   getFileById: (id: number) => ipcRenderer.invoke(IPC.GET_FILE_BY_ID, id),
   getStats: () => ipcRenderer.invoke(IPC.GET_STATS),
   startDrag: (filePath: string) =>
@@ -40,46 +83,28 @@ contextBridge.exposeInMainWorld("polytray", {
   stopWatching: () => ipcRenderer.invoke(IPC.STOP_WATCHING),
 
   // Events (main → renderer)
-  onScanProgress: (callback: (data: any) => void) => {
-    const subscription = (event: any, data: any) => callback(data);
-    ipcRenderer.on(IPC.SCAN_PROGRESS, subscription);
-    return () => ipcRenderer.removeListener(IPC.SCAN_PROGRESS, subscription);
-  },
-  onScanComplete: (callback: (data: any) => void) => {
-    const subscription = (event: any, data: any) => callback(data);
-    ipcRenderer.on(IPC.SCAN_COMPLETE, subscription);
-    return () => ipcRenderer.removeListener(IPC.SCAN_COMPLETE, subscription);
-  },
-  onFilesUpdated: (callback: (data: any) => void) => {
-    const subscription = (event: any, data: any) => callback(data);
-    ipcRenderer.on(IPC.FILES_UPDATED, subscription);
-    return () => ipcRenderer.removeListener(IPC.FILES_UPDATED, subscription);
-  },
-  onFileIndexed: (callback: (data: any) => void) => {
-    const subscription = (event: any, data: any) => callback(data);
-    ipcRenderer.on(IPC.FILE_INDEXED, subscription);
-    return () => ipcRenderer.removeListener(IPC.FILE_INDEXED, subscription);
-  },
-  onThumbnailReady: (callback: (data: any) => void) => {
-    const subscription = (event: any, data: any) => callback(data);
-    ipcRenderer.on(IPC.THUMBNAIL_READY, subscription);
-    return () => ipcRenderer.removeListener(IPC.THUMBNAIL_READY, subscription);
-  },
-  onThumbnailProgress: (callback: (data: any) => void) => {
-    const subscription = (event: any, data: any) => callback(data);
-    ipcRenderer.on(IPC.THUMBNAIL_PROGRESS, subscription);
-    return () =>
-      ipcRenderer.removeListener(IPC.THUMBNAIL_PROGRESS, subscription);
-  },
+  onScanProgress: (cb: (data: ScanProgressData) => void) =>
+    onChannel<ScanProgressData>(IPC.SCAN_PROGRESS, cb),
+  onScanComplete: (cb: (data: { totalFiles: number }) => void) =>
+    onChannel<{ totalFiles: number }>(IPC.SCAN_COMPLETE, cb),
+  onFilesUpdated: (cb: (data: { type: string; filePath: string }) => void) =>
+    onChannel<{ type: string; filePath: string }>(IPC.FILES_UPDATED, cb),
+  onFileIndexed: (
+    cb: (data: { path: string; current: number; total: number }) => void,
+  ) =>
+    onChannel<{ path: string; current: number; total: number }>(
+      IPC.FILE_INDEXED,
+      cb,
+    ),
+  onThumbnailReady: (cb: (data: ThumbnailReadyData) => void) =>
+    onChannel<ThumbnailReadyData>(IPC.THUMBNAIL_READY, cb),
+  onThumbnailProgress: (cb: (data: ThumbnailProgressData) => void) =>
+    onChannel<ThumbnailProgressData>(IPC.THUMBNAIL_PROGRESS, cb),
 
   // Thumbnail generation (main → renderer → main)
-  onThumbnailRequest: (callback: (data: any) => void) => {
-    const subscription = (event: any, data: any) => callback(data);
-    ipcRenderer.on(IPC.GENERATE_THUMBNAIL_REQUEST, subscription);
-    return () =>
-      ipcRenderer.removeListener(IPC.GENERATE_THUMBNAIL_REQUEST, subscription);
-  },
-  sendThumbnailResult: (result: any) => {
+  onThumbnailRequest: (cb: (data: ThumbnailRequestData) => void) =>
+    onChannel<ThumbnailRequestData>(IPC.GENERATE_THUMBNAIL_REQUEST, cb),
+  sendThumbnailResult: (result: ThumbnailResultData) => {
     ipcRenderer.send(IPC.THUMBNAIL_GENERATED, result);
   },
 });

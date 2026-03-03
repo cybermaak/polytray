@@ -166,7 +166,7 @@ function registerIpcHandlers() {
       db
         .prepare("SELECT path FROM files WHERE directory LIKE ?")
         .all(folderPath + "%")
-        .map((r) => (r as any).path),
+        .map((r) => (r as { path: string }).path),
     );
 
     // ── Pass 1: Index files quickly (metadata only, no thumbnails) ──
@@ -180,7 +180,12 @@ function registerIpcHandlers() {
         .prepare(
           "SELECT modified_at, size_bytes, thumbnail, thumbnail_failed FROM files WHERE path = ?",
         )
-        .get(file.path) as any;
+        .get(file.path) as
+        | Pick<
+            FileRecord,
+            "modified_at" | "size_bytes" | "thumbnail" | "thumbnail_failed"
+          >
+        | undefined;
       if (
         existing &&
         existing.modified_at === file.mtime &&
@@ -277,13 +282,15 @@ function registerIpcHandlers() {
   ipcMain.handle(IPC.CLEAR_THUMBNAILS, async () => {
     const db = getDb();
     const thumbDir = getThumbnailDir();
-    if (fs.existsSync(thumbDir)) {
-      const files = fs.readdirSync(thumbDir);
-      for (const file of files) {
-        if (file.endsWith(".png")) {
-          fs.unlinkSync(join(thumbDir, file));
-        }
-      }
+    try {
+      const files = await fs.promises.readdir(thumbDir);
+      await Promise.all(
+        files
+          .filter((file) => file.endsWith(".png"))
+          .map((file) => fs.promises.unlink(join(thumbDir, file))),
+      );
+    } catch {
+      // Directory may not exist yet — that's fine
     }
     // Set modified_at to 0 so the scanner regenerates the thumbnails next scan
     db.prepare("UPDATE files SET modified_at = 0, thumbnail = null").run();
@@ -303,14 +310,14 @@ function registerIpcHandlers() {
       offset = 0,
     } = opts;
 
-    const validSorts = {
+    const validSorts: Record<string, string> = {
       name: "name",
       size: "size_bytes",
       date: "modified_at",
       vertices: "vertex_count",
       faces: "face_count",
     };
-    const sortCol = (validSorts as any)[sort] || "name";
+    const sortCol = validSorts[sort] ?? "name";
     const sortOrder = order === "DESC" ? "DESC" : "ASC";
 
     let where = [];
@@ -446,27 +453,27 @@ function registerIpcHandlers() {
   ipcMain.handle(IPC.GET_STATS, () => {
     const db = getDb();
     const total = (
-      db.prepare("SELECT COUNT(*) as count FROM files").get() as any
+      db.prepare("SELECT COUNT(*) as count FROM files").get() as CountRow
     ).count;
     const stl = (
       db
         .prepare("SELECT COUNT(*) as count FROM files WHERE extension = 'stl'")
-        .get() as any
+        .get() as CountRow
     ).count;
     const obj = (
       db
         .prepare("SELECT COUNT(*) as count FROM files WHERE extension = 'obj'")
-        .get() as any
+        .get() as CountRow
     ).count;
     const threemf = (
       db
         .prepare("SELECT COUNT(*) as count FROM files WHERE extension = '3mf'")
-        .get() as any
+        .get() as CountRow
     ).count;
     const totalSize = (
       db
         .prepare("SELECT COALESCE(SUM(size_bytes), 0) as total FROM files")
-        .get() as any
+        .get() as TotalRow
     ).total;
     return { total, stl, obj, threemf, totalSize };
   });
