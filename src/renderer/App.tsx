@@ -483,21 +483,26 @@ export const App: React.FC = () => {
             onRescan={handleRescan}
             onClearThumbnails={handleClearThumbnails}
           />
-          {/* file-grid is ALWAYS rendered as a direct child of #content */}
-          <div
-            id="file-grid"
-            className={`file-grid size-${settings.gridSize}`}
-            style={{ display: hasFiles ? "grid" : "none" }}
-          >
-            {files.map((file, index) => (
-              <FileCardMemo
-                key={file.id}
-                file={file}
-                index={index}
-                onClick={() => setPreviewFile(file)}
-              />
-            ))}
-          </div>
+          {/* VirtuosoGrid virtualizes the DOM elements for massive efficiency. */}
+          {hasFiles && (
+            <VirtuosoGrid
+              style={{ flex: 1, minHeight: 0 }}
+              data={files}
+              context={{ gridSize: settings.gridSize }}
+              components={{
+                List: GridList,
+                Item: GridItem,
+              }}
+              itemContent={(index, file) => (
+                <FileCardMemo
+                  key={file.id}
+                  file={file}
+                  index={index}
+                  onClick={() => setPreviewFile(file)}
+                />
+              )}
+            />
+          )}
           <div
             id="empty-state"
             className={`empty-state${hasFiles ? " hidden" : ""}`}
@@ -566,12 +571,13 @@ export const App: React.FC = () => {
 // ── Helpers for VirtuosoGrid ────────────────────────────────────
 
 const GridList = React.forwardRef<HTMLDivElement, any>(
-  ({ style, children, ...props }, ref) => {
+  ({ style, children, context, ...props }, ref) => {
     return (
       <div
         ref={ref}
         {...props}
-        className={`file-grid size-medium`} // gridSize from settings should go here
+        id="file-grid"
+        className={`file-grid size-${context?.gridSize || "medium"}`}
         style={{
           ...style,
           display: "grid",
@@ -602,14 +608,21 @@ interface FileCardProps {
 
 const FileCard: React.FC<FileCardProps> = ({ file, index, onClick }) => {
   const extClass = file.extension === "3mf" ? "threemf" : file.extension;
-  const delay = `${Math.min(index * 20, 300)}ms`;
 
   return (
     <div
       className="file-card"
       data-file-id={file.id}
-      style={{ animationDelay: delay }}
       onClick={onClick}
+      draggable={true}
+      onDragStart={(e) => {
+        e.preventDefault();
+        window.polytray.startDrag(file.path);
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        window.polytray.showContextMenu(file.path);
+      }}
     >
       <div className="card-thumbnail">
         {!file.thumbnail && (

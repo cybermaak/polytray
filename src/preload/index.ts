@@ -18,6 +18,9 @@ contextBridge.exposeInMainWorld("polytray", {
   getFiles: (opts: any) => ipcRenderer.invoke("get-files", opts),
   getFileById: (id: number) => ipcRenderer.invoke("get-file-by-id", id),
   getStats: () => ipcRenderer.invoke("get-stats"),
+  startDrag: (filePath: string) => ipcRenderer.send("ondragstart", filePath),
+  showContextMenu: (filePath: string) =>
+    ipcRenderer.send("show-context-menu", filePath),
 
   // 3D preview
   readFileBuffer: (filePath: string) =>

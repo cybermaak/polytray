@@ -17,42 +17,53 @@ export function initDatabase() {
   // Enable WAL mode for better concurrent reads
   db.pragma("journal_mode = WAL");
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS files (
-      id            INTEGER PRIMARY KEY AUTOINCREMENT,
-      path          TEXT    UNIQUE NOT NULL,
-      name          TEXT    NOT NULL,
-      extension     TEXT    NOT NULL,
-      directory     TEXT    NOT NULL,
-      size_bytes    INTEGER NOT NULL,
-      modified_at   INTEGER NOT NULL,
-      vertex_count  INTEGER DEFAULT 0,
-      face_count    INTEGER DEFAULT 0,
-      thumbnail     TEXT,
-      thumbnail_failed INTEGER DEFAULT 0,
-      indexed_at    INTEGER NOT NULL
-    );
+  // Implement lightweight sequential schema migrations
+  let currentVersion =
+    (db.pragma("user_version", { simple: true }) as number) || 0;
 
-    CREATE INDEX IF NOT EXISTS idx_files_name ON files(name);
-    CREATE INDEX IF NOT EXISTS idx_files_ext  ON files(extension);
-    CREATE INDEX IF NOT EXISTS idx_files_dir  ON files(directory);
+  if (currentVersion === 0) {
+    // Initial Schema (v1)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS files (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        path          TEXT    UNIQUE NOT NULL,
+        name          TEXT    NOT NULL,
+        extension     TEXT    NOT NULL,
+        directory     TEXT    NOT NULL,
+        size_bytes    INTEGER NOT NULL,
+        modified_at   INTEGER NOT NULL,
+        vertex_count  INTEGER DEFAULT 0,
+        face_count    INTEGER DEFAULT 0,
+        thumbnail     TEXT,
+        indexed_at    INTEGER NOT NULL
+      );
 
-    CREATE TABLE IF NOT EXISTS settings (
-      key   TEXT PRIMARY KEY,
-      value TEXT
-    );
-  `);
+      CREATE INDEX IF NOT EXISTS idx_files_name ON files(name);
+      CREATE INDEX IF NOT EXISTS idx_files_ext  ON files(extension);
+      CREATE INDEX IF NOT EXISTS idx_files_dir  ON files(directory);
 
-  // Schema migration for existing databases
-  try {
-    db.prepare(
-      "ALTER TABLE files ADD COLUMN thumbnail_failed INTEGER DEFAULT 0",
-    ).run();
-  } catch (e: any) {
-    // If column already exists (e.g. "duplicate column name"), ignore the error
-    if (!e.message.includes("duplicate column name")) {
-      console.warn("Schema migration warning:", e.message);
+      CREATE TABLE IF NOT EXISTS settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT
+      );
+    `);
+    db.pragma("user_version = 1");
+    currentVersion = 1;
+  }
+
+  if (currentVersion === 1) {
+    // Migration v1 -> v2: Add thumbnail_failed column
+    try {
+      db.prepare(
+        "ALTER TABLE files ADD COLUMN thumbnail_failed INTEGER DEFAULT 0",
+      ).run();
+    } catch (e: any) {
+      if (!e.message.includes("duplicate column name")) {
+        console.warn("Schema migration v2 warning:", e.message);
+      }
     }
+    db.pragma("user_version = 2");
+    currentVersion = 2;
   }
 
   return db;

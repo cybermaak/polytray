@@ -515,20 +515,24 @@ body {
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 }
 
-.file-grid::-webkit-scrollbar {
+.file-grid::-webkit-scrollbar,
+[data-virtuoso-scroller]::-webkit-scrollbar {
   width: 8px;
 }
 
-.file-grid::-webkit-scrollbar-track {
+.file-grid::-webkit-scrollbar-track,
+[data-virtuoso-scroller]::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.file-grid::-webkit-scrollbar-thumb {
+.file-grid::-webkit-scrollbar-thumb,
+[data-virtuoso-scroller]::-webkit-scrollbar-thumb {
   background: var(--bg-active);
   border-radius: 4px;
 }
 
-.file-grid::-webkit-scrollbar-thumb:hover {
+.file-grid::-webkit-scrollbar-thumb:hover,
+[data-virtuoso-scroller]::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
 
@@ -540,7 +544,6 @@ body {
   overflow: hidden;
   cursor: pointer;
   transition: all var(--transition-base);
-  animation: fadeInUp 0.3s ease forwards;
   display: flex;
   flex-direction: column;
 }
@@ -553,17 +556,6 @@ body {
 
 .file-card:active {
   transform: translateY(0);
-}
-
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .card-thumbnail {

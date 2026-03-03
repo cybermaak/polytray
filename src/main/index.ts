@@ -1,4 +1,15 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, net } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  protocol,
+  net,
+  nativeImage,
+  Menu,
+  shell,
+  clipboard,
+} from "electron";
 import { join } from "path";
 import { initDatabase, getDb } from "./database";
 import { scanFolder } from "./scanner";
@@ -423,6 +434,36 @@ function registerIpcHandlers() {
       return thumbnailPath;
     },
   );
+
+  ipcMain.on("ondragstart", (event, filePath) => {
+    // Ideally we would extract the thumbnail as the icon, but creating from built icon works as a general drag
+    const icon = nativeImage.createFromPath(
+      join(__dirname, "../../build/icon.png"),
+    );
+    event.sender.startDrag({
+      file: filePath,
+      icon: icon,
+    });
+  });
+
+  ipcMain.on("show-context-menu", (event, filePath) => {
+    const template = [
+      {
+        label: "Reveal in Finder / Explorer",
+        click: () => {
+          shell.showItemInFolder(filePath);
+        },
+      },
+      {
+        label: "Copy Absolute Path",
+        click: () => {
+          clipboard.writeText(filePath);
+        },
+      },
+    ];
+    const menu = Menu.buildFromTemplate(template);
+    menu.popup({ window: BrowserWindow.fromWebContents(event.sender)! });
+  });
 
   // ── Other ─────────────────────────────────────────────────────
 

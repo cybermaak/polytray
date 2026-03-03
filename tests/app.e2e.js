@@ -108,9 +108,14 @@ test("app launches and shows main UI elements", async () => {
   const emptyState = window.locator("#empty-state");
   // Either visible or the file grid is visible (depending on state)
   const fileGrid = window.locator("#file-grid");
-  const gridVisible = await fileGrid.evaluate(
-    (el) => el.style.display !== "none" && el.children.length > 0,
-  );
+
+  let gridVisible = false;
+  if ((await fileGrid.count()) > 0) {
+    gridVisible = await fileGrid.evaluate(
+      (el) => el.style.display !== "none" && el.children.length > 0,
+    );
+  }
+
   if (!gridVisible) {
     await expect(emptyState).toBeVisible();
     await expect(emptyState).toContainText("No 3D files found");

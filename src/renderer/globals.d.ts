@@ -61,6 +61,8 @@ interface PolytrayAPI {
     filePath: string,
     ext: string,
   ) => Promise<string | null>;
+  startDrag: (filePath: string) => void;
+  showContextMenu: (filePath: string) => void;
 
   startWatching: (folderPath: string) => Promise<void>;
   stopWatching: () => Promise<void>;
