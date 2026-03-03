@@ -24,6 +24,7 @@ import {
   CountRow,
   TotalRow,
   ScannedFile,
+  IPC,
 } from "../shared/types";
 
 // Set the application name for macOS menu bar
@@ -117,7 +118,7 @@ function createWindow() {
 function registerIpcHandlers() {
   // ── Library Folder Management ─────────────────────────────────
 
-  ipcMain.handle("select-folder", async () => {
+  ipcMain.handle(IPC.SELECT_FOLDER, async () => {
     const result = await dialog.showOpenDialog(mainWindow!, {
       properties: ["openDirectory"],
       title: "Select 3D Models Folder",
@@ -146,7 +147,7 @@ function registerIpcHandlers() {
     return folderPath;
   });
 
-  ipcMain.handle("get-library-folders", () => {
+  ipcMain.handle(IPC.GET_LIBRARY_FOLDERS, () => {
     const db = getDb();
     const row = db
       .prepare("SELECT value FROM settings WHERE key = ?")
@@ -154,7 +155,7 @@ function registerIpcHandlers() {
     return row ? JSON.parse(row.value) : [];
   });
 
-  ipcMain.handle("remove-library-folder", (event, folderPath) => {
+  ipcMain.handle(IPC.REMOVE_LIBRARY_FOLDER, (event, folderPath) => {
     const db = getDb();
     const existing = db
       .prepare("SELECT value FROM settings WHERE key = ?")
@@ -171,7 +172,7 @@ function registerIpcHandlers() {
     return folders;
   });
 
-  ipcMain.handle("get-last-folder", () => {
+  ipcMain.handle(IPC.GET_LAST_FOLDER, () => {
     const db = getDb();
     const row = db
       .prepare("SELECT value FROM settings WHERE key = ?")
@@ -215,7 +216,7 @@ function registerIpcHandlers() {
           filesToThumbnail.push(file);
         }
         if (mainWindow) {
-          mainWindow.webContents.send("scan-progress", {
+          mainWindow.webContents.send(IPC.SCAN_PROGRESS, {
             current: i + 1,
             total,
             filename: file.name,
@@ -252,7 +253,7 @@ function registerIpcHandlers() {
       filesToThumbnail.push(file);
 
       if (mainWindow) {
-        mainWindow.webContents.send("scan-progress", {
+        mainWindow.webContents.send(IPC.SCAN_PROGRESS, {
           current: i + 1,
           total,
           filename: file.name,
@@ -262,7 +263,7 @@ function registerIpcHandlers() {
 
       // Emit file-indexed so the renderer can show the card immediately
       if (mainWindow) {
-        mainWindow.webContents.send("file-indexed", {
+        mainWindow.webContents.send(IPC.FILE_INDEXED, {
           path: file.path,
           current: i + 1,
           total,
@@ -276,7 +277,7 @@ function registerIpcHandlers() {
 
     // Notify scan complete (cards are all visible now)
     if (mainWindow) {
-      mainWindow.webContents.send("scan-complete", { totalFiles: total });
+      mainWindow.webContents.send(IPC.SCAN_COMPLETE, { totalFiles: total });
     }
 
     // ── Pass 2: Generate thumbnails in the background (fire-and-forget) ──
@@ -286,11 +287,11 @@ function registerIpcHandlers() {
     return { totalFiles: total };
   }
 
-  ipcMain.handle("scan-folder", async (event, folderPath) => {
+  ipcMain.handle(IPC.SCAN_FOLDER, async (event, folderPath) => {
     return performScan(folderPath);
   });
 
-  ipcMain.handle("scan-all-library", async () => {
+  ipcMain.handle(IPC.SCAN_ALL_LIBRARY, async () => {
     const db = getDb();
     const row = db
       .prepare("SELECT value FROM settings WHERE key = ?")
@@ -302,7 +303,7 @@ function registerIpcHandlers() {
     return folders;
   });
 
-  ipcMain.handle("clear-thumbnails", async () => {
+  ipcMain.handle(IPC.CLEAR_THUMBNAILS, async () => {
     const db = getDb();
     const thumbDir = getThumbnailDir();
     if (fs.existsSync(thumbDir)) {
@@ -320,7 +321,7 @@ function registerIpcHandlers() {
 
   // ── File Queries ──────────────────────────────────────────────
 
-  ipcMain.handle("get-files", (event, opts = {}) => {
+  ipcMain.handle(IPC.GET_FILES, (event, opts = {}) => {
     const db = getDb();
     const {
       sort = "name",
@@ -367,12 +368,12 @@ function registerIpcHandlers() {
     return { files, total: countRow.total };
   });
 
-  ipcMain.handle("get-file-by-id", (event, id) => {
+  ipcMain.handle(IPC.GET_FILE_BY_ID, (event, id) => {
     const db = getDb();
     return db.prepare("SELECT * FROM files WHERE id = ?").get(id);
   });
 
-  ipcMain.handle("read-file-buffer", async (event, filePath) => {
+  ipcMain.handle(IPC.READ_FILE_BUFFER, async (event, filePath) => {
     // Validate that the file is part of the indexed library
     const db = getDb();
     const record = db
@@ -391,7 +392,7 @@ function registerIpcHandlers() {
 
   // ── Thumbnail Loading (serve as base64 data URL) ──────────────
 
-  ipcMain.handle("read-thumbnail", async (event, thumbnailPath) => {
+  ipcMain.handle(IPC.READ_THUMBNAIL, async (event, thumbnailPath) => {
     if (!thumbnailPath) return null;
 
     // Security check: Ensure we only read from the dedicated thumbnail directory
@@ -408,7 +409,7 @@ function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle("get-thumbnail-path", (event, fileId) => {
+  ipcMain.handle(IPC.GET_THUMBNAIL_PATH, (event, fileId) => {
     const db = getDb();
     const row = db
       .prepare("SELECT thumbnail FROM files WHERE id = ?")
@@ -417,7 +418,7 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle(
-    "request-thumbnail-generation",
+    IPC.REQUEST_THUMBNAIL_GENERATION,
     async (event, filePath, ext) => {
       if (!mainWindow) return null;
       const thumbnailPath = await generateThumbnail(filePath, ext, mainWindow);
@@ -435,7 +436,7 @@ function registerIpcHandlers() {
     },
   );
 
-  ipcMain.on("ondragstart", (event, filePath) => {
+  ipcMain.on(IPC.ON_DRAG_START, (event, filePath) => {
     // Ideally we would extract the thumbnail as the icon, but creating from built icon works as a general drag
     const icon = nativeImage.createFromPath(
       join(__dirname, "../../build/icon.png"),
@@ -446,7 +447,7 @@ function registerIpcHandlers() {
     });
   });
 
-  ipcMain.on("show-context-menu", (event, filePath) => {
+  ipcMain.on(IPC.SHOW_CONTEXT_MENU, (event, filePath) => {
     const template = [
       {
         label: "Reveal in Finder / Explorer",
@@ -467,7 +468,7 @@ function registerIpcHandlers() {
 
   // ── Other ─────────────────────────────────────────────────────
 
-  ipcMain.handle("rescan", async () => {
+  ipcMain.handle(IPC.RESCAN, async () => {
     const db = getDb();
     const row = db
       .prepare("SELECT value FROM settings WHERE key = ?")
@@ -476,7 +477,7 @@ function registerIpcHandlers() {
     return row.value;
   });
 
-  ipcMain.handle("get-stats", () => {
+  ipcMain.handle(IPC.GET_STATS, () => {
     const db = getDb();
     const total = (
       db.prepare("SELECT COUNT(*) as count FROM files").get() as any
@@ -504,13 +505,13 @@ function registerIpcHandlers() {
     return { total, stl, obj, threemf, totalSize };
   });
 
-  ipcMain.handle("start-watching", (event, folderPath) => {
+  ipcMain.handle(IPC.START_WATCHING, (event, folderPath) => {
     if (mainWindow) {
       startWatcher(folderPath, mainWindow, getDb());
     }
   });
 
-  ipcMain.handle("stop-watching", () => {
+  ipcMain.handle(IPC.STOP_WATCHING, () => {
     stopWatcher();
   });
 }
@@ -527,7 +528,7 @@ async function generateThumbnailsInBackground(
 
   // Notify renderer that thumbnail generation is starting
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("thumbnail-progress", {
+    mainWindow.webContents.send(IPC.THUMBNAIL_PROGRESS, {
       current: 0,
       total,
       filename: "",
@@ -561,7 +562,7 @@ async function generateThumbnailsInBackground(
           .prepare("SELECT id FROM files WHERE path = ?")
           .get(file.path);
         if (row) {
-          mainWindow.webContents.send("thumbnail-ready", {
+          mainWindow.webContents.send(IPC.THUMBNAIL_READY, {
             fileId: row.id,
             thumbnailPath,
           });
@@ -577,7 +578,7 @@ async function generateThumbnailsInBackground(
 
     // Send progress update
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("thumbnail-progress", {
+      mainWindow.webContents.send(IPC.THUMBNAIL_PROGRESS, {
         current: i + 1,
         total,
         filename: file.name,
@@ -591,7 +592,7 @@ async function generateThumbnailsInBackground(
 
   // Notify renderer that thumbnail generation is done
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("thumbnail-progress", {
+    mainWindow.webContents.send(IPC.THUMBNAIL_PROGRESS, {
       current: total,
       total,
       filename: "",

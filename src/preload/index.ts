@@ -1,82 +1,85 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { IPC } from "../shared/types";
 
 contextBridge.exposeInMainWorld("polytray", {
   // Folder management
-  selectFolder: () => ipcRenderer.invoke("select-folder"),
-  getLastFolder: () => ipcRenderer.invoke("get-last-folder"),
-  getLibraryFolders: () => ipcRenderer.invoke("get-library-folders"),
+  selectFolder: () => ipcRenderer.invoke(IPC.SELECT_FOLDER),
+  getLastFolder: () => ipcRenderer.invoke(IPC.GET_LAST_FOLDER),
+  getLibraryFolders: () => ipcRenderer.invoke(IPC.GET_LIBRARY_FOLDERS),
   removeLibraryFolder: (path: string) =>
-    ipcRenderer.invoke("remove-library-folder", path),
+    ipcRenderer.invoke(IPC.REMOVE_LIBRARY_FOLDER, path),
 
   // Scanning
   scanFolder: (folderPath: string) =>
-    ipcRenderer.invoke("scan-folder", folderPath),
-  rescan: () => ipcRenderer.invoke("rescan"),
-  clearThumbnails: () => ipcRenderer.invoke("clear-thumbnails"),
+    ipcRenderer.invoke(IPC.SCAN_FOLDER, folderPath),
+  rescan: () => ipcRenderer.invoke(IPC.RESCAN),
+  clearThumbnails: () => ipcRenderer.invoke(IPC.CLEAR_THUMBNAILS),
 
   // File queries
-  getFiles: (opts: any) => ipcRenderer.invoke("get-files", opts),
-  getFileById: (id: number) => ipcRenderer.invoke("get-file-by-id", id),
-  getStats: () => ipcRenderer.invoke("get-stats"),
-  startDrag: (filePath: string) => ipcRenderer.send("ondragstart", filePath),
+  getFiles: (opts: any) => ipcRenderer.invoke(IPC.GET_FILES, opts),
+  getFileById: (id: number) => ipcRenderer.invoke(IPC.GET_FILE_BY_ID, id),
+  getStats: () => ipcRenderer.invoke(IPC.GET_STATS),
+  startDrag: (filePath: string) =>
+    ipcRenderer.send(IPC.ON_DRAG_START, filePath),
   showContextMenu: (filePath: string) =>
-    ipcRenderer.send("show-context-menu", filePath),
+    ipcRenderer.send(IPC.SHOW_CONTEXT_MENU, filePath),
 
   // 3D preview
   readFileBuffer: (filePath: string) =>
-    ipcRenderer.invoke("read-file-buffer", filePath),
+    ipcRenderer.invoke(IPC.READ_FILE_BUFFER, filePath),
 
   // Thumbnails — served as base64 data URLs
   readThumbnail: (thumbnailPath: string) =>
-    ipcRenderer.invoke("read-thumbnail", thumbnailPath),
+    ipcRenderer.invoke(IPC.READ_THUMBNAIL, thumbnailPath),
   requestThumbnailGeneration: (filePath: string, ext: string) =>
-    ipcRenderer.invoke("request-thumbnail-generation", filePath, ext),
+    ipcRenderer.invoke(IPC.REQUEST_THUMBNAIL_GENERATION, filePath, ext),
 
   // File watching
   startWatching: (folderPath: string) =>
-    ipcRenderer.invoke("start-watching", folderPath),
-  stopWatching: () => ipcRenderer.invoke("stop-watching"),
+    ipcRenderer.invoke(IPC.START_WATCHING, folderPath),
+  stopWatching: () => ipcRenderer.invoke(IPC.STOP_WATCHING),
 
   // Events (main → renderer)
   onScanProgress: (callback: (data: any) => void) => {
     const subscription = (event: any, data: any) => callback(data);
-    ipcRenderer.on("scan-progress", subscription);
-    return () => ipcRenderer.removeListener("scan-progress", subscription);
+    ipcRenderer.on(IPC.SCAN_PROGRESS, subscription);
+    return () => ipcRenderer.removeListener(IPC.SCAN_PROGRESS, subscription);
   },
   onScanComplete: (callback: (data: any) => void) => {
     const subscription = (event: any, data: any) => callback(data);
-    ipcRenderer.on("scan-complete", subscription);
-    return () => ipcRenderer.removeListener("scan-complete", subscription);
+    ipcRenderer.on(IPC.SCAN_COMPLETE, subscription);
+    return () => ipcRenderer.removeListener(IPC.SCAN_COMPLETE, subscription);
   },
   onFilesUpdated: (callback: (data: any) => void) => {
     const subscription = (event: any, data: any) => callback(data);
-    ipcRenderer.on("files-updated", subscription);
-    return () => ipcRenderer.removeListener("files-updated", subscription);
+    ipcRenderer.on(IPC.FILES_UPDATED, subscription);
+    return () => ipcRenderer.removeListener(IPC.FILES_UPDATED, subscription);
   },
   onFileIndexed: (callback: (data: any) => void) => {
     const subscription = (event: any, data: any) => callback(data);
-    ipcRenderer.on("file-indexed", subscription);
-    return () => ipcRenderer.removeListener("file-indexed", subscription);
+    ipcRenderer.on(IPC.FILE_INDEXED, subscription);
+    return () => ipcRenderer.removeListener(IPC.FILE_INDEXED, subscription);
   },
   onThumbnailReady: (callback: (data: any) => void) => {
     const subscription = (event: any, data: any) => callback(data);
-    ipcRenderer.on("thumbnail-ready", subscription);
-    return () => ipcRenderer.removeListener("thumbnail-ready", subscription);
+    ipcRenderer.on(IPC.THUMBNAIL_READY, subscription);
+    return () => ipcRenderer.removeListener(IPC.THUMBNAIL_READY, subscription);
   },
   onThumbnailProgress: (callback: (data: any) => void) => {
     const subscription = (event: any, data: any) => callback(data);
-    ipcRenderer.on("thumbnail-progress", subscription);
-    return () => ipcRenderer.removeListener("thumbnail-progress", subscription);
+    ipcRenderer.on(IPC.THUMBNAIL_PROGRESS, subscription);
+    return () =>
+      ipcRenderer.removeListener(IPC.THUMBNAIL_PROGRESS, subscription);
   },
 
   // Thumbnail generation (main → renderer → main)
   onThumbnailRequest: (callback: (data: any) => void) => {
     const subscription = (event: any, data: any) => callback(data);
-    ipcRenderer.on("generate-thumbnail-request", subscription);
+    ipcRenderer.on(IPC.GENERATE_THUMBNAIL_REQUEST, subscription);
     return () =>
-      ipcRenderer.removeListener("generate-thumbnail-request", subscription);
+      ipcRenderer.removeListener(IPC.GENERATE_THUMBNAIL_REQUEST, subscription);
   },
   sendThumbnailResult: (result: any) => {
-    ipcRenderer.send("thumbnail-generated", result);
+    ipcRenderer.send(IPC.THUMBNAIL_GENERATED, result);
   },
 });

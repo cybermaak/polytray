@@ -1,8 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { SUPPORTED_EXTENSIONS } from "../shared/types";
-
-const EXT_SET = new Set(SUPPORTED_EXTENSIONS);
+import { EXT_SET } from "../shared/types";
 
 interface ScannedFile {
   path: string;

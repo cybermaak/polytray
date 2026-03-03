@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, IpcMainEvent } from "electron";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import { IPC } from "../shared/types";
 
 let thumbnailDir: string | null = null;
 
@@ -44,7 +45,7 @@ export async function generateThumbnail(
   }
 
   try {
-    mainWindow.webContents.send("generate-thumbnail-request", {
+    mainWindow.webContents.send(IPC.GENERATE_THUMBNAIL_REQUEST, {
       filePath,
       ext,
       thumbPath,
@@ -52,14 +53,14 @@ export async function generateThumbnail(
 
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
-        ipcMain.removeListener("thumbnail-generated", handler);
+        ipcMain.removeListener(IPC.THUMBNAIL_GENERATED, handler);
         resolve(null);
       }, 15000);
 
       const handler = (event: IpcMainEvent, result: ThumbnailResult) => {
         if (result.filePath === filePath) {
           clearTimeout(timeout);
-          ipcMain.removeListener("thumbnail-generated", handler);
+          ipcMain.removeListener(IPC.THUMBNAIL_GENERATED, handler);
 
           if (result.success && result.dataUrl) {
             try {
@@ -80,7 +81,7 @@ export async function generateThumbnail(
         }
       };
 
-      ipcMain.on("thumbnail-generated", handler);
+      ipcMain.on(IPC.THUMBNAIL_GENERATED, handler);
     });
   } catch (e: any) {
     console.warn("Thumbnail generation failed:", e.message);

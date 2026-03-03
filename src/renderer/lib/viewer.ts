@@ -5,6 +5,44 @@ import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
 import JSZip from "jszip";
 
+// ── Configuration Constants ───────────────────────────────────────
+export const VIEWER_CONFIG = {
+  camera: { fov: 45, near: 0.1, far: 10000, padding: 1.2 },
+  exposure: 1.2,
+  material: { color: 0x8888aa, metalness: 0.15, roughness: 0.6 },
+  grid: {
+    size: 20,
+    divisions: 40,
+    centerColor: 0x8a8b94,
+    lineColor: 0x5c5d66,
+    opacity: 0.4,
+  },
+  normalizeScale: 10.0,
+  thumbnail: { size: 256 },
+  lighting: {
+    ambient: { color: 0x404050, intensity: 0.6 },
+    hemisphere: { skyColor: 0x8888cc, groundColor: 0x443322, intensity: 0.5 },
+    key: { color: 0xffffff, intensity: 1.2, position: [5, 8, 5] as const },
+    fill: { color: 0x3b82f6, intensity: 0.4, position: [-3, 2, -3] as const },
+    rim: { color: 0x3b82f6, intensity: 0.3, position: [0, -2, -5] as const },
+  },
+  thumbnailLighting: {
+    ambient: { color: 0xffffff, intensity: 0.8 },
+    hemisphere: { skyColor: 0xffffff, groundColor: 0x444444, intensity: 0.6 },
+    key: { color: 0xffffff, intensity: 2.0, position: [5, 5, 5] as const },
+    fill: { color: 0xffffff, intensity: 0.4, position: [-5, 0, -5] as const },
+    rim: { color: 0xffffff, intensity: 0.6, position: [0, 5, -5] as const },
+  },
+  controls: {
+    dampingFactor: 0.08,
+    rotateSpeed: 0.8,
+    zoomSpeed: 1.2,
+    panSpeed: 0.8,
+    minDistance: 0.1,
+    maxDistance: 1000,
+  },
+} as const;
+
 let scene: THREE.Scene | null,
   camera: THREE.PerspectiveCamera | null,
   renderer: THREE.WebGLRenderer | null,
@@ -41,7 +79,8 @@ export function initViewer(containerEl: HTMLElement) {
   scene = new THREE.Scene();
 
   // Camera
-  camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 10000);
+  const { fov, near, far } = VIEWER_CONFIG.camera;
+  camera = new THREE.PerspectiveCamera(fov, width / height, near, far);
   camera.position.set(3, 2, 3);
 
   // Renderer
@@ -53,20 +92,19 @@ export function initViewer(containerEl: HTMLElement) {
   renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.2;
+  renderer.toneMappingExposure = VIEWER_CONFIG.exposure;
   renderer.shadowMap.enabled = false;
-  // renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   container.appendChild(renderer.domElement);
 
   // Controls
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
-  controls.dampingFactor = 0.08;
-  controls.rotateSpeed = 0.8;
-  controls.zoomSpeed = 1.2;
-  controls.panSpeed = 0.8;
-  controls.minDistance = 0.1;
-  controls.maxDistance = 1000;
+  controls.dampingFactor = VIEWER_CONFIG.controls.dampingFactor;
+  controls.rotateSpeed = VIEWER_CONFIG.controls.rotateSpeed;
+  controls.zoomSpeed = VIEWER_CONFIG.controls.zoomSpeed;
+  controls.panSpeed = VIEWER_CONFIG.controls.panSpeed;
+  controls.minDistance = VIEWER_CONFIG.controls.minDistance;
+  controls.maxDistance = VIEWER_CONFIG.controls.maxDistance;
 
   // Lighting
   setupLighting();
@@ -82,43 +120,42 @@ export function initViewer(containerEl: HTMLElement) {
 }
 
 function setupLighting() {
-  // Ambient
-  const ambient = new THREE.AmbientLight(0x404050, 0.6);
+  const L = VIEWER_CONFIG.lighting;
+
+  const ambient = new THREE.AmbientLight(L.ambient.color, L.ambient.intensity);
   scene!.add(ambient);
 
-  // Hemisphere
-  const hemi = new THREE.HemisphereLight(0x8888cc, 0x443322, 0.5);
+  const hemi = new THREE.HemisphereLight(
+    L.hemisphere.skyColor,
+    L.hemisphere.groundColor,
+    L.hemisphere.intensity,
+  );
   scene!.add(hemi);
 
-  const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
-  dirLight.position.set(5, 8, 5);
-  // dirLight.castShadow = true;
-  // dirLight.shadow.mapSize.width = 2048;
-  // dirLight.shadow.mapSize.height = 2048;
-  // dirLight.shadow.camera.near = 0.1;
-  // dirLight.shadow.camera.far = 50;
-  // dirLight.shadow.camera.left = -10;
-  // dirLight.shadow.camera.right = 10;
-  // dirLight.shadow.camera.top = 10;
-  // dirLight.shadow.camera.bottom = -10;
+  const dirLight = new THREE.DirectionalLight(L.key.color, L.key.intensity);
+  dirLight.position.set(...L.key.position);
   camera!.add(dirLight);
 
-  // Fill light
-  const fillLight = new THREE.DirectionalLight(0x3b82f6, 0.4);
-  fillLight.position.set(-3, 2, -3);
+  const fillLight = new THREE.DirectionalLight(L.fill.color, L.fill.intensity);
+  fillLight.position.set(...L.fill.position);
   camera!.add(fillLight);
 
-  // Rim light
-  const rimLight = new THREE.DirectionalLight(0x3b82f6, 0.3);
-  rimLight.position.set(0, -2, -5);
+  const rimLight = new THREE.DirectionalLight(L.rim.color, L.rim.intensity);
+  rimLight.position.set(...L.rim.position);
   camera!.add(rimLight);
 
   scene!.add(camera!);
 }
 
 function setupGrid() {
-  gridHelper = new THREE.GridHelper(20, 40, 0x8a8b94, 0x5c5d66);
-  (gridHelper.material as THREE.Material).opacity = 0.4;
+  const G = VIEWER_CONFIG.grid;
+  gridHelper = new THREE.GridHelper(
+    G.size,
+    G.divisions,
+    G.centerColor,
+    G.lineColor,
+  );
+  (gridHelper.material as THREE.Material).opacity = G.opacity;
   (gridHelper.material as THREE.Material).transparent = true;
   scene!.add(gridHelper);
 }
@@ -372,7 +409,7 @@ export async function loadModel(
   const scaledSize = scaledBox.getSize(new THREE.Vector3());
   const maxDim = Math.max(scaledSize.x, scaledSize.y, scaledSize.z);
   if (maxDim > 0) {
-    const scale = 10.0 / maxDim;
+    const scale = VIEWER_CONFIG.normalizeScale / maxDim;
     group.scale.set(scale, scale, scale);
     group.updateMatrixWorld(true);
   }
@@ -679,10 +716,11 @@ function load3MF(arrayBuffer: ArrayBuffer, group: THREE.Group) {
 }
 
 function createMaterial(): THREE.MeshStandardMaterial {
+  const M = VIEWER_CONFIG.material;
   return new THREE.MeshStandardMaterial({
-    color: 0x8888aa,
-    metalness: 0.15,
-    roughness: 0.6,
+    color: M.color,
+    metalness: M.metalness,
+    roughness: M.roughness,
     flatShading: false,
   });
 }
@@ -708,7 +746,7 @@ function fitCameraToObject(object: THREE.Object3D) {
   let cameraDistance = Math.abs(maxDim / Math.sin(fov / 2));
 
   // Add a little padding
-  cameraDistance *= 1.2;
+  cameraDistance *= VIEWER_CONFIG.camera.padding;
 
   const direction = new THREE.Vector3(1, 0.7, 1).normalize();
   camera!.position.copy(center).add(direction.multiplyScalar(cameraDistance));
@@ -802,31 +840,44 @@ function ensureThumbnailRenderer(canvas: HTMLCanvasElement) {
     preserveDrawingBuffer: true,
     alpha: true,
   });
-  thumbRenderer.setSize(256, 256);
+  const TS = VIEWER_CONFIG.thumbnail.size;
+  thumbRenderer.setSize(TS, TS);
   thumbRenderer.toneMapping = THREE.ACESFilmicToneMapping;
-  thumbRenderer.toneMappingExposure = 1.2;
+  thumbRenderer.toneMappingExposure = VIEWER_CONFIG.exposure;
 
-  thumbCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 10000);
+  const { fov, near, far } = VIEWER_CONFIG.camera;
+  thumbCamera = new THREE.PerspectiveCamera(fov, 1, near, far);
 
   thumbScene = new THREE.Scene();
 
-  // Cinematic neutral lighting (permanent)
-  const ambient = new THREE.AmbientLight(0xffffff, 0.8);
+  const TL = VIEWER_CONFIG.thumbnailLighting;
+
+  const ambient = new THREE.AmbientLight(
+    TL.ambient.color,
+    TL.ambient.intensity,
+  );
   thumbScene.add(ambient);
 
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+  const hemi = new THREE.HemisphereLight(
+    TL.hemisphere.skyColor,
+    TL.hemisphere.groundColor,
+    TL.hemisphere.intensity,
+  );
   thumbScene.add(hemi);
 
-  const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
-  dirLight.position.set(5, 5, 5);
+  const dirLight = new THREE.DirectionalLight(TL.key.color, TL.key.intensity);
+  dirLight.position.set(...TL.key.position);
   thumbScene.add(dirLight);
 
-  const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
-  fillLight.position.set(-5, 0, -5);
+  const fillLight = new THREE.DirectionalLight(
+    TL.fill.color,
+    TL.fill.intensity,
+  );
+  fillLight.position.set(...TL.fill.position);
   thumbScene.add(fillLight);
 
-  const rimLight = new THREE.DirectionalLight(0xffffff, 0.6);
-  rimLight.position.set(0, 5, -5);
+  const rimLight = new THREE.DirectionalLight(TL.rim.color, TL.rim.intensity);
+  rimLight.position.set(...TL.rim.position);
   thumbScene.add(rimLight);
 }
 
@@ -898,7 +949,8 @@ export async function renderThumbnail(
 
     const maxDim = Math.max(size.x, size.y, size.z);
     const fov = thumbCamera!.fov * (Math.PI / 180);
-    let dist = Math.abs(maxDim / Math.sin(fov / 2)) * 1.2;
+    let dist =
+      Math.abs(maxDim / Math.sin(fov / 2)) * VIEWER_CONFIG.camera.padding;
 
     const direction = new THREE.Vector3(1, 0.7, 1).normalize();
     thumbCamera!.position.copy(center).add(direction.multiplyScalar(dist));

@@ -5,9 +5,7 @@ import { BrowserWindow } from "electron";
 import { Database } from "better-sqlite3";
 import { extractMetadata } from "./metadata";
 import { generateThumbnail } from "./thumbnails";
-import { SUPPORTED_EXTENSIONS } from "../shared/types";
-
-const EXT_SET = new Set(SUPPORTED_EXTENSIONS);
+import { EXT_SET, IPC } from "../shared/types";
 
 let watcher: FSWatcher | null = null;
 
@@ -110,7 +108,10 @@ async function handleFileChange(
       Date.now(),
     );
 
-    mainWindow.webContents.send("files-updated", { type: eventType, filePath });
+    mainWindow.webContents.send(IPC.FILES_UPDATED, {
+      type: eventType,
+      filePath,
+    });
   } catch (e: any) {
     console.warn(
       `Watcher: Error processing ${eventType} for ${filePath}:`,
@@ -128,5 +129,5 @@ function handleFileRemove(
   if (!EXT_SET.has(ext)) return;
 
   db.prepare("DELETE FROM files WHERE path = ?").run(filePath);
-  mainWindow.webContents.send("files-updated", { type: "unlink", filePath });
+  mainWindow.webContents.send(IPC.FILES_UPDATED, { type: "unlink", filePath });
 }
