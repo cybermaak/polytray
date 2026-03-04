@@ -20,7 +20,7 @@ export function startWatcher(
   stopWatcher();
 
   watcher = chokidar.watch(folderPath, {
-    ignored: /(^|[\/\\])\./, // ignore dotfiles
+    ignored: /(^|[/\\])\./, // ignore dotfiles
     persistent: true,
     ignoreInitial: true,
     depth: 99,
@@ -40,7 +40,7 @@ export function startWatcher(
     handleFileRemove(filePath, mainWindow, db),
   );
 
-  watcher.on("error", (error: any) => {
+  watcher.on("error", (error: unknown) => {
     console.error("Watcher error:", error);
   });
 }
@@ -69,10 +69,10 @@ async function handleFileChange(
     let meta = { vertexCount: 0, faceCount: 0 };
     try {
       meta = await extractMetadata(filePath, ext);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.warn(
         `Watcher: Failed to extract metadata for ${filePath}:`,
-        e.message,
+        (e as Error).message,
       );
     }
 
@@ -81,10 +81,10 @@ async function handleFileChange(
     try {
       thumbnailPath = await generateThumbnail(filePath, ext, mainWindow);
       if (!thumbnailPath) thumbnailFailed = 1;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.warn(
         `Watcher: Failed to generate thumbnail for ${filePath}:`,
-        e.message,
+        (e as Error).message,
       );
       thumbnailFailed = 1;
     }
@@ -112,10 +112,10 @@ async function handleFileChange(
       type: eventType,
       filePath,
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.warn(
-      `Watcher: Error processing ${eventType} for ${filePath}:`,
-      e.message,
+      `Watcher: Failed to handle file change for ${filePath}:`,
+      (e as Error).message,
     );
   }
 }

@@ -71,8 +71,8 @@ export async function generateThumbnail(
               );
               fs.writeFileSync(thumbPath, Buffer.from(base64Data, "base64"));
               resolve(thumbPath);
-            } catch (e: any) {
-              console.warn("Failed to save thumbnail:", e.message);
+            } catch (e: unknown) {
+              console.warn("Failed to save thumbnail:", (e as Error).message);
               resolve(null);
             }
           } else {
@@ -83,8 +83,8 @@ export async function generateThumbnail(
 
       ipcMain.on(IPC.THUMBNAIL_GENERATED, handler);
     });
-  } catch (e: any) {
-    console.warn("Thumbnail generation failed:", e.message);
+  } catch (e: unknown) {
+    console.warn("Thumbnail generation failed:", (e as Error).message);
     return null;
   }
 }

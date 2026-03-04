@@ -57,9 +57,9 @@ export function initDatabase() {
       db.prepare(
         "ALTER TABLE files ADD COLUMN thumbnail_failed INTEGER DEFAULT 0",
       ).run();
-    } catch (e: any) {
-      if (!e.message.includes("duplicate column name")) {
-        console.warn("Schema migration v2 warning:", e.message);
+    } catch (e: unknown) {
+      if (!(e as Error).message.includes("duplicate column name")) {
+        console.warn("Schema migration v2 warning:", (e as Error).message);
       }
     }
     db.pragma("user_version = 2");

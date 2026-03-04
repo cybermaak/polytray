@@ -16,7 +16,7 @@ interface Props {
   onFilterChange: (ext: string | null) => void;
   onOpenSettings: () => void;
   lightMode: boolean;
-  onSettingsChange: (settings: any) => void;
+  onSettingsChange: (settings: Record<string, boolean | string>) => void;
 }
 
 export const Sidebar: React.FC<Props> = ({

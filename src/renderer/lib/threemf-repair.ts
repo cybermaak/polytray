@@ -44,7 +44,7 @@ export async function fix3MF(buffer: ArrayBuffer): Promise<ArrayBuffer> {
       return fixed;
     };
 
-    let mainXml = await zip.file(mainModelFile)!.async("string");
+    const mainXml = await zip.file(mainModelFile)!.async("string");
     const repairedMainXml = repairXmlString(mainXml);
     let modified = repairedMainXml !== mainXml;
 

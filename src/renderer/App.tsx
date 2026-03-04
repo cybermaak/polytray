@@ -44,6 +44,15 @@ interface ProgressState {
   count: string;
 }
 
+interface Settings {
+  lightMode: boolean;
+  gridSize: string;
+  autoScan: boolean;
+  watch: boolean;
+  showGrid: boolean;
+  thumbQuality: string;
+}
+
 export const App: React.FC = () => {
   // ── State ───────────────────────────────────────────────────────
   const [folders, setFolders] = useState<string[]>([]);
@@ -90,24 +99,6 @@ export const App: React.FC = () => {
   const searchRef = useRef(search);
   searchRef.current = search;
 
-  // ── Data Loading (uses refs for latest state) ───────────────────
-  const loadFilesWithCurrentFilters = useCallback(async () => {
-    const result = await window.polytray.getFiles({
-      sort: sortRef.current,
-      order: orderRef.current,
-      extension: extensionRef.current,
-      search: searchRef.current,
-      limit: 500,
-      offset: 0,
-    });
-    setFiles(result.files);
-  }, []);
-
-  const updateStats = useCallback(async () => {
-    const s = await window.polytray.getStats();
-    setStats(s);
-  }, []);
-
   const thumbCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // ── IPC Listeners (once) ────────────────────────────────────────
@@ -120,7 +111,7 @@ export const App: React.FC = () => {
         setSettings((prev) => ({ ...prev, ...s }));
         if (s.lightMode) document.body.classList.add("light");
       }
-    } catch (e) {}
+    } catch (_e) {}
 
     const cleanups: (() => void)[] = [];
 
@@ -131,19 +122,26 @@ export const App: React.FC = () => {
     }
 
     cleanups.push(
-      window.polytray.onScanProgress((data: any) => {
-        const pct = Math.round((data.current / data.total) * 100);
-        setProgress({
-          visible: true,
-          percent: pct,
-          text: data.filename + (data.skipped ? " (cached)" : ""),
-          count: `${data.current} / ${data.total}`,
-        });
-      }),
+      window.polytray.onScanProgress(
+        (data: {
+          current: number;
+          total: number;
+          filename: string;
+          skipped: boolean;
+        }) => {
+          const pct = Math.round((data.current / data.total) * 100);
+          setProgress({
+            visible: true,
+            percent: pct,
+            text: data.filename + (data.skipped ? " (cached)" : ""),
+            count: `${data.current} / ${data.total}`,
+          });
+        },
+      ),
     );
 
     cleanups.push(
-      window.polytray.onScanComplete(async (data: any) => {
+      window.polytray.onScanComplete(async (data: { totalFiles: number }) => {
         setProgress((p) => ({
           ...p,
           percent: 100,
@@ -181,54 +179,63 @@ export const App: React.FC = () => {
     );
 
     cleanups.push(
-      window.polytray.onThumbnailProgress((data: any) => {
-        const { current, total, filename, phase } = data;
-        if (phase === "start") {
-          isGeneratingRef.current = true;
+      window.polytray.onThumbnailProgress(
+        (data: {
+          current: number;
+          total: number;
+          filename: string;
+          phase: string;
+        }) => {
+          const { current, total, filename, phase } = data;
+          if (phase === "start") {
+            isGeneratingRef.current = true;
+            setProgress({
+              visible: true,
+              percent: 0,
+              text: "Generating thumbnails...",
+              count: `0 / ${total}`,
+            });
+            return;
+          }
+          if (phase === "done") {
+            isGeneratingRef.current = false;
+            setProgress({
+              visible: true,
+              percent: 100,
+              text: `Thumbnails complete — ${total} generated`,
+              count: `${total} / ${total}`,
+            });
+            setTimeout(
+              () => setProgress((p) => ({ ...p, visible: false })),
+              2000,
+            );
+            return;
+          }
+          const pct = Math.round((current / total) * 100);
           setProgress({
             visible: true,
-            percent: 0,
-            text: "Generating thumbnails...",
-            count: `0 / ${total}`,
+            percent: pct,
+            text: `Thumbnail: ${filename}`,
+            count: `${current} / ${total}`,
           });
-          return;
-        }
-        if (phase === "done") {
-          isGeneratingRef.current = false;
-          setProgress({
-            visible: true,
-            percent: 100,
-            text: `Thumbnails complete — ${total} generated`,
-            count: `${total} / ${total}`,
-          });
-          setTimeout(
-            () => setProgress((p) => ({ ...p, visible: false })),
-            2000,
-          );
-          return;
-        }
-        const pct = Math.round((current / total) * 100);
-        setProgress({
-          visible: true,
-          percent: pct,
-          text: `Thumbnail: ${filename}`,
-          count: `${current} / ${total}`,
-        });
-      }),
+        },
+      ),
     );
 
     cleanups.push(
-      window.polytray.onThumbnailReady(async (data: any) => {
-        const { fileId, thumbnailPath } = data;
-        const dataUrl = await window.polytray.readThumbnail(thumbnailPath);
-        if (!dataUrl) return;
+      window.polytray.onThumbnailReady(
+        async (data: { fileId: number; thumbnailPath: string }) => {
+          const { fileId, thumbnailPath } = data;
+          const dataUrl = await window.polytray.readThumbnail(thumbnailPath);
+          if (!dataUrl) return;
 
-        setFiles((prevFiles) =>
-          prevFiles.map((f) =>
-            f.id === fileId ? { ...f, thumbnail: dataUrl } : f,
-          ),
-        );
-      }),
+          setFiles((prevFiles) =>
+            prevFiles.map((f) =>
+              f.id === fileId ? { ...f, thumbnail: dataUrl } : f,
+            ),
+          );
+        },
+      ),
     );
 
     cleanups.push(
@@ -299,6 +306,7 @@ export const App: React.FC = () => {
         }
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Update body class when lightMode change
@@ -421,7 +429,7 @@ export const App: React.FC = () => {
     setFiles(result.files);
   }, []);
 
-  const handleSettingsChange = useCallback((newSettings: any) => {
+  const handleSettingsChange = useCallback((newSettings: Partial<Settings>) => {
     setSettings((prev) => {
       const merged = { ...prev, ...newSettings };
       localStorage.setItem("polytray-settings", JSON.stringify(merged));
@@ -570,29 +578,33 @@ export const App: React.FC = () => {
 
 // ── Helpers for VirtuosoGrid ────────────────────────────────────
 
-const GridList = React.forwardRef<HTMLDivElement, any>(
-  ({ style, children, context, ...props }, ref) => {
-    return (
-      <div
-        ref={ref}
-        {...props}
-        id="file-grid"
-        className={`file-grid size-${context?.gridSize || "medium"}`}
-        style={{
-          ...style,
-          display: "grid",
-          padding: "var(--space-4)",
-          gap: "var(--space-3)",
-          alignContent: "start",
-        }}
-      >
-        {children}
-      </div>
-    );
-  },
-);
+const GridList = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement> & { context?: { gridSize?: string } }
+>(({ style, children, context, ...props }, ref) => {
+  return (
+    <div
+      ref={ref}
+      {...props}
+      id="file-grid"
+      className={`file-grid size-${context?.gridSize || "medium"}`}
+      style={{
+        ...style,
+        display: "grid",
+        padding: "var(--space-4)",
+        gap: "var(--space-3)",
+        alignContent: "start",
+      }}
+    >
+      {children}
+    </div>
+  );
+});
 
-const GridItem = ({ children, ...props }: any) => (
+const GridItem = ({
+  children,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
   <div {...props} style={{ display: "flex", flexDirection: "column" }}>
     {children}
   </div>
@@ -606,7 +618,11 @@ interface FileCardProps {
   onClick: () => void;
 }
 
-const FileCard: React.FC<FileCardProps> = ({ file, index, onClick }) => {
+const FileCard: React.FC<FileCardProps> = ({
+  file,
+  index: _index,
+  onClick,
+}) => {
   const extClass = file.extension === "3mf" ? "threemf" : file.extension;
 
   return (
@@ -699,7 +715,8 @@ const ThumbnailImage: React.FC<{ thumbnailPath: string; name: string }> = ({
 
   useEffect(() => {
     if (thumbnailPath.startsWith("data:")) {
-      setSrc(thumbnailPath);
+      // Setting initial src synchronously here is intentional: thumbnailPath is already a data URL
+      setSrc(thumbnailPath); // eslint-disable-line react-hooks/set-state-in-effect
       return;
     }
 

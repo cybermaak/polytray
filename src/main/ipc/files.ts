@@ -28,8 +28,8 @@ export function registerFileHandlers() {
     const sortCol = validSorts[sort] ?? "name";
     const sortOrder = order === "DESC" ? "DESC" : "ASC";
 
-    let where: string[] = [];
-    let params: (string | number)[] = [];
+    const where: string[] = [];
+    const params: (string | number)[] = [];
 
     if (extension) {
       where.push("extension = ?");

@@ -68,7 +68,12 @@ interface PolytrayAPI {
   ) => () => void;
   onThumbnailReady: (callback: (data: ThumbnailResult) => void) => () => void;
   onThumbnailProgress: (
-    callback: (data: { current: number; total: number }) => void,
+    callback: (data: {
+      current: number;
+      total: number;
+      filename: string;
+      phase: string;
+    }) => void,
   ) => () => void;
 
   onThumbnailRequest: (

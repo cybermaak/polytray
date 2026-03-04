@@ -40,10 +40,11 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
     if (!file) return;
 
     let cancelled = false;
-    setLoading(true);
-    setLoadError(null);
-    setWireframe(false);
-    setExpanded(false);
+    // These setState calls are intentional: reset UI state before async loading
+    setLoading(true); // eslint-disable-line react-hooks/set-state-in-effect
+    setLoadError(null);  
+    setWireframe(false);  
+    setExpanded(false);  
 
     const load = async () => {
       // Wait for the container to have dimensions

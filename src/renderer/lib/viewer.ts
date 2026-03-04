@@ -412,7 +412,7 @@ async function parseModelToGroup(
         await load3MF(arrayBuffer, group);
         break;
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error("Failed to parse model:", e);
     throw e;
   }
@@ -463,7 +463,9 @@ export async function loadModel(
 
   // Expose current model for E2E testing diagnostics
   if (typeof window !== "undefined") {
-    (window as any).__POLYTRAY_CURRENT_MODEL = state.currentModel;
+    (
+      window as Window & { __POLYTRAY_CURRENT_MODEL?: THREE.Object3D | null }
+    ).__POLYTRAY_CURRENT_MODEL = state.currentModel;
   }
 
   // Auto-fit camera
@@ -582,7 +584,8 @@ function loadSTL(arrayBuffer: ArrayBuffer, group: THREE.Group): void {
     geometry.deleteAttribute("color");
   }
   // Also explicitly override the custom flag STLLoader might set
-  (geometry as any).hasColors = false;
+  (geometry as THREE.BufferGeometry & { hasColors?: boolean }).hasColors =
+    false;
 
   // Ensure we have correct normals for lighting calculations (prevents black rendering)
   geometry.computeVertexNormals();
@@ -752,13 +755,15 @@ export function disposeViewer() {
 }
 
 function disposeObject(obj: THREE.Object3D) {
-  obj.traverse((child: any) => {
-    if (child.geometry) child.geometry.dispose();
-    if (child.material) {
-      if (Array.isArray(child.material)) {
-        child.material.forEach((m: THREE.Material) => m.dispose());
-      } else {
-        child.material.dispose();
+  obj.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach((m: THREE.Material) => m.dispose());
+        } else {
+          child.material.dispose();
+        }
       }
     }
   });
@@ -835,32 +840,28 @@ export async function renderThumbnail(
 ): Promise<string | null> {
   ensureThumbnailRenderer(canvas);
 
-  try {
-    const group = await parseModelToGroup(arrayBuffer, extension);
+  const group = await parseModelToGroup(arrayBuffer, extension);
 
-    if (group.children.length === 0) {
-      return null;
-    }
-
-    // Apply smart orientation heuristics
-    applySmartOrientation(group);
-
-    thumbState.scene!.add(group);
-
-    // Fit camera using shared logic
-    computeCameraFit(group, thumbState.camera!);
-
-    thumbState.renderer!.render(thumbState.scene!, thumbState.camera!);
-
-    // Get data URL
-    const dataUrl = canvas.toDataURL("image/png");
-
-    // Cleanup
-    thumbState.scene!.remove(group);
-    disposeObject(group);
-
-    return dataUrl;
-  } catch (e) {
-    throw e;
+  if (group.children.length === 0) {
+    return null;
   }
+
+  // Apply smart orientation heuristics
+  applySmartOrientation(group);
+
+  thumbState.scene!.add(group);
+
+  // Fit camera using shared logic
+  computeCameraFit(group, thumbState.camera!);
+
+  thumbState.renderer!.render(thumbState.scene!, thumbState.camera!);
+
+  // Get data URL
+  const dataUrl = canvas.toDataURL("image/png");
+
+  // Cleanup
+  thumbState.scene!.remove(group);
+  disposeObject(group);
+
+  return dataUrl;
 }

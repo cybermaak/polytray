@@ -22,7 +22,7 @@ export function registerThumbnailHandlers(
     try {
       const data = await fs.promises.readFile(thumbnailPath);
       return `data:image/png;base64,${data.toString("base64")}`;
-    } catch (e) {
+    } catch (_e) {
       return null;
     }
   });

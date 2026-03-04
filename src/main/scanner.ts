@@ -25,8 +25,8 @@ async function walkDir(dirPath: string, results: ScannedFile[]): Promise<void> {
   let entries: fs.Dirent[];
   try {
     entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
-  } catch (e: any) {
-    console.warn(`Cannot read directory ${dirPath}:`, e.message);
+  } catch (e: unknown) {
+    console.warn(`Cannot read directory ${dirPath}:`, (e as Error).message);
     return;
   }
 
@@ -51,8 +51,8 @@ async function walkDir(dirPath: string, results: ScannedFile[]): Promise<void> {
             size: stat.size,
             mtime: Math.floor(stat.mtimeMs),
           });
-        } catch (e: any) {
-          console.warn(`Cannot stat ${fullPath}:`, e.message);
+        } catch (e: unknown) {
+          console.warn(`Cannot stat ${fullPath}:`, (e as Error).message);
         }
       }
     }

@@ -13,6 +13,8 @@
   "main": "./out/main/index.js",
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "start": "electron-vite preview",
@@ -35,6 +37,7 @@
     "three": "^0.170.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.3",
     "@playwright/test": "^1.58.2",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.3.3",
@@ -45,8 +48,12 @@
     "electron": "^34.5.8",
     "electron-builder": "^25.1.0",
     "electron-vite": "^3.0.0",
+    "eslint": "^9.39.3",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "globals": "^17.4.0",
     "playwright": "^1.58.2",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1",
     "vite": "^6.0.0"
   },
   "build": {

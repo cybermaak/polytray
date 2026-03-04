@@ -66,8 +66,11 @@ export function registerScanningHandlers(
       let meta = { vertexCount: 0, faceCount: 0 };
       try {
         meta = await extractMetadata(file.path, file.ext);
-      } catch (e: any) {
-        console.warn(`Failed to extract metadata for ${file.path}:`, e.message);
+      } catch (e: unknown) {
+        console.warn(
+          `Failed to extract metadata for ${file.path}:`,
+          (e as Error).message,
+        );
       }
 
       db.prepare(
@@ -212,8 +215,11 @@ async function generateThumbnailsInBackground(
           file.path,
         );
       }
-    } catch (e: any) {
-      console.warn(`Failed to generate thumbnail for ${file.path}:`, e.message);
+    } catch (e: unknown) {
+      console.warn(
+        `Failed to generate thumbnail for ${file.path}:`,
+        (e as Error).message,
+      );
     }
 
     // Send progress update
