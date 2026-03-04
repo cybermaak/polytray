@@ -25,7 +25,29 @@ jobs:
       - name: Build JS sources
         run: npm run build
 
-      - name: Build and Publish Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run release
+      - name: Package Application
+        run: npx electron-builder --publish never
+
+      - name: Upload Workflow Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: polytray-${{ runner.os }}-artifacts
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.zip
+            dist/*.AppImage
+            dist/*.snap
+          retention-days: 7
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.zip
+            dist/*.AppImage
+            dist/*.snap
+            dist/*.blockmap
+            latest*.yml
