@@ -103,16 +103,6 @@ export const App: React.FC = () => {
 
   // ── IPC Listeners (once) ────────────────────────────────────────
   useEffect(() => {
-    // Initial settings load
-    try {
-      const raw = localStorage.getItem("polytray-settings");
-      if (raw) {
-        const s = JSON.parse(raw);
-        setSettings((prev) => ({ ...prev, ...s }));
-        if (s.lightMode) document.body.classList.add("light");
-      }
-    } catch (_e) {}
-
     const cleanups: (() => void)[] = [];
 
     // Thumbnail Generator (hidden canvas handler)
@@ -442,6 +432,31 @@ export const App: React.FC = () => {
     });
   }, []);
 
+  // ── Reactive watch toggle ──────────────────────────────────────
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
+  useEffect(() => {
+    if (foldersRef.current.length === 0) return;
+
+    if (settings.watch) {
+      for (const folder of foldersRef.current) {
+        window.polytray.startWatching(folder);
+      }
+    } else {
+      window.polytray.stopWatching();
+    }
+  }, [settings.watch]);
+
+  // ── Reactive thumbQuality → canvas resize ──────────────────────
+  useEffect(() => {
+    const canvas = thumbCanvasRef.current;
+    if (!canvas) return;
+    const size = parseInt(settings.thumbQuality, 10) || 256;
+    canvas.width = size;
+    canvas.height = size;
+  }, [settings.thumbQuality]);
+
   // Keyboard: Escape
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -568,8 +583,8 @@ export const App: React.FC = () => {
       />
       <canvas
         ref={thumbCanvasRef}
-        width="256"
-        height="256"
+        width={parseInt(settings.thumbQuality, 10) || 256}
+        height={parseInt(settings.thumbQuality, 10) || 256}
         style={{ display: "none" }}
       />
     </>

@@ -784,6 +784,20 @@ const thumbState: ThumbState = {
 };
 
 function ensureThumbnailRenderer(canvas: HTMLCanvasElement) {
+  const canvasSize = canvas.width || VIEWER_CONFIG.thumbnail.size;
+
+  // Re-create if canvas size changed (thumbQuality setting changed)
+  if (
+    thumbState.renderer &&
+    (thumbState.renderer.domElement.width !== canvasSize ||
+      thumbState.renderer.domElement.height !== canvasSize)
+  ) {
+    thumbState.renderer.dispose();
+    thumbState.renderer = null;
+    thumbState.scene = null;
+    thumbState.camera = null;
+  }
+
   if (thumbState.renderer) return;
 
   thumbState.renderer = new THREE.WebGLRenderer({
@@ -792,8 +806,7 @@ function ensureThumbnailRenderer(canvas: HTMLCanvasElement) {
     preserveDrawingBuffer: true,
     alpha: true,
   });
-  const TS = VIEWER_CONFIG.thumbnail.size;
-  thumbState.renderer.setSize(TS, TS);
+  thumbState.renderer.setSize(canvasSize, canvasSize);
   thumbState.renderer.toneMapping = THREE.ACESFilmicToneMapping;
   thumbState.renderer.toneMappingExposure = VIEWER_CONFIG.exposure;
 
