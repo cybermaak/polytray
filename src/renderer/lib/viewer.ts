@@ -43,68 +43,90 @@ export const VIEWER_CONFIG = {
   },
 } as const;
 
-let scene: THREE.Scene | null,
-  camera: THREE.PerspectiveCamera | null,
-  renderer: THREE.WebGLRenderer | null,
-  controls: OrbitControls | null;
-let currentModel: THREE.Object3D | null = null;
-let gridHelper: THREE.GridHelper | null = null;
-let animationId: number | null = null;
-let wireframeMode = false;
+// ── Viewer State ──────────────────────────────────────────────────
 
-// Multi-Model Cache
-let multiModelMeshes: THREE.Object3D[] = [];
-let activeSubModelIndex = -1; // -1 means show all
-let _multiModelContainer: HTMLElement | null = null;
-function getMultiModelContainer() {
-  if (!_multiModelContainer) {
-    _multiModelContainer = document.getElementById("viewer-multi-model");
-  }
-  return _multiModelContainer;
+interface ViewerState {
+  scene: THREE.Scene | null;
+  camera: THREE.PerspectiveCamera | null;
+  renderer: THREE.WebGLRenderer | null;
+  controls: OrbitControls | null;
+  currentModel: THREE.Object3D | null;
+  gridHelper: THREE.GridHelper | null;
+  animationId: number | null;
+  wireframeMode: boolean;
+  multiModelMeshes: THREE.Object3D[];
+  activeSubModelIndex: number;
+  container: HTMLElement | null;
+  multiModelContainer: HTMLElement | null;
 }
-let container: HTMLElement | null = null;
+
+function createInitialState(): ViewerState {
+  return {
+    scene: null,
+    camera: null,
+    renderer: null,
+    controls: null,
+    currentModel: null,
+    gridHelper: null,
+    animationId: null,
+    wireframeMode: false,
+    multiModelMeshes: [],
+    activeSubModelIndex: -1,
+    container: null,
+    multiModelContainer: null,
+  };
+}
+
+const state: ViewerState = createInitialState();
+
+function getMultiModelContainer() {
+  if (!state.multiModelContainer) {
+    state.multiModelContainer = document.getElementById("viewer-multi-model");
+  }
+  return state.multiModelContainer;
+}
 
 // ── Initialization ────────────────────────────────────────────────
 
 export function initViewer(containerEl: HTMLElement) {
-  container = containerEl;
+  state.container = containerEl;
 
   // Clean up any previous viewer
   disposeViewer();
 
-  const width = container.clientWidth;
-  const height = container.clientHeight;
+  const width = state.container.clientWidth;
+  const height = state.container.clientHeight;
 
   // Scene
-  scene = new THREE.Scene();
+  state.scene = new THREE.Scene();
 
   // Camera
   const { fov, near, far } = VIEWER_CONFIG.camera;
-  camera = new THREE.PerspectiveCamera(fov, width / height, near, far);
-  camera.position.set(3, 2, 3);
+  state.camera = new THREE.PerspectiveCamera(fov, width / height, near, far);
+  state.camera.position.set(3, 2, 3);
 
   // Renderer
-  renderer = new THREE.WebGLRenderer({
+  state.renderer = new THREE.WebGLRenderer({
     antialias: true,
     alpha: true,
     preserveDrawingBuffer: true, // Needed for capturing sub-model thumbnails
   });
-  renderer.setSize(width, height);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = VIEWER_CONFIG.exposure;
-  renderer.shadowMap.enabled = false;
-  container.appendChild(renderer.domElement);
+  state.renderer.setSize(width, height);
+  state.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  state.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  state.renderer.toneMappingExposure = VIEWER_CONFIG.exposure;
+  state.renderer.shadowMap.enabled = false;
+  state.container.appendChild(state.renderer.domElement);
 
   // Controls
-  controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-  controls.dampingFactor = VIEWER_CONFIG.controls.dampingFactor;
-  controls.rotateSpeed = VIEWER_CONFIG.controls.rotateSpeed;
-  controls.zoomSpeed = VIEWER_CONFIG.controls.zoomSpeed;
-  controls.panSpeed = VIEWER_CONFIG.controls.panSpeed;
-  controls.minDistance = VIEWER_CONFIG.controls.minDistance;
-  controls.maxDistance = VIEWER_CONFIG.controls.maxDistance;
+  state.controls = new OrbitControls(state.camera, state.renderer.domElement);
+  state.controls.enableDamping = true;
+  state.controls.dampingFactor = VIEWER_CONFIG.controls.dampingFactor;
+  state.controls.rotateSpeed = VIEWER_CONFIG.controls.rotateSpeed;
+  state.controls.zoomSpeed = VIEWER_CONFIG.controls.zoomSpeed;
+  state.controls.panSpeed = VIEWER_CONFIG.controls.panSpeed;
+  state.controls.minDistance = VIEWER_CONFIG.controls.minDistance;
+  state.controls.maxDistance = VIEWER_CONFIG.controls.maxDistance;
 
   // Lighting
   setupLighting();
@@ -123,62 +145,63 @@ function setupLighting() {
   const L = VIEWER_CONFIG.lighting;
 
   const ambient = new THREE.AmbientLight(L.ambient.color, L.ambient.intensity);
-  scene!.add(ambient);
+  state.scene!.add(ambient);
 
   const hemi = new THREE.HemisphereLight(
     L.hemisphere.skyColor,
     L.hemisphere.groundColor,
     L.hemisphere.intensity,
   );
-  scene!.add(hemi);
+  state.scene!.add(hemi);
 
   const dirLight = new THREE.DirectionalLight(L.key.color, L.key.intensity);
   dirLight.position.set(...L.key.position);
-  camera!.add(dirLight);
+  state.camera!.add(dirLight);
 
   const fillLight = new THREE.DirectionalLight(L.fill.color, L.fill.intensity);
   fillLight.position.set(...L.fill.position);
-  camera!.add(fillLight);
+  state.camera!.add(fillLight);
 
   const rimLight = new THREE.DirectionalLight(L.rim.color, L.rim.intensity);
   rimLight.position.set(...L.rim.position);
-  camera!.add(rimLight);
+  state.camera!.add(rimLight);
 
-  scene!.add(camera!);
+  state.scene!.add(state.camera!);
 }
 
 function setupGrid() {
   const G = VIEWER_CONFIG.grid;
-  gridHelper = new THREE.GridHelper(
+  state.gridHelper = new THREE.GridHelper(
     G.size,
     G.divisions,
     G.centerColor,
     G.lineColor,
   );
-  (gridHelper.material as THREE.Material).opacity = G.opacity;
-  (gridHelper.material as THREE.Material).transparent = true;
-  scene!.add(gridHelper);
+  (state.gridHelper.material as THREE.Material).opacity = G.opacity;
+  (state.gridHelper.material as THREE.Material).transparent = true;
+  state.scene!.add(state.gridHelper);
 }
 
 export function toggleGrid(visible: boolean) {
-  if (gridHelper) {
-    gridHelper.visible = visible;
+  if (state.gridHelper) {
+    state.gridHelper.visible = visible;
   }
 }
 
 function animate() {
-  animationId = requestAnimationFrame(animate);
-  if (controls) controls.update();
-  if (renderer && scene && camera) renderer.render(scene, camera);
+  state.animationId = requestAnimationFrame(animate);
+  if (state.controls) state.controls.update();
+  if (state.renderer && state.scene && state.camera)
+    state.renderer.render(state.scene, state.camera);
 }
 
 function handleResize() {
-  if (!container || !camera || !renderer) return;
-  const width = container.clientWidth;
-  const height = container.clientHeight;
-  camera.aspect = width / height;
-  camera.updateProjectionMatrix();
-  renderer.setSize(width, height);
+  if (!state.container || !state.camera || !state.renderer) return;
+  const width = state.container.clientWidth;
+  const height = state.container.clientHeight;
+  state.camera.aspect = width / height;
+  state.camera.updateProjectionMatrix();
+  state.renderer.setSize(width, height);
 }
 
 // ── Model Loading ─────────────────────────────────────────────────
@@ -403,10 +426,10 @@ export async function loadModel(
   name: string,
 ) {
   // Remove previous model
-  if (currentModel) {
-    scene!.remove(currentModel);
-    disposeObject(currentModel);
-    currentModel = null;
+  if (state.currentModel) {
+    state.scene!.remove(state.currentModel);
+    disposeObject(state.currentModel);
+    state.currentModel = null;
   }
 
   const group = await parseModelToGroup(arrayBuffer, extension);
@@ -432,29 +455,29 @@ export async function loadModel(
   group.position.y -= finalBox.min.y;
   group.position.z -= finalCenter.z;
 
-  scene!.add(group);
-  currentModel = group;
+  state.scene!.add(group);
+  state.currentModel = group;
 
   // Render multi-model carousel if applicable
   await updateMultiModelThumbnailStrip(group);
 
   // Expose current model for E2E testing diagnostics
   if (typeof window !== "undefined") {
-    (window as any).__POLYTRAY_CURRENT_MODEL = currentModel;
+    (window as any).__POLYTRAY_CURRENT_MODEL = state.currentModel;
   }
 
   // Auto-fit camera
   fitCameraToObject(group);
 
-  wireframeMode = false;
+  state.wireframeMode = false;
 }
 
 async function updateMultiModelThumbnailStrip(group: THREE.Group) {
   const multiModelContainer = getMultiModelContainer();
   if (!multiModelContainer) return;
 
-  multiModelMeshes = [];
-  activeSubModelIndex = -1;
+  state.multiModelMeshes = [];
+  state.activeSubModelIndex = -1;
   multiModelContainer.innerHTML = "";
   multiModelContainer.classList.add("hidden");
 
@@ -467,12 +490,12 @@ async function updateMultiModelThumbnailStrip(group: THREE.Group) {
       child.traverse((n) => {
         if (n instanceof THREE.Mesh && n.geometry) hasGeometry = true;
       });
-      if (hasGeometry) multiModelMeshes.push(child);
+      if (hasGeometry) state.multiModelMeshes.push(child);
     }
   }
 
   // If there's only 1 thing, no need for a carousel
-  if (multiModelMeshes.length < 2) return;
+  if (state.multiModelMeshes.length < 2) return;
 
   // We have multiple distinct models! Let's build a thumbnail strip.
   multiModelContainer.classList.remove("hidden");
@@ -485,31 +508,31 @@ async function updateMultiModelThumbnailStrip(group: THREE.Group) {
   // Wait a frame so the UI flexbox can settle before generating thumbs
   await new Promise((r) => setTimeout(r, 10));
 
-  for (let i = 0; i < multiModelMeshes.length; i++) {
-    const sub = multiModelMeshes[i];
+  for (let i = 0; i < state.multiModelMeshes.length; i++) {
+    const sub = state.multiModelMeshes[i];
 
     // Hide everything else temporarily to take a picture
-    multiModelMeshes.forEach((m, idx) => {
+    state.multiModelMeshes.forEach((m, idx) => {
       m.visible = idx === i;
     });
 
     // Render snapshot
     fitCameraToObject(sub); // zoom camera tight on this specific sub-model
-    renderer!.render(scene!, camera!);
+    state.renderer!.render(state.scene!, state.camera!);
 
     const thumbDiv = document.createElement("div");
     thumbDiv.className = "multi-model-thumb";
 
     // We can just grab the data-url right out of our main WebGL canvas since it was preserved!
     const img = document.createElement("img");
-    img.src = renderer!.domElement.toDataURL("image/png");
+    img.src = state.renderer!.domElement.toDataURL("image/png");
 
     thumbDiv.appendChild(img);
     thumbDiv.onclick = () => selectSubModel(i, thumbDiv);
     multiModelContainer.appendChild(thumbDiv);
   }
 
-  // Add a "Show All" button at the start? Or just rely on re-clicking to toggle.
+  // Add a "Show All" button at the start
   const showAllDiv = document.createElement("div");
   showAllDiv.className = "multi-model-thumb active";
   showAllDiv.style.flexDirection = "column";
@@ -521,7 +544,7 @@ async function updateMultiModelThumbnailStrip(group: THREE.Group) {
   multiModelContainer.insertBefore(showAllDiv, multiModelContainer.firstChild);
 
   // Restore visibility to ALL objects to start
-  multiModelMeshes.forEach((m) => (m.visible = true));
+  state.multiModelMeshes.forEach((m) => (m.visible = true));
   fitCameraToObject(group); // Refit the main camera back to the whole group
 }
 
@@ -534,18 +557,18 @@ function selectSubModel(index: number, htmlElement: HTMLElement) {
   }
   htmlElement.classList.add("active");
 
-  activeSubModelIndex = index;
+  state.activeSubModelIndex = index;
 
   if (index === -1) {
     // Show all
-    multiModelMeshes.forEach((m) => (m.visible = true));
-    fitCameraToObject(currentModel!);
+    state.multiModelMeshes.forEach((m) => (m.visible = true));
+    fitCameraToObject(state.currentModel!);
   } else {
     // Show specifically the one clicked
-    multiModelMeshes.forEach((m, idx) => {
+    state.multiModelMeshes.forEach((m, idx) => {
       m.visible = idx === index;
     });
-    fitCameraToObject(multiModelMeshes[index]);
+    fitCameraToObject(state.multiModelMeshes[index]);
   }
 }
 
@@ -662,30 +685,30 @@ function computeCameraFit(
 }
 
 function fitCameraToObject(object: THREE.Object3D) {
-  const { center, maxDim } = computeCameraFit(object, camera!);
+  const { center, maxDim } = computeCameraFit(object, state.camera!);
 
-  controls!.target.copy(center);
-  controls!.minDistance = maxDim * 0.1;
-  controls!.maxDistance = maxDim * 10;
-  controls!.update();
+  state.controls!.target.copy(center);
+  state.controls!.minDistance = maxDim * 0.1;
+  state.controls!.maxDistance = maxDim * 10;
+  state.controls!.update();
 
-  camera!.updateProjectionMatrix();
+  state.camera!.updateProjectionMatrix();
 }
 
 export function resetCamera() {
-  if (currentModel) {
-    fitCameraToObject(currentModel);
+  if (state.currentModel) {
+    fitCameraToObject(state.currentModel);
   }
 }
 
 // ── Wireframe Toggle ──────────────────────────────────────────────
 
 export function toggleWireframe() {
-  wireframeMode = !wireframeMode;
-  if (currentModel) {
-    currentModel.traverse((child) => {
+  state.wireframeMode = !state.wireframeMode;
+  if (state.currentModel) {
+    state.currentModel.traverse((child) => {
       if (child instanceof THREE.Mesh && child.material) {
-        child.material.wireframe = wireframeMode;
+        child.material.wireframe = state.wireframeMode;
       }
     });
   }
@@ -694,34 +717,38 @@ export function toggleWireframe() {
 // ── Cleanup ───────────────────────────────────────────────────────
 
 export function disposeViewer() {
-  if (animationId) {
-    cancelAnimationFrame(animationId);
-    animationId = null;
+  if (state.animationId) {
+    cancelAnimationFrame(state.animationId);
+    state.animationId = null;
   }
 
   window.removeEventListener("resize", handleResize);
 
-  if (currentModel) {
-    disposeObject(currentModel);
-    currentModel = null;
+  if (state.currentModel) {
+    disposeObject(state.currentModel);
+    state.currentModel = null;
   }
 
-  if (controls) {
-    controls.dispose();
-    controls = null;
+  if (state.controls) {
+    state.controls.dispose();
+    state.controls = null;
   }
 
-  if (renderer) {
-    renderer.dispose();
-    if (renderer.domElement && renderer.domElement.parentNode) {
-      renderer.domElement.parentNode.removeChild(renderer.domElement);
+  if (state.renderer) {
+    state.renderer.dispose();
+    if (state.renderer.domElement && state.renderer.domElement.parentNode) {
+      state.renderer.domElement.parentNode.removeChild(
+        state.renderer.domElement,
+      );
     }
-    renderer = null;
+    state.renderer = null;
   }
 
-  scene = null;
-  camera = null;
-  controls = null;
+  state.scene = null;
+  state.camera = null;
+  state.multiModelMeshes = [];
+  state.activeSubModelIndex = -1;
+  state.multiModelContainer = null;
 }
 
 function disposeObject(obj: THREE.Object3D) {
@@ -737,30 +764,38 @@ function disposeObject(obj: THREE.Object3D) {
   });
 }
 
-// ── Thumbnail Rendering (used by thumbnail generator) ─────────────
+// ── Thumbnail Rendering State ─────────────────────────────────────
 
-let thumbRenderer: THREE.WebGLRenderer | null = null;
-let thumbScene: THREE.Scene | null = null;
-let thumbCamera: THREE.PerspectiveCamera | null = null;
+interface ThumbState {
+  renderer: THREE.WebGLRenderer | null;
+  scene: THREE.Scene | null;
+  camera: THREE.PerspectiveCamera | null;
+}
+
+const thumbState: ThumbState = {
+  renderer: null,
+  scene: null,
+  camera: null,
+};
 
 function ensureThumbnailRenderer(canvas: HTMLCanvasElement) {
-  if (thumbRenderer) return;
+  if (thumbState.renderer) return;
 
-  thumbRenderer = new THREE.WebGLRenderer({
+  thumbState.renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: true,
     preserveDrawingBuffer: true,
     alpha: true,
   });
   const TS = VIEWER_CONFIG.thumbnail.size;
-  thumbRenderer.setSize(TS, TS);
-  thumbRenderer.toneMapping = THREE.ACESFilmicToneMapping;
-  thumbRenderer.toneMappingExposure = VIEWER_CONFIG.exposure;
+  thumbState.renderer.setSize(TS, TS);
+  thumbState.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  thumbState.renderer.toneMappingExposure = VIEWER_CONFIG.exposure;
 
   const { fov, near, far } = VIEWER_CONFIG.camera;
-  thumbCamera = new THREE.PerspectiveCamera(fov, 1, near, far);
+  thumbState.camera = new THREE.PerspectiveCamera(fov, 1, near, far);
 
-  thumbScene = new THREE.Scene();
+  thumbState.scene = new THREE.Scene();
 
   const TL = VIEWER_CONFIG.thumbnailLighting;
 
@@ -768,29 +803,29 @@ function ensureThumbnailRenderer(canvas: HTMLCanvasElement) {
     TL.ambient.color,
     TL.ambient.intensity,
   );
-  thumbScene.add(ambient);
+  thumbState.scene.add(ambient);
 
   const hemi = new THREE.HemisphereLight(
     TL.hemisphere.skyColor,
     TL.hemisphere.groundColor,
     TL.hemisphere.intensity,
   );
-  thumbScene.add(hemi);
+  thumbState.scene.add(hemi);
 
   const dirLight = new THREE.DirectionalLight(TL.key.color, TL.key.intensity);
   dirLight.position.set(...TL.key.position);
-  thumbScene.add(dirLight);
+  thumbState.scene.add(dirLight);
 
   const fillLight = new THREE.DirectionalLight(
     TL.fill.color,
     TL.fill.intensity,
   );
   fillLight.position.set(...TL.fill.position);
-  thumbScene.add(fillLight);
+  thumbState.scene.add(fillLight);
 
   const rimLight = new THREE.DirectionalLight(TL.rim.color, TL.rim.intensity);
   rimLight.position.set(...TL.rim.position);
-  thumbScene.add(rimLight);
+  thumbState.scene.add(rimLight);
 }
 
 export async function renderThumbnail(
@@ -810,18 +845,18 @@ export async function renderThumbnail(
     // Apply smart orientation heuristics
     applySmartOrientation(group);
 
-    thumbScene!.add(group);
+    thumbState.scene!.add(group);
 
     // Fit camera using shared logic
-    computeCameraFit(group, thumbCamera!);
+    computeCameraFit(group, thumbState.camera!);
 
-    thumbRenderer!.render(thumbScene!, thumbCamera!);
+    thumbState.renderer!.render(thumbState.scene!, thumbState.camera!);
 
     // Get data URL
     const dataUrl = canvas.toDataURL("image/png");
 
     // Cleanup
-    thumbScene!.remove(group);
+    thumbState.scene!.remove(group);
     disposeObject(group);
 
     return dataUrl;
