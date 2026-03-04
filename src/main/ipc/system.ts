@@ -18,9 +18,26 @@ export function registerSystemHandlers(
   getMainWindow: () => BrowserWindow | null,
 ) {
   ipcMain.on(IPC.ON_DRAG_START, (event, filePath) => {
-    const icon = nativeImage.createFromPath(
-      join(__dirname, "../../build/icon.png"),
-    );
+    // Try to use the file's thumbnail as the drag icon
+    let icon: Electron.NativeImage | undefined = undefined;
+    try {
+      const db = getDb();
+      const row = db
+        .prepare("SELECT thumbnail FROM files WHERE path = ?")
+        .get(filePath) as { thumbnail: string | null } | undefined;
+      if (row?.thumbnail) {
+        const thumbImage = nativeImage.createFromPath(row.thumbnail);
+        if (!thumbImage.isEmpty()) {
+          // Resize to a reasonable drag icon size
+          icon = thumbImage.resize({ width: 128, height: 128 });
+        }
+      }
+    } catch (_e) {}
+    if (!icon) {
+      icon = nativeImage.createFromPath(
+        join(__dirname, "../../build/icon.png"),
+      ).resize({ width: 128, height: 128 });
+    }
     event.sender.startDrag({
       file: filePath,
       icon: icon,
