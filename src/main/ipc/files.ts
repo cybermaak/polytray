@@ -4,10 +4,17 @@
 import { ipcMain } from "electron";
 import fs from "fs";
 import { getDb } from "../database";
-import { FileRecord, CountRow, TotalRow, IPC } from "../../shared/types";
+import {
+  FileRecord,
+  CountRow,
+  TotalRow,
+  IPC,
+  SortOptions,
+  LibraryStats,
+} from "../../shared/types";
 
 export function registerFileHandlers() {
-  ipcMain.handle(IPC.GET_FILES, (event, opts = {}) => {
+  ipcMain.handle(IPC.GET_FILES, (event, opts: SortOptions = {}) => {
     const db = getDb();
     const {
       sort = "name",
@@ -76,7 +83,7 @@ export function registerFileHandlers() {
     );
   });
 
-  ipcMain.handle(IPC.GET_STATS, () => {
+  ipcMain.handle(IPC.GET_STATS, (): LibraryStats => {
     const db = getDb();
     const total = (
       db.prepare("SELECT COUNT(*) as count FROM files").get() as CountRow

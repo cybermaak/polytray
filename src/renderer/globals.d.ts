@@ -1,26 +1,18 @@
-import type { FileRecord } from "../shared/types";
+import type {
+  FileRecord,
+  SortOptions,
+  LibraryStats,
+  ScanProgressData,
+  ScanCompleteData,
+  FilesUpdatedData,
+  FileIndexedData,
+  ThumbnailReadyData,
+  ThumbnailProgressData,
+  ThumbnailRequestData,
+  ThumbnailResultData,
+} from "../shared/types";
+
 export type { FileRecord };
-
-interface SortOptions {
-  sort?: string;
-  order?: "ASC" | "DESC";
-  extension?: string | null;
-  search?: string;
-  limit?: number;
-  offset?: number;
-}
-
-interface ScanProgress {
-  current: number;
-  total: number;
-  filename: string;
-  skipped: boolean;
-}
-
-interface ThumbnailResult {
-  fileId: number;
-  thumbnailPath: string;
-}
 
 interface PolytrayAPI {
   selectFolder: () => Promise<string | null>;
@@ -36,13 +28,7 @@ interface PolytrayAPI {
     opts: SortOptions,
   ) => Promise<{ files: FileRecord[]; total: number }>;
   getFileById: (id: number) => Promise<FileRecord>;
-  getStats: () => Promise<{
-    total: number;
-    stl: number;
-    obj: number;
-    threemf: number;
-    totalSize: number;
-  }>;
+  getStats: () => Promise<LibraryStats>;
 
   readFileBuffer: (filePath: string) => Promise<ArrayBuffer>;
   readThumbnail: (thumbnailPath: string) => Promise<string | null>;
@@ -56,39 +42,21 @@ interface PolytrayAPI {
   startWatching: (folderPath: string) => Promise<void>;
   stopWatching: () => Promise<void>;
 
-  onScanProgress: (callback: (data: ScanProgress) => void) => () => void;
-  onScanComplete: (
-    callback: (data: { totalFiles: number }) => void,
+  onScanProgress: (callback: (data: ScanProgressData) => void) => () => void;
+  onScanComplete: (callback: (data: ScanCompleteData) => void) => () => void;
+  onFilesUpdated: (callback: (data: FilesUpdatedData) => void) => () => void;
+  onFileIndexed: (callback: (data: FileIndexedData) => void) => () => void;
+  onThumbnailReady: (
+    callback: (data: ThumbnailReadyData) => void,
   ) => () => void;
-  onFilesUpdated: (
-    callback: (data: { directory: string }) => void,
-  ) => () => void;
-  onFileIndexed: (
-    callback: (data: { path: string; current: number; total: number }) => void,
-  ) => () => void;
-  onThumbnailReady: (callback: (data: ThumbnailResult) => void) => () => void;
   onThumbnailProgress: (
-    callback: (data: {
-      current: number;
-      total: number;
-      filename: string;
-      phase: string;
-    }) => void,
+    callback: (data: ThumbnailProgressData) => void,
   ) => () => void;
 
   onThumbnailRequest: (
-    callback: (data: {
-      filePath: string;
-      ext: string;
-      thumbPath: string;
-    }) => void,
+    callback: (data: ThumbnailRequestData) => void,
   ) => () => void;
-  sendThumbnailResult: (result: {
-    filePath: string;
-    thumbPath: string;
-    success: boolean;
-    dataUrl?: string;
-  }) => void;
+  sendThumbnailResult: (result: ThumbnailResultData) => void;
 }
 
 declare global {

@@ -1,39 +1,16 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from "electron";
-import { IPC } from "../shared/types";
-
-// ── Typed callback helpers ──────────────────────────────────────────
-
-interface ScanProgressData {
-  current: number;
-  total: number;
-  filename: string;
-  skipped: boolean;
-}
-
-interface ThumbnailReadyData {
-  fileId: number;
-  thumbnailPath: string;
-}
-
-interface ThumbnailProgressData {
-  current: number;
-  total: number;
-  filename: string;
-  phase: "start" | "progress" | "done";
-}
-
-interface ThumbnailRequestData {
-  filePath: string;
-  ext: string;
-  thumbPath: string;
-}
-
-interface ThumbnailResultData {
-  filePath: string;
-  thumbPath: string;
-  success: boolean;
-  dataUrl?: string;
-}
+import {
+  IPC,
+  ScanProgressData,
+  ScanCompleteData,
+  FilesUpdatedData,
+  FileIndexedData,
+  ThumbnailReadyData,
+  ThumbnailProgressData,
+  ThumbnailRequestData,
+  ThumbnailResultData,
+  SortOptions,
+} from "../shared/types";
 
 function onChannel<T>(channel: string, callback: (data: T) => void) {
   const subscription = (_event: IpcRendererEvent, data: T) => callback(data);
@@ -58,8 +35,7 @@ contextBridge.exposeInMainWorld("polytray", {
   clearThumbnails: () => ipcRenderer.invoke(IPC.CLEAR_THUMBNAILS),
 
   // File queries
-  getFiles: (opts: Record<string, unknown>) =>
-    ipcRenderer.invoke(IPC.GET_FILES, opts),
+  getFiles: (opts: SortOptions) => ipcRenderer.invoke(IPC.GET_FILES, opts),
   getFileById: (id: number) => ipcRenderer.invoke(IPC.GET_FILE_BY_ID, id),
   getStats: () => ipcRenderer.invoke(IPC.GET_STATS),
   startDrag: (filePath: string) =>
@@ -85,17 +61,12 @@ contextBridge.exposeInMainWorld("polytray", {
   // Events (main → renderer)
   onScanProgress: (cb: (data: ScanProgressData) => void) =>
     onChannel<ScanProgressData>(IPC.SCAN_PROGRESS, cb),
-  onScanComplete: (cb: (data: { totalFiles: number }) => void) =>
-    onChannel<{ totalFiles: number }>(IPC.SCAN_COMPLETE, cb),
-  onFilesUpdated: (cb: (data: { type: string; filePath: string }) => void) =>
-    onChannel<{ type: string; filePath: string }>(IPC.FILES_UPDATED, cb),
-  onFileIndexed: (
-    cb: (data: { path: string; current: number; total: number }) => void,
-  ) =>
-    onChannel<{ path: string; current: number; total: number }>(
-      IPC.FILE_INDEXED,
-      cb,
-    ),
+  onScanComplete: (cb: (data: ScanCompleteData) => void) =>
+    onChannel<ScanCompleteData>(IPC.SCAN_COMPLETE, cb),
+  onFilesUpdated: (cb: (data: FilesUpdatedData) => void) =>
+    onChannel<FilesUpdatedData>(IPC.FILES_UPDATED, cb),
+  onFileIndexed: (cb: (data: FileIndexedData) => void) =>
+    onChannel<FileIndexedData>(IPC.FILE_INDEXED, cb),
   onThumbnailReady: (cb: (data: ThumbnailReadyData) => void) =>
     onChannel<ThumbnailReadyData>(IPC.THUMBNAIL_READY, cb),
   onThumbnailProgress: (cb: (data: ThumbnailProgressData) => void) =>

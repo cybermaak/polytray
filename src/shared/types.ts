@@ -82,3 +82,79 @@ export const IPC = {
   THUMBNAIL_PROGRESS: "thumbnail-progress",
   GENERATE_THUMBNAIL_REQUEST: "generate-thumbnail-request",
 } as const;
+
+// ── IPC Payload Types (single source of truth) ──────────────────────
+
+/** Options for the GET_FILES query */
+export interface SortOptions {
+  sort?: string;
+  order?: "ASC" | "DESC";
+  extension?: string | null;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** Return shape of GET_STATS */
+export interface LibraryStats {
+  total: number;
+  stl: number;
+  obj: number;
+  threemf: number;
+  totalSize: number;
+}
+
+/** SCAN_PROGRESS event payload */
+export interface ScanProgressData {
+  current: number;
+  total: number;
+  filename: string;
+  skipped: boolean;
+}
+
+/** SCAN_COMPLETE event payload */
+export interface ScanCompleteData {
+  totalFiles: number;
+}
+
+/** FILES_UPDATED event payload */
+export interface FilesUpdatedData {
+  type: string;
+  filePath: string;
+}
+
+/** FILE_INDEXED event payload */
+export interface FileIndexedData {
+  path: string;
+  current: number;
+  total: number;
+}
+
+/** THUMBNAIL_READY event payload */
+export interface ThumbnailReadyData {
+  fileId: number;
+  thumbnailPath: string;
+}
+
+/** THUMBNAIL_PROGRESS event payload */
+export interface ThumbnailProgressData {
+  current: number;
+  total: number;
+  filename: string;
+  phase: "start" | "progress" | "done";
+}
+
+/** GENERATE_THUMBNAIL_REQUEST event payload */
+export interface ThumbnailRequestData {
+  filePath: string;
+  ext: string;
+  thumbPath: string;
+}
+
+/** THUMBNAIL_GENERATED result sent back from renderer */
+export interface ThumbnailResultData {
+  filePath: string;
+  thumbPath: string;
+  success: boolean;
+  dataUrl?: string;
+}
