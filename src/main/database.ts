@@ -66,6 +66,18 @@ export function initDatabase() {
     currentVersion = 2;
   }
 
+  if (currentVersion === 2) {
+    // Migration v2 -> v3: Add indexes for sort columns
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_files_size     ON files(size_bytes);
+      CREATE INDEX IF NOT EXISTS idx_files_modified  ON files(modified_at);
+      CREATE INDEX IF NOT EXISTS idx_files_vertices  ON files(vertex_count);
+      CREATE INDEX IF NOT EXISTS idx_files_faces     ON files(face_count);
+    `);
+    db.pragma("user_version = 3");
+    currentVersion = 3;
+  }
+
   return db;
 }
 
