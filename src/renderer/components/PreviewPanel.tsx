@@ -281,11 +281,6 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
         ref={containerRef}
         id="viewer-container"
         className="viewer-container"
-        onContextMenu={(e) => {
-          if (!file) return;
-          e.preventDefault();
-          window.polytray.showContextMenu(file.path);
-        }}
       />
 
       <div

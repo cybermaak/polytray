@@ -74,10 +74,17 @@ async function load3MF(
 
   obj.traverse((child: THREE.Object3D) => {
     if (child instanceof THREE.Mesh) {
-      // 3MF files often lack pre-computed normals; without them, MeshStandardMaterial renders black
-      if (!child.geometry.attributes.normal) {
-        child.geometry.computeVertexNormals();
+      // 3MF uses indexed geometry (shared vertices). computeVertexNormals()
+      // on indexed geometry averages normals across all adjacent faces,
+      // which over-smooths hard edges and loses detail.
+      // Convert to non-indexed first so each triangle gets its own vertices,
+      // matching STL's per-face normal behavior.
+      if (child.geometry.index) {
+        child.geometry = child.geometry.toNonIndexed();
       }
+
+      // Recompute normals per-face for correct lighting
+      child.geometry.computeVertexNormals();
 
       // Always upgrade to our standard material for consistent lighting/shading
       child.material = createMaterial();
