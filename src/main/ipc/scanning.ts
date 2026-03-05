@@ -165,9 +165,15 @@ async function generateThumbnailsInBackground(
   db: ReturnType<typeof getDb>,
   getMainWindow: () => BrowserWindow | null,
 ) {
-  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const total = filesToThumbnail.length;
   if (total === 0) return;
+
+  // Yield to the event loop — uses setImmediate (Node.js) for minimal latency
+  const yieldToEventLoop = () => new Promise<void>((r) => setImmediate(r));
+
+  // Longer yield for when the renderer needs breathing room
+  const yieldForRenderer = (ms: number) =>
+    new Promise<void>((r) => setTimeout(r, ms));
 
   const mainWindow = getMainWindow();
 
@@ -188,8 +194,10 @@ async function generateThumbnailsInBackground(
 
     const file = filesToThumbnail[i];
 
-    // Yield to the event loop so IPC and the renderer don't starve/freeze
-    await delay(50);
+    // Yield before each thumbnail so IPC and the renderer don't starve
+    await yieldToEventLoop();
+
+    const startTime = Date.now();
 
     try {
       const thumbnailPath = await generateThumbnail(file.path, file.ext, win);
@@ -233,8 +241,14 @@ async function generateThumbnailsInBackground(
       });
     }
 
-    // Throttle: give the renderer breathing room between renders
-    await delay(150);
+    // Adaptive throttling: if a thumbnail took a long time, give the
+    // renderer extra breathing room. Otherwise just yield with minimal delay.
+    const elapsed = Date.now() - startTime;
+    if (elapsed > 500) {
+      await yieldForRenderer(100);
+    } else {
+      await yieldForRenderer(30);
+    }
   }
 
   // Notify renderer that thumbnail generation is done
