@@ -42,9 +42,9 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
     let cancelled = false;
     // These setState calls are intentional: reset UI state before async loading
     setLoading(true); // eslint-disable-line react-hooks/set-state-in-effect
-    setLoadError(null);  
-    setWireframe(false);  
-    setExpanded(false);  
+    setLoadError(null);
+    setWireframe(false);
+    setExpanded(false);
 
     const load = async () => {
       // Wait for the container to have dimensions
@@ -292,15 +292,39 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
         id="viewer-loading"
         className={`viewer-loading${loading ? "" : " hidden"}`}
       >
-        <div
-          className="spinner"
-          style={{ display: loadError ? "none" : "block" }}
-        />
+        {!loadError &&
+          (() => {
+            const radius = 20;
+            const circumference = 2 * Math.PI * radius;
+            const isIndeterminate = loadProgress < 0;
+            const pct = isIndeterminate ? 25 : loadProgress;
+            const offset = circumference - (pct / 100) * circumference;
+            return (
+              <div
+                className={`progress-ring${isIndeterminate ? " indeterminate" : ""}`}
+              >
+                <svg viewBox="0 0 48 48">
+                  <circle className="ring-bg" cx="24" cy="24" r={radius} />
+                  <circle
+                    className="ring-fill"
+                    cx="24"
+                    cy="24"
+                    r={radius}
+                    strokeDasharray={circumference}
+                    strokeDashoffset={offset}
+                  />
+                </svg>
+                {!isIndeterminate && (
+                  <span className="ring-label">{loadProgress}%</span>
+                )}
+              </div>
+            );
+          })()}
         <span>
           {loadError
             ? loadError
             : loadProgress >= 0
-              ? `Downloading model (${loadProgress}%)...`
+              ? `Loading model (${loadProgress}%)...`
               : "Processing 3D data..."}
         </span>
       </div>

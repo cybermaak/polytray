@@ -853,14 +853,23 @@ export async function renderThumbnail(
 ): Promise<string | null> {
   ensureThumbnailRenderer(canvas);
 
+  // Yield to let the UI paint before the heavy parsing begins
+  await new Promise<void>((r) => requestAnimationFrame(() => r()));
+
   const group = await parseModelToGroup(arrayBuffer, extension);
 
   if (group.children.length === 0) {
     return null;
   }
 
+  // Yield after parsing (the heaviest step) to let the UI breathe
+  await new Promise<void>((r) => requestAnimationFrame(() => r()));
+
   // Apply smart orientation heuristics
   applySmartOrientation(group);
+
+  // Yield after orientation computation
+  await new Promise<void>((r) => requestAnimationFrame(() => r()));
 
   thumbState.scene!.add(group);
 
