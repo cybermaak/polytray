@@ -1,47 +1,18 @@
+/**
+ * viewer.ts — Core 3D viewer lifecycle.
+ *
+ * Manages the interactive Three.js viewer: scene setup, model loading,
+ * animation loop, multi-model carousel, wireframe toggle, and cleanup.
+ */
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { STLLoader } from "three/addons/loaders/STLLoader.js";
-import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
-import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
-import { fix3MF } from "./threemf-repair";
+import { VIEWER_CONFIG } from "./viewerConfig";
+import { parseModelToGroup } from "./modelParsers";
+import { applySmartOrientation } from "./orientation";
+import { computeCameraFit } from "./cameraUtils";
 
-// ── Configuration Constants ───────────────────────────────────────
-export const VIEWER_CONFIG = {
-  camera: { fov: 45, near: 0.1, far: 10000, padding: 1.2 },
-  exposure: 1.2,
-  material: { color: 0x8888aa, metalness: 0.15, roughness: 0.6 },
-  grid: {
-    size: 20,
-    divisions: 40,
-    centerColor: 0x8a8b94,
-    lineColor: 0x5c5d66,
-    opacity: 0.4,
-  },
-  normalizeScale: 10.0,
-  thumbnail: { size: 256 },
-  lighting: {
-    ambient: { color: 0x404050, intensity: 0.6 },
-    hemisphere: { skyColor: 0x8888cc, groundColor: 0x443322, intensity: 0.5 },
-    key: { color: 0xffffff, intensity: 1.2, position: [5, 8, 5] as const },
-    fill: { color: 0x3b82f6, intensity: 0.4, position: [-3, 2, -3] as const },
-    rim: { color: 0x3b82f6, intensity: 0.3, position: [0, -2, -5] as const },
-  },
-  thumbnailLighting: {
-    ambient: { color: 0xffffff, intensity: 0.8 },
-    hemisphere: { skyColor: 0xffffff, groundColor: 0x444444, intensity: 0.6 },
-    key: { color: 0xffffff, intensity: 2.0, position: [5, 5, 5] as const },
-    fill: { color: 0xffffff, intensity: 0.4, position: [-5, 0, -5] as const },
-    rim: { color: 0xffffff, intensity: 0.6, position: [0, 5, -5] as const },
-  },
-  controls: {
-    dampingFactor: 0.08,
-    rotateSpeed: 0.8,
-    zoomSpeed: 1.2,
-    panSpeed: 0.8,
-    minDistance: 0.1,
-    maxDistance: 1000,
-  },
-} as const;
+// ── Re-exports for backward compatibility ─────────────────────────
+export { VIEWER_CONFIG } from "./viewerConfig";
 
 // ── Viewer State ──────────────────────────────────────────────────
 
@@ -206,151 +177,6 @@ function handleResize() {
 
 // ── Model Loading ─────────────────────────────────────────────────
 
-function applySmartOrientation(meshOrGroup: THREE.Object3D) {
-  let totalArea = 0;
-  const normalAreas = new Map();
-  const coa = new THREE.Vector3();
-
-  meshOrGroup.updateMatrixWorld(true);
-
-  meshOrGroup.traverse((child: THREE.Object3D) => {
-    if (child instanceof THREE.Mesh && child.geometry) {
-      const pos = child.geometry.attributes.position;
-      const index = child.geometry.index;
-      if (!pos) return;
-
-      const matrixWorld = child.matrixWorld;
-
-      const va = new THREE.Vector3();
-      const vb = new THREE.Vector3();
-      const vc = new THREE.Vector3();
-      const cb = new THREE.Vector3();
-      const ab = new THREE.Vector3();
-      const triCenter = new THREE.Vector3();
-
-      function addTriangle(a: number, b: number, c: number) {
-        va.fromBufferAttribute(pos, a).applyMatrix4(matrixWorld);
-        vb.fromBufferAttribute(pos, b).applyMatrix4(matrixWorld);
-        vc.fromBufferAttribute(pos, c).applyMatrix4(matrixWorld);
-
-        cb.subVectors(vc, vb);
-        ab.subVectors(va, vb);
-        cb.cross(ab);
-
-        const area = cb.length() / 2;
-        if (area < 1e-6) return;
-        totalArea += area;
-
-        triCenter.copy(va).add(vb).add(vc).divideScalar(3);
-        coa.add(triCenter.multiplyScalar(area));
-
-        cb.normalize();
-        const px = Math.round(cb.x * 10) / 10;
-        const py = Math.round(cb.y * 10) / 10;
-        const pz = Math.round(cb.z * 10) / 10;
-        const key = `${px},${py},${pz}`;
-
-        let currentArea = normalAreas.get(key) || 0;
-        currentArea += area;
-        normalAreas.set(key, currentArea);
-      }
-
-      if (index) {
-        for (let i = 0; i < index.count; i += 3) {
-          addTriangle(index.getX(i), index.getX(i + 1), index.getX(i + 2));
-        }
-      } else {
-        for (let i = 0; i < pos.count; i += 3) {
-          addTriangle(i, i + 1, i + 2);
-        }
-      }
-    }
-  });
-
-  if (totalArea === 0) return;
-  coa.divideScalar(totalArea);
-
-  const box = new THREE.Box3().setFromObject(meshOrGroup);
-  const boxCenter = box.getCenter(new THREE.Vector3());
-  const boxSize = box.getSize(new THREE.Vector3());
-
-  const shift = new THREE.Vector3().subVectors(coa, boxCenter);
-  const relShift = new THREE.Vector3(
-    boxSize.x > 0 ? shift.x / boxSize.x : 0,
-    boxSize.y > 0 ? shift.y / boxSize.y : 0,
-    boxSize.z > 0 ? shift.z / boxSize.z : 0,
-  );
-
-  const candidates = [
-    new THREE.Vector3(1, 0, 0),
-    new THREE.Vector3(-1, 0, 0),
-    new THREE.Vector3(0, 1, 0),
-    new THREE.Vector3(0, -1, 0),
-    new THREE.Vector3(0, 0, 1),
-    new THREE.Vector3(0, 0, -1),
-  ];
-
-  let maxFlatRatio = 0;
-  for (const [key, area] of normalAreas.entries()) {
-    const ratio = area / totalArea;
-    if (ratio > maxFlatRatio) maxFlatRatio = ratio;
-    if (ratio > 0.05) {
-      const parts = key.split(",").map(parseFloat);
-      const nv = new THREE.Vector3(parts[0], parts[1], parts[2]).normalize();
-      candidates.push(nv);
-    }
-  }
-
-  let bestCandidate = new THREE.Vector3(0, -1, 0);
-  let bestScore = -Infinity;
-
-  for (const v of candidates) {
-    if (v.lengthSq() < 0.1) continue;
-    v.normalize();
-
-    let flatAreaAlign = 0;
-    for (const [key, area] of normalAreas.entries()) {
-      const parts = key.split(",").map(parseFloat);
-      const nv = new THREE.Vector3(parts[0], parts[1], parts[2]).normalize();
-      if (nv.dot(v) > 0.95) {
-        flatAreaAlign += area;
-      }
-    }
-
-    const flatRatio = flatAreaAlign / totalArea;
-    const shiftScore = relShift.dot(v);
-
-    let bias = 0;
-    if (Math.abs(v.x) + Math.abs(v.y) + Math.abs(v.z) > 0.99) {
-      if (v.z < -0.99) bias = 0.5; // Strong bias for standard Z-up exported files (.stl/.3mf)
-      if (v.y < -0.99) bias = 0.1; // Minor fallback for Y-up exports
-    }
-
-    // Dampen center-of-area shift calculations for highly organic objects
-    let effectiveShift = shiftScore;
-    if (maxFlatRatio < 0.02) {
-      effectiveShift *= 0.1;
-    } else if (maxFlatRatio < 0.05) {
-      effectiveShift *= 0.5;
-    }
-
-    const score = flatRatio * 3.0 + effectiveShift * 2.0 + bias;
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestCandidate = v.clone();
-    }
-  }
-
-  const down = new THREE.Vector3(0, -1, 0);
-  const quaternion = new THREE.Quaternion().setFromUnitVectors(
-    bestCandidate,
-    down,
-  );
-  meshOrGroup.quaternion.copy(quaternion);
-  meshOrGroup.updateMatrixWorld(true);
-}
-
 export async function loadModelFromUrl(
   fileUrl: string,
   extension: string,
@@ -390,34 +216,6 @@ export async function loadModelFromUrl(
     xhr.onerror = () => reject(new Error("Network error loading model"));
     xhr.send();
   });
-}
-
-// ── Shared Model Parsing ──────────────────────────────────────────
-
-async function parseModelToGroup(
-  arrayBuffer: ArrayBuffer,
-  extension: string,
-): Promise<THREE.Group> {
-  const group = new THREE.Group();
-
-  try {
-    switch (extension.toLowerCase()) {
-      case "stl":
-        loadSTL(arrayBuffer, group);
-        break;
-      case "obj":
-        loadOBJ(arrayBuffer, group);
-        break;
-      case "3mf":
-        await load3MF(arrayBuffer, group);
-        break;
-    }
-  } catch (e: unknown) {
-    console.error("Failed to parse model:", e);
-    throw e;
-  }
-
-  return group;
 }
 
 export async function loadModel(
@@ -473,6 +271,8 @@ export async function loadModel(
 
   state.wireframeMode = false;
 }
+
+// ── Multi-Model Thumbnail Strip ───────────────────────────────────
 
 async function updateMultiModelThumbnailStrip(group: THREE.Group) {
   const multiModelContainer = getMultiModelContainer();
@@ -574,118 +374,7 @@ function selectSubModel(index: number, htmlElement: HTMLElement) {
   }
 }
 
-function loadSTL(arrayBuffer: ArrayBuffer, group: THREE.Group): void {
-  const loader = new STLLoader();
-  const geometry = loader.parse(arrayBuffer);
-
-  // Some STLs incorrectly specify vertex colors (which default to black)
-  // We explicitly remove the color attribute so our designated material color applies
-  if (geometry.hasAttribute("color")) {
-    geometry.deleteAttribute("color");
-  }
-  // Also explicitly override the custom flag STLLoader might set
-  (geometry as THREE.BufferGeometry & { hasColors?: boolean }).hasColors =
-    false;
-
-  // Ensure we have correct normals for lighting calculations (prevents black rendering)
-  geometry.computeVertexNormals();
-
-  const material = createMaterial();
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-
-  group.add(mesh);
-}
-
-function loadOBJ(arrayBuffer: ArrayBuffer, group: THREE.Group): void {
-  const loader = new OBJLoader();
-  const text = new TextDecoder().decode(arrayBuffer);
-  const obj = loader.parse(text);
-
-  obj.traverse((child) => {
-    if (child instanceof THREE.Mesh) {
-      child.material = createMaterial();
-      child.castShadow = true;
-      child.receiveShadow = true;
-    }
-  });
-
-  // Copy children to our group
-  while (obj.children.length > 0) {
-    group.add(obj.children[0]);
-  }
-}
-
-async function load3MF(
-  arrayBuffer: ArrayBuffer,
-  group: THREE.Group,
-): Promise<void> {
-  const loader = new ThreeMFLoader();
-  const fixedBuffer = await fix3MF(arrayBuffer);
-  const obj = loader.parse(fixedBuffer);
-
-  obj.traverse((child: THREE.Object3D) => {
-    if (child instanceof THREE.Mesh) {
-      // 3MF files often lack pre-computed normals; without them, MeshStandardMaterial renders black
-      if (!child.geometry.attributes.normal) {
-        child.geometry.computeVertexNormals();
-      }
-
-      // Always upgrade to our standard material for consistent lighting/shading
-      child.material = createMaterial();
-      (child.material as THREE.Material).vertexColors = false;
-
-      child.castShadow = true;
-      child.receiveShadow = true;
-    }
-  });
-
-  while (obj.children.length > 0) {
-    group.add(obj.children[0]);
-  }
-}
-
-function createMaterial(): THREE.MeshStandardMaterial {
-  const M = VIEWER_CONFIG.material;
-  return new THREE.MeshStandardMaterial({
-    color: M.color,
-    metalness: M.metalness,
-    roughness: M.roughness,
-    flatShading: false,
-  });
-}
-
-// ── Camera Fitting ────────────────────────────────────────────────
-
-function computeCameraFit(
-  object: THREE.Object3D,
-  cam: THREE.PerspectiveCamera,
-) {
-  const box = new THREE.Box3().setFromObject(object);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-
-  // Center the object in X and Z, and place the bottom at Y = 0
-  object.position.x -= center.x;
-  object.position.z -= center.z;
-  object.position.y -= box.min.y;
-
-  // Re-calculate box after moving the object to origin
-  box.setFromObject(object);
-  box.getCenter(center);
-
-  const maxDim = Math.max(size.x, size.y, size.z);
-  const fov = cam.fov * (Math.PI / 180);
-  let cameraDistance = Math.abs(maxDim / Math.sin(fov / 2));
-  cameraDistance *= VIEWER_CONFIG.camera.padding;
-
-  const direction = new THREE.Vector3(1, 0.7, 1).normalize();
-  cam.position.copy(center).add(direction.multiplyScalar(cameraDistance));
-  cam.lookAt(center);
-
-  return { center, maxDim };
-}
+// ── Camera Operations ─────────────────────────────────────────────
 
 function fitCameraToObject(object: THREE.Object3D) {
   const { center, maxDim } = computeCameraFit(object, state.camera!);
@@ -767,123 +456,4 @@ function disposeObject(obj: THREE.Object3D) {
       }
     }
   });
-}
-
-// ── Thumbnail Rendering State ─────────────────────────────────────
-
-interface ThumbState {
-  renderer: THREE.WebGLRenderer | null;
-  scene: THREE.Scene | null;
-  camera: THREE.PerspectiveCamera | null;
-}
-
-const thumbState: ThumbState = {
-  renderer: null,
-  scene: null,
-  camera: null,
-};
-
-function ensureThumbnailRenderer(canvas: HTMLCanvasElement) {
-  const canvasSize = canvas.width || VIEWER_CONFIG.thumbnail.size;
-
-  // Re-create if canvas size changed (thumbQuality setting changed)
-  if (
-    thumbState.renderer &&
-    (thumbState.renderer.domElement.width !== canvasSize ||
-      thumbState.renderer.domElement.height !== canvasSize)
-  ) {
-    thumbState.renderer.dispose();
-    thumbState.renderer = null;
-    thumbState.scene = null;
-    thumbState.camera = null;
-  }
-
-  if (thumbState.renderer) return;
-
-  thumbState.renderer = new THREE.WebGLRenderer({
-    canvas,
-    antialias: true,
-    preserveDrawingBuffer: true,
-    alpha: true,
-  });
-  thumbState.renderer.setSize(canvasSize, canvasSize);
-  thumbState.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  thumbState.renderer.toneMappingExposure = VIEWER_CONFIG.exposure;
-
-  const { fov, near, far } = VIEWER_CONFIG.camera;
-  thumbState.camera = new THREE.PerspectiveCamera(fov, 1, near, far);
-
-  thumbState.scene = new THREE.Scene();
-
-  const TL = VIEWER_CONFIG.thumbnailLighting;
-
-  const ambient = new THREE.AmbientLight(
-    TL.ambient.color,
-    TL.ambient.intensity,
-  );
-  thumbState.scene.add(ambient);
-
-  const hemi = new THREE.HemisphereLight(
-    TL.hemisphere.skyColor,
-    TL.hemisphere.groundColor,
-    TL.hemisphere.intensity,
-  );
-  thumbState.scene.add(hemi);
-
-  const dirLight = new THREE.DirectionalLight(TL.key.color, TL.key.intensity);
-  dirLight.position.set(...TL.key.position);
-  thumbState.scene.add(dirLight);
-
-  const fillLight = new THREE.DirectionalLight(
-    TL.fill.color,
-    TL.fill.intensity,
-  );
-  fillLight.position.set(...TL.fill.position);
-  thumbState.scene.add(fillLight);
-
-  const rimLight = new THREE.DirectionalLight(TL.rim.color, TL.rim.intensity);
-  rimLight.position.set(...TL.rim.position);
-  thumbState.scene.add(rimLight);
-}
-
-export async function renderThumbnail(
-  arrayBuffer: ArrayBuffer,
-  extension: string,
-  canvas: HTMLCanvasElement,
-): Promise<string | null> {
-  ensureThumbnailRenderer(canvas);
-
-  // Yield to let the UI paint before the heavy parsing begins
-  await new Promise<void>((r) => requestAnimationFrame(() => r()));
-
-  const group = await parseModelToGroup(arrayBuffer, extension);
-
-  if (group.children.length === 0) {
-    return null;
-  }
-
-  // Yield after parsing (the heaviest step) to let the UI breathe
-  await new Promise<void>((r) => requestAnimationFrame(() => r()));
-
-  // Apply smart orientation heuristics
-  applySmartOrientation(group);
-
-  // Yield after orientation computation
-  await new Promise<void>((r) => requestAnimationFrame(() => r()));
-
-  thumbState.scene!.add(group);
-
-  // Fit camera using shared logic
-  computeCameraFit(group, thumbState.camera!);
-
-  thumbState.renderer!.render(thumbState.scene!, thumbState.camera!);
-
-  // Get data URL
-  const dataUrl = canvas.toDataURL("image/png");
-
-  // Cleanup
-  thumbState.scene!.remove(group);
-  disposeObject(group);
-
-  return dataUrl;
 }
