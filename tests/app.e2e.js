@@ -508,8 +508,7 @@ test("rescan specific folder triggers scan UI", async () => {
   
   const rescanBtn = firstNode.locator(".folder-actions button[title='Rescan folder']");
   await rescanBtn.click();
-
-  const progressContainer = window.locator("#progress-container");
+  const progressContainer = window.locator("#scan-progress");
   await expect(progressContainer).toBeVisible();
 
   // Wait for it to finish gracefully

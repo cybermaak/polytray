@@ -51,6 +51,7 @@ interface Settings {
   watch: boolean;
   showGrid: boolean;
   thumbQuality: string;
+  accentColor: string;
 }
 
 export const App: React.FC = () => {
@@ -85,6 +86,7 @@ export const App: React.FC = () => {
     watch: true,
     showGrid: true,
     thumbQuality: "256",
+    accentColor: "#6d9fff",
   });
 
   // Refs to get latest state in IPC callbacks
@@ -276,6 +278,10 @@ export const App: React.FC = () => {
           setSettings((prev) => ({ ...prev, ...parsed }));
           if (parsed.lightMode) {
             document.body.classList.add("light");
+          }
+          if (parsed.accentColor) {
+            document.body.style.setProperty("--accent-primary", parsed.accentColor);
+            document.body.style.setProperty("--stl-color", parsed.accentColor);
           }
         } catch (e) {
           console.error("Failed to parse settings", e);
@@ -479,6 +485,11 @@ export const App: React.FC = () => {
       // Immediate side effects
       if (typeof newSettings.lightMode !== "undefined") {
         document.body.classList.toggle("light", newSettings.lightMode);
+      }
+      if (typeof newSettings.accentColor !== "undefined") {
+        document.body.style.setProperty("--accent-primary", newSettings.accentColor);
+        document.body.style.setProperty("--stl-color", newSettings.accentColor);
+        window.dispatchEvent(new CustomEvent("polytray-accent-color", { detail: newSettings.accentColor }));
       }
       return merged;
     });

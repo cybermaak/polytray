@@ -7,6 +7,7 @@ interface Settings {
   watch: boolean;
   showGrid: boolean;
   thumbQuality: string;
+  accentColor: string;
 }
 
 interface Props {
@@ -68,6 +69,19 @@ export const SettingsModal: React.FC<Props> = ({
                 />
                 <span className="toggle-slider" />
               </label>
+            </div>
+            <div className="settings-row">
+              <div>
+                <div className="settings-row-label">Accent Color</div>
+                <div className="settings-row-desc">UI highlight and default 3D material color</div>
+              </div>
+              <input
+                type="color"
+                className="color-picker"
+                id="setting-accent-color"
+                value={settings.accentColor || "#6d9fff"}
+                onChange={(e) => onSettingsChange({ accentColor: e.target.value })}
+              />
             </div>
             <div className="settings-row">
               <div>

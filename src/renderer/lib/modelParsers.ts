@@ -11,10 +11,16 @@ import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
 import { fix3MF } from "./threemf-repair";
 import { VIEWER_CONFIG } from "./viewerConfig";
 
+let currentAccentColor: number | string = VIEWER_CONFIG.material.color;
+
+export function setModelAccentColor(hex: string) {
+  currentAccentColor = parseInt(hex.replace("#", ""), 16);
+}
+
 export function createMaterial(): THREE.MeshStandardMaterial {
   const M = VIEWER_CONFIG.material;
   return new THREE.MeshStandardMaterial({
-    color: M.color,
+    color: currentAccentColor,
     metalness: M.metalness,
     roughness: M.roughness,
     flatShading: false,
