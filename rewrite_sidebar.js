@@ -1,4 +1,6 @@
-import React from "react";
+const fs = require('fs');
+
+const sidebarCode = `import React from "react";
 import { formatSize } from "../lib/formatters";
 
 interface Props {
@@ -35,8 +37,8 @@ function buildFolderTree(roots: string[], directories: string[]): FolderNode[] {
   const nodeMap = new Map<string, FolderNode>();
   
   for (const p of allPaths) {
-    const isWin = p.includes('\\');
-    const sep = isWin ? '\\' : '/';
+    const isWin = p.includes('\\\\');
+    const sep = isWin ? '\\\\' : '/';
     const parts = p.split(sep);
     const name = parts[parts.length - 1] || p;
     nodeMap.set(p, {
@@ -50,8 +52,8 @@ function buildFolderTree(roots: string[], directories: string[]): FolderNode[] {
   const tree: FolderNode[] = [];
   
   for (const p of nodeMap.keys()) {
-    const isWin = p.includes('\\');
-    const sep = isWin ? '\\' : '/';
+    const isWin = p.includes('\\\\');
+    const sep = isWin ? '\\\\' : '/';
     const node = nodeMap.get(p)!;
     
     let parentNode: FolderNode | null = null;
@@ -66,7 +68,6 @@ function buildFolderTree(roots: string[], directories: string[]): FolderNode[] {
           parentNode = nodeMap.get(current)!;
           break;
        }
-       if (current === sep) break; // Prevent infinite loop on root
     }
     
     if (parentNode) {
@@ -94,8 +95,8 @@ const FolderTreeNode: React.FC<{
   return (
     <div className="folder-tree-node">
       <div 
-        className={`library-folder-item ${isActive ? 'active' : ''}`}
-        style={{ paddingLeft: `${level * 12 + 8}px`, cursor: 'pointer' }}
+        className={\`library-folder-item \${isActive ? 'active' : ''}\`}
+        style={{ paddingLeft: \`\${level * 12 + 8}px\`, cursor: 'pointer' }}
         onClick={(e) => {
           // If clicking exactly on the toggle, don't select
           if ((e.target as HTMLElement).classList.contains('folder-toggle')) return;
@@ -266,7 +267,7 @@ export const Sidebar: React.FC<Props> = ({
             {filters.map((f) => (
               <button
                 key={f.label}
-                className={`filter-btn${activeFilter === f.ext ? " active" : ""}`}
+                className={\`filter-btn\${activeFilter === f.ext ? " active" : ""}\`}
                 data-ext={f.dataExt}
                 onClick={() => onFilterChange(f.ext)}
               >
@@ -354,3 +355,6 @@ export const Sidebar: React.FC<Props> = ({
     </aside>
   );
 };
+\`
+
+fs.writeFileSync('src/renderer/components/Sidebar.tsx', sidebarCode);

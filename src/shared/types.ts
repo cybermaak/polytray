@@ -62,6 +62,7 @@ export const IPC = {
   READ_FILE_BUFFER: "read-file-buffer",
   READ_THUMBNAIL: "read-thumbnail",
   GET_THUMBNAIL_PATH: "get-thumbnail-path",
+  GET_DIRECTORIES: "get-directories",
   REQUEST_THUMBNAIL_GENERATION: "request-thumbnail-generation",
   GET_STATS: "get-stats",
   START_WATCHING: "start-watching",
@@ -90,6 +91,7 @@ export interface SortOptions {
   sort?: string;
   order?: "ASC" | "DESC";
   extension?: string | null;
+  folder?: string | null;
   search?: string;
   limit?: number;
   offset?: number;

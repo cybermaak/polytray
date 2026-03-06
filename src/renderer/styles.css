@@ -229,8 +229,13 @@ body {
   transition: background var(--transition-fast);
 }
 
-.library-folder-item:hover {
+.library-folder-item:hover,
+.library-folder-item.active {
   background: var(--bg-hover);
+}
+.library-folder-item.active {
+  color: var(--text-primary);
+  font-weight: 500;
 }
 
 .library-folder-name {

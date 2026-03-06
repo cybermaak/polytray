@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld("polytray", {
   selectFolder: () => ipcRenderer.invoke(IPC.SELECT_FOLDER),
   getLastFolder: () => ipcRenderer.invoke(IPC.GET_LAST_FOLDER),
   getLibraryFolders: () => ipcRenderer.invoke(IPC.GET_LIBRARY_FOLDERS),
+  getDirectories: () => ipcRenderer.invoke(IPC.GET_DIRECTORIES),
   removeLibraryFolder: (path: string) =>
     ipcRenderer.invoke(IPC.REMOVE_LIBRARY_FOLDER, path),
 

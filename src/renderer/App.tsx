@@ -67,6 +67,8 @@ export const App: React.FC = () => {
   const [sort, setSort] = useState("name");
   const [order, setOrder] = useState<"ASC" | "DESC">("ASC");
   const [extension, setExtension] = useState<string | null>(null);
+  const [activeFolder, setActiveFolder] = useState<string | null>(null);
+  const [directories, setDirectories] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [previewFile, setPreviewFile] = useState<FileRecord | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -96,6 +98,8 @@ export const App: React.FC = () => {
   orderRef.current = order;
   const extensionRef = useRef(extension);
   extensionRef.current = extension;
+  const activeFolderRef = useRef(activeFolder);
+  activeFolderRef.current = activeFolder;
   const searchRef = useRef(search);
   searchRef.current = search;
 
@@ -143,6 +147,7 @@ export const App: React.FC = () => {
           sort: sortRef.current,
           order: orderRef.current,
           extension: extensionRef.current,
+          folder: activeFolderRef.current,
           search: searchRef.current,
           limit: 500,
           offset: 0,
@@ -151,6 +156,8 @@ export const App: React.FC = () => {
 
         const s = await window.polytray.getStats();
         setStats(s);
+        const d = await window.polytray.getDirectories();
+        setDirectories(d);
 
         // Start watching
         for (const folder of foldersRef.current) {
@@ -234,6 +241,7 @@ export const App: React.FC = () => {
           sort: sortRef.current,
           order: orderRef.current,
           extension: extensionRef.current,
+          folder: activeFolderRef.current,
           search: searchRef.current,
           limit: 500,
           offset: 0,
@@ -241,6 +249,8 @@ export const App: React.FC = () => {
         setFiles(result.files);
         const s = await window.polytray.getStats();
         setStats(s);
+        const d = await window.polytray.getDirectories();
+        setDirectories(d);
       }),
     );
 
@@ -284,6 +294,8 @@ export const App: React.FC = () => {
         setFiles(result.files);
         const s = await window.polytray.getStats();
         setStats(s);
+        const d = await window.polytray.getDirectories();
+        setDirectories(d);
 
         if (shouldWatch) {
           for (const folder of f) {
@@ -329,10 +341,20 @@ export const App: React.FC = () => {
     const f = await window.polytray.getLibraryFolders();
     setFolders(f);
     foldersRef.current = f;
-    const result = await window.polytray.getFiles({ limit: 500, offset: 0 });
+    const result = await window.polytray.getFiles({
+          sort: sortRef.current,
+          order: orderRef.current,
+          extension: extensionRef.current,
+          folder: activeFolderRef.current,
+          search: searchRef.current,
+          limit: 500,
+          offset: 0,
+        });
     setFiles(result.files);
     const s = await window.polytray.getStats();
-    setStats(s);
+        setStats(s);
+        const d = await window.polytray.getDirectories();
+        setDirectories(d);
   }, []);
 
   const handleRescan = useCallback(async () => {
@@ -369,6 +391,7 @@ export const App: React.FC = () => {
       sort: newSort,
       order: orderRef.current,
       extension: extensionRef.current,
+          folder: activeFolderRef.current,
       search: searchRef.current,
       limit: 500,
       offset: 0,
@@ -384,6 +407,7 @@ export const App: React.FC = () => {
       sort: sortRef.current,
       order: newOrder,
       extension: extensionRef.current,
+          folder: activeFolderRef.current,
       search: searchRef.current,
       limit: 500,
       offset: 0,
@@ -412,11 +436,39 @@ export const App: React.FC = () => {
       sort: sortRef.current,
       order: orderRef.current,
       extension: extensionRef.current,
+          folder: activeFolderRef.current,
       search: query,
       limit: 500,
       offset: 0,
     });
     setFiles(result.files);
+  }, []);
+
+
+
+  const handleFolderSelect = useCallback(async (folderPath: string | null) => {
+    setActiveFolder(folderPath);
+    activeFolderRef.current = folderPath;
+    const result = await window.polytray.getFiles({
+      sort: sortRef.current,
+      order: orderRef.current,
+      extension: extensionRef.current,
+      folder: activeFolderRef.current,
+      search: searchRef.current,
+      limit: 500,
+      offset: 0,
+    });
+    setFiles(result.files);
+  }, []);
+
+  const handleRescanFolder = useCallback(async (folderPath: string) => {
+    setProgress({
+      visible: true,
+      percent: 0,
+      text: "Scanning folder...",
+      count: "",
+    });
+    await window.polytray.scanFolder(folderPath);
   }, []);
 
   const handleSettingsChange = useCallback((newSettings: Partial<Settings>) => {
@@ -486,8 +538,12 @@ export const App: React.FC = () => {
       <div id="main-layout">
         <Sidebar
           folders={folders}
+          directories={directories}
           stats={stats}
           activeFilter={extension}
+          activeFolder={activeFolder}
+          onFolderSelect={handleFolderSelect}
+          onRescanFolder={handleRescanFolder}
           onAddFolder={handleAddFolder}
           onRemoveFolder={handleRemoveFolder}
           onFilterChange={handleExtensionFilter}

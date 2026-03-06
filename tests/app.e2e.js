@@ -475,3 +475,43 @@ test("library stats update after scanning", async () => {
   const stl = parseInt(stlText, 10);
   expect(stl).toBeGreaterThanOrEqual(1);
 });
+
+// ── Test 12: Sidebar folder filtering limits visible files ───────────
+
+test("sidebar folder filtering limits visible files", async () => {
+  await window.waitForTimeout(500);
+  const totalCards = await window.locator(".file-card").count();
+
+  const folderNodes = window.locator(".library-folder-item");
+  const folderCount = await folderNodes.count();
+  expect(folderCount).toBeGreaterThan(0);
+
+  // Click the first folder node to select it
+  await folderNodes.first().click();
+  await window.waitForTimeout(1000);
+
+  const filteredCards = await window.locator(".file-card").count();
+  expect(filteredCards).toBeGreaterThan(0);
+  expect(filteredCards).toBeLessThanOrEqual(totalCards);
+
+  // Un-select the folder
+  await folderNodes.first().click();
+  await window.waitForTimeout(500);
+});
+
+// ── Test 13: Rescan specific folder triggers scan UI ────────
+
+test("rescan specific folder triggers scan UI", async () => {
+  const folderNodes = window.locator(".library-folder-item");
+  const firstNode = folderNodes.first();
+  await firstNode.hover();
+  
+  const rescanBtn = firstNode.locator(".folder-actions button[title='Rescan folder']");
+  await rescanBtn.click();
+
+  const progressContainer = window.locator("#progress-container");
+  await expect(progressContainer).toBeVisible();
+
+  // Wait for it to finish gracefully
+  await window.waitForTimeout(2000);
+});

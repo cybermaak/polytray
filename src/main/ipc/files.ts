@@ -38,6 +38,12 @@ export function registerFileHandlers() {
     const where: string[] = [];
     const params: (string | number)[] = [];
 
+    if (opts.folder) {
+      where.push("directory LIKE ?");
+      // Use % wildcard to match this directory or any subdirectories
+      params.push(`${opts.folder}%`);
+    }
+
     if (extension) {
       where.push("extension = ?");
       params.push(extension.toLowerCase());
@@ -64,6 +70,14 @@ export function registerFileHandlers() {
   ipcMain.handle(IPC.GET_FILE_BY_ID, (event, id) => {
     const db = getDb();
     return db.prepare("SELECT * FROM files WHERE id = ?").get(id);
+  });
+
+  ipcMain.handle(IPC.GET_DIRECTORIES, () => {
+    const db = getDb();
+    const rows = db
+      .prepare("SELECT DISTINCT directory FROM files ORDER BY directory ASC")
+      .all() as { directory: string }[];
+    return rows.map((r) => r.directory);
   });
 
   ipcMain.handle(IPC.READ_FILE_BUFFER, async (event, filePath) => {

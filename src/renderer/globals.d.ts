@@ -18,6 +18,7 @@ interface PolytrayAPI {
   selectFolder: () => Promise<string | null>;
   getLastFolder: () => Promise<string | null>;
   getLibraryFolders: () => Promise<string[]>;
+  getDirectories: () => Promise<string[]>;
   removeLibraryFolder: (path: string) => Promise<string[]>;
 
   scanFolder: (folderPath: string) => Promise<void>;
