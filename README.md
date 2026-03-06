@@ -1,6 +1,6 @@
-<center><img src="build/icon.png" width="128" height="128" align="top" /></center>
+<div style="text-align: center;"><img src="build/icon.png" width="128" height="128" align="top" /></div>
 
-# <p style="text-align: center;">Polytray<p/>
+# <div style="text-align: center;">Polytray</div>
 
 [![GitHub Release](https://img.shields.io/github/v/release/cybermaak/polytray?style=flat-square)](https://github.com/cybermaak/polytray/releases)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/cybermaak/polytray/build.yml?branch=main&style=flat-square)](https://github.com/cybermaak/polytray/actions)
@@ -24,7 +24,7 @@
   <img src="docs/assets/polytray_demo.webp" alt="Polytray Demo" width="800" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"/>
 </p>
 
-![Polytray Preview Snapshot](build/screenshot.png)
+![Polytray Preview Snapshot](docs/assets/screenshot.png)
 
 ## 💻 Usage
 
