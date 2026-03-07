@@ -50,9 +50,17 @@ If you are an AI assistant reading this file at the start of a session, use it t
 ### Tech Debt
 - **TD2:** Structured Logging (`electron-log`)
 
-### Future Features
-2. **F4: Side-by-Side Model Comparison**
-   - Allow shifting the viewport into a split-screen or multi-model overlay to visually compare two distinct files. (High effort, low priority unless explicitly requested).
+### Future Features (v1.2 Roadmap)
+- **F6:** Interactive Tagging System
+- **F7:** Model Notes & Descriptions
+- **F8:** Print Status Tracking
+- **F13:** Model Measurements & Dimensions
+- **F9:** Slicer Integration (Open In...)
+- **F11:** Virtual Collections (Projects/Themes)
+- **F14:** Batch Operations
+- **F10:** Duplicate Detection
+- **F12:** Zip/Archive Browsing
+- **F4:** Side-by-Side Model Comparison (Low priority)
 
 ### Test Gaps (Action Items)
 - **F2 (Sidebar Folders):** Need tests for nested DOM structure, expand/collapse chevron interactions, and top-level "All Models" filter reset.
