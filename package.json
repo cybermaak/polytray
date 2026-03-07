@@ -61,6 +61,7 @@
   "build": {
     "appId": "com.polytray.app",
     "productName": "Polytray",
+    "afterPack": "build/scripts/afterPack.js",
     "directories": {
       "output": "dist"
     },
