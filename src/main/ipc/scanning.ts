@@ -28,8 +28,13 @@ export function registerScanningHandlers(
 
     // ── Pass 1: Index files quickly (metadata only, no thumbnails) ──
     const filesToThumbnail: ScannedFile[] = [];
+    const yieldToEventLoop = () => new Promise<void>((r) => setImmediate(r));
 
     for (let i = 0; i < files.length; i++) {
+      if (i % 50 === 0) {
+        await yieldToEventLoop(); // Crucial: don't beachball macOS on 10,000 files
+      }
+      
       const file = files[i];
       existingPaths.delete(file.path);
 

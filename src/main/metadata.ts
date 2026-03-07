@@ -1,6 +1,6 @@
 import fs from "fs";
 import readline from "readline";
-import JSZip from "jszip";
+import * as unzipper from "unzipper";
 
 /**
  * Extracts vertex/face count metadata from a 3D file.
@@ -123,29 +123,40 @@ async function extractOBJ(
 async function extract3MF(
   filePath: string,
 ): Promise<{ vertexCount: number; faceCount: number }> {
-  const data = await fs.promises.readFile(filePath);
-  const zip = await JSZip.loadAsync(data);
-
   let vertexCount = 0;
   let faceCount = 0;
 
-  // Look for 3D model files in the archive
-  for (const [name, file] of Object.entries(zip.files)) {
-    if (
-      name.endsWith(".model") ||
-      name.includes("3dmodel.model") ||
-      name.includes("3D/3dmodel.model")
-    ) {
-      const xml = await file.async("text");
+  try {
+    const directory = await unzipper.Open.file(filePath);
+    
+    // Look for 3D model files in the archive
+    const modelFiles = directory.files.filter(
+      (file: unzipper.File) =>
+        file.path.endsWith(".model") ||
+        file.path.includes("3dmodel.model") ||
+        file.path.includes("3D/3dmodel.model")
+    );
 
-      // Count <vertex> or <v ... /> elements
-      const vertexMatches = xml.match(/<vertex\s/gi) || xml.match(/<v\s/gi);
-      if (vertexMatches) vertexCount += vertexMatches.length;
+    for (const file of modelFiles) {
+      const stream = file.stream();
+      
+      const rl = readline.createInterface({
+        input: stream,
+        crlfDelay: Infinity,
+      });
 
-      // Count <triangle> or <t ... /> elements
-      const triMatches = xml.match(/<triangle\s/gi) || xml.match(/<t\s/gi);
-      if (triMatches) faceCount += triMatches.length;
+      for await (const line of rl) {
+        // Count <vertex> or <v ... /> elements
+        const vertexMatches = line.match(/<vertex\s/gi) || line.match(/<v\s/gi);
+        if (vertexMatches) vertexCount += vertexMatches.length;
+
+        // Count <triangle> or <t ... /> elements
+        const triMatches = line.match(/<triangle\s/gi) || line.match(/<t\s/gi);
+        if (triMatches) faceCount += triMatches.length;
+      }
     }
+  } catch (e: unknown) {
+    console.warn(`[Streaming] extract3MF failed for ${filePath}: ${(e as Error).message}`);
   }
 
   return { vertexCount, faceCount };
