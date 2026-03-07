@@ -18,9 +18,8 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **Database:** `better-sqlite3`. Stores file metadata, vertex/face counts, and base64 PNG thumbnails in `~/.config/polytray/library.db`.
 - **UI:** Custom vanilla CSS (`styles.css`). `react-virtuoso` for rendering massive virtualized grid lists smoothly.
 - **Thumbnail Generation:**
-  - Originally ran on the renderer main thread (which froze the UI).
-  - Refactored to use an `OffscreenCanvas` inside a dedicated Web Worker (`thumbnail.worker.ts`) for STL and OBJ files.
-  - 3MF parsing uses DOM APIs, so it falls back to the renderer main thread but yields via `requestAnimationFrame` to prevent freezing.
+  - Runs in a completely detached, invisible `BrowserWindow` with `backgroundThrottling: false` to prevent macOS App Nap from freezing the worker.
+  - Heavy 3D file parsing is offloaded from the main UI thread. Files are streamed directly into the hidden canvas using a custom `polytray://local/` protocol and `fetch()`, entirely bypassing slow Node-to-Chromium IPC ArrayBuffer serialization overhead.
 - **Viewer Architecture:** Modular approach in `src/renderer/lib/`. The monolithic `viewer.ts` was refactored into focused chunks (`modelParsers.ts`, `orientation.ts`, `cameraUtils.ts`, `viewerConfig.ts`).
 
 ---
@@ -40,6 +39,8 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **F5:** Target Folder Rescanning — Rescan individual folders from the sidebar.
 - **TD1:** Render-on-Demand — Battery optimization (stops 60FPS loop when idle).
 - **TD4:** Automated Schema Migrations — Formalized `user_version` pragma migrations in `database.ts`.
+- **TD3:** Detached Background Thumbnail Window — Fully decoupled generation from main UI using a hidden browser window, `fetch()` streaming, and App Nap bypass.
+- **Performance:** Solved pre-scan "beachball" UI freezes by chunking SQLite inserts (yielding to the Node event loop) and streaming large `.3mf` zip archives via `unzipper` instead of buffering into RAM.
 - UX Bugfixes: Prevent 3MF rendering detail loss, loading % progress, infinite loop fix in `buildFolderTree`.
 
 ---
@@ -48,17 +49,9 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 ### Tech Debt
 - **TD2:** Structured Logging (`electron-log`)
-- **TD3:** Background Thumbnail Worker (fully decouple from main thread)
 
-2. **F5: Target Folder Rescanning**
-   - Provide a "rescan/sync" button next to individual folders in the sidebar tree.
-   - Allows users to quickly update a specific directory without rescanning their entire multi-gigabyte library.
-
-3. **F3: Custom Accent Colors**
-   - Allow user to pick a custom UI accent color (replacing the default blue) inside Settings.
-   - Also allow changing the default rendered 3D material color.
-
-4. **F4: Side-by-Side Model Comparison**
+### Future Features
+2. **F4: Side-by-Side Model Comparison**
    - Allow shifting the viewport into a split-screen or multi-model overlay to visually compare two distinct files. (High effort, low priority unless explicitly requested).
 
 ### Test Gaps (Action Items)
