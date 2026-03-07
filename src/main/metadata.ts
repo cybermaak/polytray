@@ -1,4 +1,5 @@
 import fs from "fs";
+import readline from "readline";
 import JSZip from "jszip";
 
 /**
@@ -29,27 +30,36 @@ export async function extractMetadata(
 async function extractSTL(
   filePath: string,
 ): Promise<{ vertexCount: number; faceCount: number }> {
-  const buffer = await fs.promises.readFile(filePath);
+  // Read just the first 84 bytes to check header and binary face count
+  const fd = await fs.promises.open(filePath, "r");
+  const buffer = Buffer.alloc(84);
+  const { bytesRead } = await fd.read(buffer, 0, 84, 0);
+  await fd.close();
+
+  if (bytesRead < 80) return { vertexCount: 0, faceCount: 0 };
 
   // Check if it's ASCII STL (starts with "solid")
   const header = buffer.slice(0, 80).toString("ascii").trim().toLowerCase();
-  if (
-    header.startsWith("solid") &&
-    buffer.toString("ascii", 0, 1000).includes("facet")
-  ) {
-    return extractSTLAscii(buffer);
+  
+  if (header.startsWith("solid")) {
+    // We can't be 100% sure it's ASCII just from "solid" (some binary STLs violate the spec),
+    // but we can check if the file size matches the binary formula: 84 + (faceCount * 50)
+    const stat = await fs.promises.stat(filePath);
+    if (bytesRead >= 84) {
+       const expectedBinaryFaceCount = buffer.readUInt32LE(80);
+       const expectedBinarySize = 84 + (expectedBinaryFaceCount * 50);
+       if (stat.size === expectedBinarySize) {
+           return {
+               vertexCount: expectedBinaryFaceCount * 3,
+               faceCount: expectedBinaryFaceCount
+           };
+       }
+    }
+    return extractSTLAscii(filePath);
   }
 
-  return extractSTLBinary(buffer);
-}
-
-function extractSTLBinary(buffer: Buffer): {
-  vertexCount: number;
-  faceCount: number;
-} {
-  // Binary STL: 80 byte header + 4 byte face count + 50 bytes per face
-  if (buffer.length < 84) return { vertexCount: 0, faceCount: 0 };
-
+  // Binary STL: 80 byte header + 4 byte face count
+  if (bytesRead < 84) return { vertexCount: 0, faceCount: 0 };
   const faceCount = buffer.readUInt32LE(80);
   return {
     vertexCount: faceCount * 3,
@@ -57,13 +67,26 @@ function extractSTLBinary(buffer: Buffer): {
   };
 }
 
-function extractSTLAscii(buffer: Buffer): {
-  vertexCount: number;
-  faceCount: number;
-} {
-  const text = buffer.toString("ascii");
-  const matches = text.match(/facet\s+normal/gi);
-  const faceCount = matches ? matches.length : 0;
+/**
+ * Fast streaming ASCII STL parser
+ */
+async function extractSTLAscii(
+  filePath: string,
+): Promise<{ vertexCount: number; faceCount: number }> {
+  let faceCount = 0;
+  
+  const fileStream = fs.createReadStream(filePath, { encoding: "utf8" });
+  const rl = readline.createInterface({
+    input: fileStream,
+    crlfDelay: Infinity,
+  });
+
+  for await (const line of rl) {
+    if (line.trimStart().toLowerCase().startsWith("facet normal")) {
+      faceCount++;
+    }
+  }
+
   return {
     vertexCount: faceCount * 3,
     faceCount,
@@ -71,17 +94,21 @@ function extractSTLAscii(buffer: Buffer): {
 }
 
 /**
- * Parse OBJ file — count lines starting with 'v ' and 'f '.
+ * Fast streaming OBJ file parser.
  */
 async function extractOBJ(
   filePath: string,
 ): Promise<{ vertexCount: number; faceCount: number }> {
-  const text = await fs.promises.readFile(filePath, "utf-8");
   let vertexCount = 0;
   let faceCount = 0;
 
-  const lines = text.split("\n");
-  for (const line of lines) {
+  const fileStream = fs.createReadStream(filePath, { encoding: "utf8" });
+  const rl = readline.createInterface({
+    input: fileStream,
+    crlfDelay: Infinity,
+  });
+
+  for await (const line of rl) {
     const trimmed = line.trimStart();
     if (trimmed.startsWith("v ")) vertexCount++;
     else if (trimmed.startsWith("f ")) faceCount++;
