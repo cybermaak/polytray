@@ -331,3 +331,4 @@ playwright/.cache/
 
 # Test Fixtures (do not commit auto-generated test shapes)
 tests/fixtures/
+/profiles

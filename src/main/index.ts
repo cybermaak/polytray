@@ -14,6 +14,33 @@ import { registerSystemHandlers } from "./ipc/system";
 // Set the application name for macOS menu bar
 app.setName("PolyTray");
 
+import inspector from "inspector";
+
+// ── Profiling Hook ──────────────────────────────────────────────────
+if (process.env.POLYTRAY_PROFILE) {
+  const durationSeconds = parseInt(process.env.POLYTRAY_PROFILE, 10) || 15;
+  const session = new inspector.Session();
+  session.connect();
+  session.post("Profiler.enable", () => {
+    session.post("Profiler.start", () => {
+      console.log(`🔴 [PROFILER] Started CPU Profiling for ${durationSeconds} seconds...`);
+      setTimeout(() => {
+        session.post("Profiler.stop", (err, { profile }) => {
+          if (!err) {
+            const profileDir = join(process.cwd(), "profiles");
+            if (!fs.existsSync(profileDir)) fs.mkdirSync(profileDir);
+            const profilePath = join(profileDir, `PolyTray_${Date.now()}.cpuprofile`);
+            fs.writeFileSync(profilePath, JSON.stringify(profile));
+            console.log(`🟢 [PROFILER] CPU profile written to ${profilePath}`);
+          }
+          session.disconnect();
+        });
+      }, durationSeconds * 1000);
+    });
+  });
+}
+// ───────────────────────────────────────────────────────────────────
+
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "polytray",

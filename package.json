@@ -16,6 +16,7 @@
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "dev": "electron-vite dev",
+    "profile": "POLYTRAY_PROFILE=15 electron-vite preview",
     "build": "npm run typecheck && electron-vite build",
     "start": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps",

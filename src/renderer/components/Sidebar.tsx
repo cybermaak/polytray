@@ -194,12 +194,13 @@ export const Sidebar: React.FC<Props> = ({
   ];
 
   return (
-    <aside id="sidebar" style={{ display: "flex", flexDirection: "column" }}>
-      <div style={{ flex: 1, overflowY: "auto" }}>
-        <div className="sidebar-section">
+    <aside id="sidebar" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div className="sidebar-section" style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, paddingBottom: 0 }}>
           <button
             id="btn-select-folder"
             className="btn-primary"
+            style={{ flexShrink: 0 }}
             onClick={onAddFolder}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -212,7 +213,7 @@ export const Sidebar: React.FC<Props> = ({
             </svg>
             Add Folder
           </button>
-          <div id="library-folders" className="library-folders" style={{ marginTop: 8 }}>
+          <div id="library-folders" className="library-folders sidebar-scrollable" style={{ marginTop: 8, flex: 1, overflowY: "auto", paddingBottom: 16 }}>
             {tree.map((node) => (
                <FolderTreeNode
                  key={node.path}
@@ -227,7 +228,7 @@ export const Sidebar: React.FC<Props> = ({
           </div>
         </div>
 
-        <div className="sidebar-section sidebar-stats">
+        <div className="sidebar-section sidebar-stats" style={{ flexShrink: 0 }}>
           <h3>Library</h3>
           <div className="stat-grid">
             <div className="stat-item">
@@ -260,7 +261,7 @@ export const Sidebar: React.FC<Props> = ({
           </div>
         </div>
 
-        <div className="sidebar-section">
+        <div className="sidebar-section" style={{ flexShrink: 0 }}>
           <h3>Format Filter</h3>
           <div className="filter-buttons">
             {filters.map((f) => (

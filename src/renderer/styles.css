@@ -164,7 +164,7 @@ body {
   border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
   flex-shrink: 0;
 }
 
@@ -522,27 +522,31 @@ body {
 
 .file-grid::-webkit-scrollbar,
 [data-virtuoso-scroller]::-webkit-scrollbar,
-.viewer-multi-model::-webkit-scrollbar {
+.viewer-multi-model::-webkit-scrollbar,
+.sidebar-scrollable::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 .file-grid::-webkit-scrollbar-track,
 [data-virtuoso-scroller]::-webkit-scrollbar-track,
-.viewer-multi-model::-webkit-scrollbar-track {
+.viewer-multi-model::-webkit-scrollbar-track,
+.sidebar-scrollable::-webkit-scrollbar-track {
   background: transparent;
 }
 
 .file-grid::-webkit-scrollbar-thumb,
 [data-virtuoso-scroller]::-webkit-scrollbar-thumb,
-.viewer-multi-model::-webkit-scrollbar-thumb {
+.viewer-multi-model::-webkit-scrollbar-thumb,
+.sidebar-scrollable::-webkit-scrollbar-thumb {
   background: var(--bg-active);
   border-radius: 4px;
 }
 
 .file-grid::-webkit-scrollbar-thumb:hover,
 [data-virtuoso-scroller]::-webkit-scrollbar-thumb:hover,
-.viewer-multi-model::-webkit-scrollbar-thumb:hover {
+.viewer-multi-model::-webkit-scrollbar-thumb:hover,
+.sidebar-scrollable::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
 
