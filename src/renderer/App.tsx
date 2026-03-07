@@ -11,7 +11,6 @@ import { Toolbar } from "./components/Toolbar";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { SettingsModal } from "./components/SettingsModal";
 import { formatSize, formatVertices, formatTimestamp } from "./lib/formatters";
-import { initThumbnailGenerator } from "./lib/thumbnailRenderer";
 import { VirtuosoGrid } from "react-virtuoso";
 
 // Types for file records from the database
@@ -105,17 +104,9 @@ export const App: React.FC = () => {
   const searchRef = useRef(search);
   searchRef.current = search;
 
-  const thumbCanvasRef = useRef<HTMLCanvasElement>(null);
-
   // ── IPC Listeners (once) ────────────────────────────────────────
   useEffect(() => {
     const cleanups: (() => void)[] = [];
-
-    // Thumbnail Generator (hidden canvas handler)
-    if (thumbCanvasRef.current) {
-      const cleanup = initThumbnailGenerator(thumbCanvasRef.current);
-      cleanups.push(cleanup);
-    }
 
     cleanups.push(
       window.polytray.onScanProgress(
@@ -511,15 +502,6 @@ export const App: React.FC = () => {
     }
   }, [settings.watch]);
 
-  // ── Reactive thumbQuality → canvas resize ──────────────────────
-  useEffect(() => {
-    const canvas = thumbCanvasRef.current;
-    if (!canvas) return;
-    const size = parseInt(settings.thumbQuality, 10) || 256;
-    canvas.width = size;
-    canvas.height = size;
-  }, [settings.thumbQuality]);
-
   // Keyboard: Escape
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -647,12 +629,6 @@ export const App: React.FC = () => {
         settings={settings}
         onSettingsChange={handleSettingsChange}
         onClose={() => setSettingsOpen(false)}
-      />
-      <canvas
-        ref={thumbCanvasRef}
-        width={parseInt(settings.thumbQuality, 10) || 256}
-        height={parseInt(settings.thumbQuality, 10) || 256}
-        style={{ display: "none" }}
       />
     </>
   );

@@ -17,7 +17,10 @@ export default defineConfig({
     plugins: [react()],
     build: {
       rollupOptions: {
-        input: "./src/renderer/index.html",
+        input: {
+          index: "./src/renderer/index.html",
+          thumbnail: "./src/renderer/thumbnail.html",
+        },
       },
     },
   },

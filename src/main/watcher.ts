@@ -79,7 +79,7 @@ async function handleFileChange(
     let thumbnailPath: string | null = null;
     let thumbnailFailed = 0;
     try {
-      thumbnailPath = await generateThumbnail(filePath, ext, mainWindow);
+      thumbnailPath = await generateThumbnail(filePath, ext);
       if (!thumbnailPath) thumbnailFailed = 1;
     } catch (e: unknown) {
       console.warn(

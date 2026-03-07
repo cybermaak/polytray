@@ -29,22 +29,26 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **Current Version:** `v1.0.0` was released via GitHub Actions (`electron-builder`).
 - **Working Towards:** `v1.1.0`. Focusing on major Tech Debt cleanup and "Fit & Finish" UX features.
 
-### Completed Features / Tech Debt (v1.1.0-alpha)
-- **T1: Rendering Pipeline Unblocking:** Offscreen Web Worker for thumbnails + async yielding for 3MF.
-- **T2: Viewer Architecture Refactoring:** Modularized `viewer.ts`.
-- **T3: Database Performance:** Added SQLite indexes for sorting millions of records instantly.
-- **T4: Global IPC Signatures:** Strongly typed IPC channels in `shared/types.ts`.
-- **F1: Enriched Filtering:** Grid virtualization, sort by vertices/faces, filter by formats.
-- UX Bugfixes: Prevent 3MF rendering detail loss (indexed geometry normals issue). Circular progress rings for model loading.
+### Completed Features (v1.1.0)
+- **T1:** Rendering Pipeline Unblocking — Offscreen Web Worker for thumbnails + async yielding for 3MF.
+- **T2:** Viewer Architecture Refactoring — Modularized `viewer.ts`.
+- **T3:** Database Performance — Added SQLite indexes for sorting.
+- **T4:** Global IPC Signatures — Strongly typed IPC channels in `shared/types.ts`.
+- **F1:** Enriched Filtering — Grid virtualization, sort by vertices/faces, filter by formats.
+- **F2:** Sidebar Folder Hierarchy — Nested folder tree in sidebar, click-to-filter by directory.
+- **F3:** Custom Accent Colors — User-configurable UI accent color + 3D preview material color via Settings.
+- **F5:** Target Folder Rescanning — Rescan individual folders from the sidebar.
+- **TD1:** Render-on-Demand — Battery optimization (stops 60FPS loop when idle).
+- **TD4:** Automated Schema Migrations — Formalized `user_version` pragma migrations in `database.ts`.
+- UX Bugfixes: Prevent 3MF rendering detail loss, loading % progress, infinite loop fix in `buildFolderTree`.
 
 ---
 
 ## 🗺 Next Features Roadmap (Prioritized)
 
-1. **F2: Sidebar Folder Hierarchy**
-   - The user's added root folders should display as a collapsible, nested tree structure in the sidebar.
-   - Filtering: Clicking any folder/sub-folder in the tree should filter the main grid to *only* show files in that directory.
-   - *Requires updating `IPC.GET_FILES` to accept and filter by a `folder` path via SQL `LIKE '{folder}%'`.*
+### Tech Debt
+- **TD2:** Structured Logging (`electron-log`)
+- **TD3:** Background Thumbnail Worker (fully decouple from main thread)
 
 2. **F5: Target Folder Rescanning**
    - Provide a "rescan/sync" button next to individual folders in the sidebar tree.
@@ -56,6 +60,10 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 4. **F4: Side-by-Side Model Comparison**
    - Allow shifting the viewport into a split-screen or multi-model overlay to visually compare two distinct files. (High effort, low priority unless explicitly requested).
+
+### Test Gaps (Action Items)
+- **F2 (Sidebar Folders):** Need tests for nested DOM structure, expand/collapse chevron interactions, and top-level "All Models" filter reset.
+- **F5 (Folder Rescanning):** Need tests verifying targeted scope (ignoring other folders) and behavior when targeted folder is physically deleted from disk.
 
 ---
 

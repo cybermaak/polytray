@@ -48,9 +48,14 @@ if (fs.existsSync(portableDataDir)) {
 // ───────────────────────────────────────────────────────────────────
 
 let mainWindow: BrowserWindow | null = null;
+let thumbnailWindow: BrowserWindow | null = null;
 
-function getMainWindow(): BrowserWindow | null {
+export function getMainWindow(): BrowserWindow | null {
   return mainWindow;
+}
+
+export function getThumbnailWindow(): BrowserWindow | null {
+  return thumbnailWindow;
 }
 
 function createWindow() {
@@ -97,7 +102,52 @@ function createWindow() {
   // Force quit when the main window is closed, especially on macOS
   mainWindow.on("closed", () => {
     mainWindow = null;
+    if (thumbnailWindow) {
+      thumbnailWindow.close();
+    }
     app.quit();
+  });
+}
+
+// ── Background Thumbnail Window ──────────────────────────────
+
+function createThumbnailWindow() {
+  thumbnailWindow = new BrowserWindow({
+    show: false, // Keep it completely hidden!
+    webPreferences: {
+      preload: join(__dirname, "../preload/index.js"), // Share preload so IPC works
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      backgroundThrottling: false, // Critical: prevents macOS from completely freezing this hidden window
+    },
+  });
+
+  if (process.env.ELECTRON_RENDERER_URL) {
+    thumbnailWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}/src/renderer/thumbnail.html`);
+  } else {
+    thumbnailWindow.loadFile(join(__dirname, "../renderer/thumbnail.html"));
+  }
+
+  // Define Content Security Policy for thumbnail window as well
+  thumbnailWindow.webContents.session.webRequest.onHeadersReceived(
+    (details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "Content-Security-Policy": [
+            "default-src 'self'; " +
+              "script-src 'self' 'unsafe-inline'; " +
+              "img-src 'self' data: blob:; " +
+              "connect-src 'self' polytray:;",
+          ],
+        },
+      });
+    },
+  );
+
+  thumbnailWindow.on("closed", () => {
+    thumbnailWindow = null;
   });
 }
 
@@ -122,6 +172,7 @@ app.whenReady().then(() => {
 
   initDatabase();
   createWindow();
+  createThumbnailWindow();
   registerIpcHandlers();
 
   app.on("activate", () => {

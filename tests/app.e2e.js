@@ -58,8 +58,18 @@ test.beforeAll(async () => {
     },
   });
 
-  // Get the first window
-  window = await app.firstWindow();
+  // Wait for the first window and let it load
+  let page1 = await app.firstWindow();
+  await page1.waitForLoadState("domcontentloaded");
+
+  // Since we now spawn a background thumbnail worker, ensure we test the main UI
+  if (page1.url().includes("thumbnail.html")) {
+    const allWindows = app.windows();
+    window = allWindows.find((w) => w !== page1);
+    if (!window) window = await app.waitForEvent("window");
+  } else {
+    window = page1;
+  }
   // Wait for render to be ready
   await window.waitForLoadState("domcontentloaded");
   // Give app.js time to initialize

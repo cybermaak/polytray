@@ -5,25 +5,21 @@ import fs from "fs";
 
 let db: Database.Database | null = null;
 
-export function initDatabase() {
-  const userDataPath =
-    process.env.ELECTRON_USER_DATA || app.getPath("userData");
-  const dbDir = path.join(userDataPath, "data");
-  fs.mkdirSync(dbDir, { recursive: true });
+// ── Schema Migration Definitions ──────────────────────────────────
+// Each migration runs exactly once, guarded by the SQLite user_version pragma.
+// Add new migrations to the END of this array. Never remove or reorder entries.
 
-  const dbPath = path.join(dbDir, "polytray.db");
-  db = new Database(dbPath);
+interface Migration {
+  version: number; // Target version AFTER this migration runs
+  description: string;
+  sql: string;
+}
 
-  // Enable WAL mode for better concurrent reads
-  db.pragma("journal_mode = WAL");
-
-  // Implement lightweight sequential schema migrations
-  let currentVersion =
-    (db.pragma("user_version", { simple: true }) as number) || 0;
-
-  if (currentVersion === 0) {
-    // Initial Schema (v1)
-    db.exec(`
+const MIGRATIONS: Migration[] = [
+  {
+    version: 1,
+    description: "Initial schema: files + settings tables with base indexes",
+    sql: `
       CREATE TABLE IF NOT EXISTS files (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
         path          TEXT    UNIQUE NOT NULL,
@@ -46,40 +42,88 @@ export function initDatabase() {
         key   TEXT PRIMARY KEY,
         value TEXT
       );
-    `);
-    db.pragma("user_version = 1");
-    currentVersion = 1;
-  }
-
-  if (currentVersion === 1) {
-    // Migration v1 -> v2: Add thumbnail_failed column
-    try {
-      db.prepare(
-        "ALTER TABLE files ADD COLUMN thumbnail_failed INTEGER DEFAULT 0",
-      ).run();
-    } catch (e: unknown) {
-      if (!(e as Error).message.includes("duplicate column name")) {
-        console.warn("Schema migration v2 warning:", (e as Error).message);
-      }
-    }
-    db.pragma("user_version = 2");
-    currentVersion = 2;
-  }
-
-  if (currentVersion === 2) {
-    // Migration v2 -> v3: Add indexes for sort columns
-    db.exec(`
+    `,
+  },
+  {
+    version: 2,
+    description: "Add thumbnail_failed column for retry tracking",
+    sql: `ALTER TABLE files ADD COLUMN thumbnail_failed INTEGER DEFAULT 0;`,
+  },
+  {
+    version: 3,
+    description: "Add indexes on sort columns for performance",
+    sql: `
       CREATE INDEX IF NOT EXISTS idx_files_size     ON files(size_bytes);
       CREATE INDEX IF NOT EXISTS idx_files_modified  ON files(modified_at);
       CREATE INDEX IF NOT EXISTS idx_files_vertices  ON files(vertex_count);
       CREATE INDEX IF NOT EXISTS idx_files_faces     ON files(face_count);
-    `);
-    db.pragma("user_version = 3");
-    currentVersion = 3;
-  }
+    `,
+  },
+];
+
+// ── Database Initialization ───────────────────────────────────────
+
+export function initDatabase() {
+  const userDataPath =
+    process.env.ELECTRON_USER_DATA || app.getPath("userData");
+  const dbDir = path.join(userDataPath, "data");
+  fs.mkdirSync(dbDir, { recursive: true });
+
+  const dbPath = path.join(dbDir, "polytray.db");
+  db = new Database(dbPath);
+
+  // Enable WAL mode for better concurrent reads
+  db.pragma("journal_mode = WAL");
+
+  // Run pending migrations
+  runMigrations(db);
 
   return db;
 }
+
+function runMigrations(database: Database.Database) {
+  let currentVersion =
+    (database.pragma("user_version", { simple: true }) as number) || 0;
+
+  for (const migration of MIGRATIONS) {
+    if (currentVersion < migration.version) {
+      console.log(
+        `[DB] Running migration v${currentVersion} → v${migration.version}: ${migration.description}`,
+      );
+
+      // Run each migration inside a transaction for atomicity
+      const transaction = database.transaction(() => {
+        database.exec(migration.sql);
+        database.pragma(`user_version = ${migration.version}`);
+      });
+
+      try {
+        transaction();
+        currentVersion = migration.version;
+      } catch (e: unknown) {
+        // Handle "duplicate column name" from ALTER TABLE re-runs gracefully
+        const msg = (e as Error).message || "";
+        if (msg.includes("duplicate column name")) {
+          console.log(
+            `[DB] Migration v${migration.version} column already exists, marking as applied`,
+          );
+          database.pragma(`user_version = ${migration.version}`);
+          currentVersion = migration.version;
+        } else {
+          console.error(
+            `[DB] Migration v${migration.version} FAILED:`,
+            msg,
+          );
+          throw e; // Re-throw non-recoverable errors
+        }
+      }
+    }
+  }
+
+  console.log(`[DB] Schema at version ${currentVersion}`);
+}
+
+// ── Database Accessors ────────────────────────────────────────────
 
 export function getDb() {
   if (!db)

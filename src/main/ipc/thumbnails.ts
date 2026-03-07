@@ -40,7 +40,7 @@ export function registerThumbnailHandlers(
     async (event, filePath, ext) => {
       const mainWindow = getMainWindow();
       if (!mainWindow) return null;
-      const thumbnailPath = await generateThumbnail(filePath, ext, mainWindow);
+      const thumbnailPath = await generateThumbnail(filePath, ext);
       const db = getDb();
       if (thumbnailPath) {
         db.prepare(

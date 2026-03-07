@@ -1,8 +1,9 @@
-import { app, BrowserWindow, ipcMain, IpcMainEvent } from "electron";
+import { app, ipcMain, IpcMainEvent } from "electron";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import { IPC } from "../shared/types";
+import { getThumbnailWindow } from "./index";
 
 let thumbnailDir: string | null = null;
 
@@ -29,8 +30,10 @@ interface ThumbnailResult {
 export async function generateThumbnail(
   filePath: string,
   ext: string,
-  mainWindow: BrowserWindow,
 ): Promise<string | null> {
+  const thumbWindow = getThumbnailWindow();
+  if (!thumbWindow || thumbWindow.isDestroyed()) return null;
+
   const dir = getThumbnailDir();
   const hash = crypto
     .createHash("sha256")
@@ -45,7 +48,7 @@ export async function generateThumbnail(
   }
 
   try {
-    mainWindow.webContents.send(IPC.GENERATE_THUMBNAIL_REQUEST, {
+    thumbWindow.webContents.send(IPC.GENERATE_THUMBNAIL_REQUEST, {
       filePath,
       ext,
       thumbPath,

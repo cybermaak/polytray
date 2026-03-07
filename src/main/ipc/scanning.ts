@@ -152,8 +152,8 @@ export function registerScanningHandlers(
     } catch {
       // Directory may not exist yet — that's fine
     }
-    // Set modified_at to 0 so the scanner regenerates the thumbnails next scan
-    db.prepare("UPDATE files SET modified_at = 0, thumbnail = null").run();
+    // Clear thumbnail paths and failure flags so the scanner triggers generation without re-reading gigabytes of file geometry
+    db.prepare("UPDATE files SET thumbnail = null, thumbnail_failed = 0").run();
     return true;
   });
 }
@@ -200,7 +200,7 @@ async function generateThumbnailsInBackground(
     const startTime = Date.now();
 
     try {
-      const thumbnailPath = await generateThumbnail(file.path, file.ext, win);
+      const thumbnailPath = await generateThumbnail(file.path, file.ext);
       if (thumbnailPath) {
         db.prepare("UPDATE files SET thumbnail = ? WHERE path = ?").run(
           thumbnailPath,
