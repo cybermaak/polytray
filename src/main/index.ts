@@ -71,6 +71,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      backgroundThrottling: false, // Critical: prevents macOS from completely freezing this hidden window
     },
   });
 
