@@ -170,8 +170,16 @@ export function initThumbnailGenerator(canvas: HTMLCanvasElement) {
     const { filePath, ext, thumbPath } = data;
 
     try {
-      const buffer = await window.polytray.readFileBuffer(filePath);
-
+      // Use the custom polytray:// protocol to stream the file natively into the browser memory
+      // bypassing slow Node-to-Chromium IPC ArrayBuffer serialization.
+      const url = `polytray://local/${encodeURIComponent(filePath)}`;
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${url}: ${response.status}`);
+      }
+      
+      const buffer = await response.arrayBuffer();
       const dataUrl = await renderThumbnail(buffer, ext, canvas);
 
       if (dataUrl) {
