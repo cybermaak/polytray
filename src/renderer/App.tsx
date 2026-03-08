@@ -25,6 +25,7 @@ interface FileRecord {
   vertex_count: number;
   face_count: number;
   thumbnail: string | null;
+  thumbnail_failed: number;
   indexed_at: number;
 }
 
@@ -727,26 +728,55 @@ const FileCard: React.FC<FileCardProps> = ({
       <div className="card-thumbnail">
         {!file.thumbnail && (
           <>
-            <div className="thumbnail-pulse" />
+            {!file.thumbnail_failed ? (
+              <div className="thumbnail-pulse" />
+            ) : (
+              <div className="thumbnail-error-bg" />
+            )}
             <svg
-              className="placeholder-icon"
+              className={`placeholder-icon ${file.thumbnail_failed ? "error" : ""}`}
               width="48"
               height="48"
               viewBox="0 0 48 48"
               fill="none"
             >
-              <path
-                d="M24 4L42 14v20L24 44 6 34V14L24 4z"
-                stroke="currentColor"
-                strokeWidth="2"
-                fill="none"
-              />
-              <path
-                d="M24 4v20m0 20V24m18-10L24 24M6 14l18 10"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                opacity="0.5"
-              />
+              {!file.thumbnail_failed ? (
+                <>
+                  <path
+                    d="M24 4L42 14v20L24 44 6 34V14L24 4z"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    fill="none"
+                  />
+                  <path
+                    d="M24 4v20m0 20V24m18-10L24 24M6 14l18 10"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    opacity="0.5"
+                  />
+                </>
+              ) : (
+                // A broken/missing file icon
+                <>
+                  <path
+                    d="M12 8C12 5.79086 13.7909 4 16 4H26L36 14V40C36 42.2091 34.2091 44 32 44H16C13.7909 44 12 42.2091 12 40V8Z"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  />
+                  <path
+                    d="M24 18L24 28"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M24 34V34.5"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </>
+              )}
             </svg>
           </>
         )}
