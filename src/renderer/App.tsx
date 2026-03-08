@@ -105,6 +105,24 @@ export const App: React.FC = () => {
   const searchRef = useRef(search);
   searchRef.current = search;
 
+  const fetchFiles = useCallback(async () => {
+    const result = await window.polytray.getFiles({
+      sort: sortRef.current,
+      order: orderRef.current,
+      extension: extensionRef.current,
+      folder: activeFolderRef.current,
+      search: searchRef.current,
+      limit: 500,
+      offset: 0,
+    });
+    setFiles(result.files);
+
+    const s = await window.polytray.getStats();
+    setStats(s);
+    const d = await window.polytray.getDirectories();
+    setDirectories(d);
+  }, []);
+
   // ── IPC Listeners (once) ────────────────────────────────────────
   useEffect(() => {
     const cleanups: (() => void)[] = [];
@@ -136,22 +154,7 @@ export const App: React.FC = () => {
           text: `Scan complete — ${data.totalFiles} files`,
         }));
 
-        // Reload data using refs for current filter state
-        const result = await window.polytray.getFiles({
-          sort: sortRef.current,
-          order: orderRef.current,
-          extension: extensionRef.current,
-          folder: activeFolderRef.current,
-          search: searchRef.current,
-          limit: 500,
-          offset: 0,
-        });
-        setFiles(result.files);
-
-        const s = await window.polytray.getStats();
-        setStats(s);
-        const d = await window.polytray.getDirectories();
-        setDirectories(d);
+        await fetchFiles();
 
         // Start watching
         window.polytray.startWatching(foldersRef.current);
@@ -229,27 +232,14 @@ export const App: React.FC = () => {
 
     cleanups.push(
       window.polytray.onFilesUpdated(async () => {
-        const result = await window.polytray.getFiles({
-          sort: sortRef.current,
-          order: orderRef.current,
-          extension: extensionRef.current,
-          folder: activeFolderRef.current,
-          search: searchRef.current,
-          limit: 500,
-          offset: 0,
-        });
-        setFiles(result.files);
-        const s = await window.polytray.getStats();
-        setStats(s);
-        const d = await window.polytray.getDirectories();
-        setDirectories(d);
+        fetchFiles();
       }),
     );
 
     return () => {
       cleanups.forEach((c) => c());
     };
-  }, []);
+  }, [fetchFiles]);
 
   // ── Boot ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -374,6 +364,7 @@ export const App: React.FC = () => {
   const handleClearThumbnails = useCallback(async () => {
     if (confirm("Regenerate all thumbnails? This may take a while.")) {
       await window.polytray.clearThumbnails();
+      fetchFiles(); // Immediate UI update to show clear state
       for (const folder of foldersRef.current) {
         setProgress({
           visible: true,
@@ -384,84 +375,40 @@ export const App: React.FC = () => {
         await window.polytray.scanFolder(folder);
       }
     }
-  }, []);
+  }, [fetchFiles]);
 
   const handleSortChange = useCallback(async (newSort: string) => {
     setSort(newSort);
     sortRef.current = newSort;
-    const result = await window.polytray.getFiles({
-      sort: newSort,
-      order: orderRef.current,
-      extension: extensionRef.current,
-          folder: activeFolderRef.current,
-      search: searchRef.current,
-      limit: 500,
-      offset: 0,
-    });
-    setFiles(result.files);
-  }, []);
+    fetchFiles();
+  }, [fetchFiles]);
 
   const handleOrderToggle = useCallback(async () => {
     const newOrder = orderRef.current === "ASC" ? "DESC" : "ASC";
     setOrder(newOrder);
     orderRef.current = newOrder;
-    const result = await window.polytray.getFiles({
-      sort: sortRef.current,
-      order: newOrder,
-      extension: extensionRef.current,
-          folder: activeFolderRef.current,
-      search: searchRef.current,
-      limit: 500,
-      offset: 0,
-    });
-    setFiles(result.files);
-  }, []);
+    fetchFiles();
+  }, [fetchFiles]);
 
   const handleExtensionFilter = useCallback(async (ext: string | null) => {
     setExtension(ext);
     extensionRef.current = ext;
-    const result = await window.polytray.getFiles({
-      sort: sortRef.current,
-      order: orderRef.current,
-      extension: ext,
-      search: searchRef.current,
-      limit: 500,
-      offset: 0,
-    });
-    setFiles(result.files);
-  }, []);
+    fetchFiles();
+  }, [fetchFiles]);
 
   const handleSearch = useCallback(async (query: string) => {
     setSearch(query);
     searchRef.current = query;
-    const result = await window.polytray.getFiles({
-      sort: sortRef.current,
-      order: orderRef.current,
-      extension: extensionRef.current,
-          folder: activeFolderRef.current,
-      search: query,
-      limit: 500,
-      offset: 0,
-    });
-    setFiles(result.files);
-  }, []);
+    fetchFiles();
+  }, [fetchFiles]);
 
 
 
   const handleFolderSelect = useCallback(async (folderPath: string | null) => {
     setActiveFolder(folderPath);
     activeFolderRef.current = folderPath;
-    const result = await window.polytray.getFiles({
-      sort: sortRef.current,
-      order: orderRef.current,
-      extension: extensionRef.current,
-      folder: activeFolderRef.current,
-      search: searchRef.current,
-      limit: 500,
-      offset: 0,
-    });
-    setFiles(result.files);
-  }, []);
+    fetchFiles();
+  }, [fetchFiles]);
 
   const handleRescanFolder = useCallback(async (folderPath: string) => {
     setProgress({
@@ -481,7 +428,8 @@ export const App: React.FC = () => {
       count: "",
     });
     await window.polytray.refreshFolderThumbnails(folderPath);
-  }, []);
+    fetchFiles(); // Update UI to show loading pulses
+  }, [fetchFiles]);
 
   const handleSettingsChange = useCallback((newSettings: Partial<Settings>) => {
     setSettings((prev) => {
