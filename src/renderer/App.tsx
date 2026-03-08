@@ -512,6 +512,19 @@ export const App: React.FC = () => {
     }
   }, [settings.watch]);
 
+  // Context Menu Callbacks
+  useEffect(() => {
+    const unsubscribe = window.polytray.onFolderAction((action, folderPath) => {
+      if (action === "refresh") {
+        handleRefreshFolderThumbnails(folderPath);
+      } else if (action === "rescan") {
+        handleRescanFolder(folderPath);
+      }
+    });
+
+    return unsubscribe;
+  }, [handleRefreshFolderThumbnails, handleRescanFolder]);
+
   // Keyboard: Escape
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {

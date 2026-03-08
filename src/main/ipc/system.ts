@@ -63,6 +63,38 @@ export function registerSystemHandlers(
     menu.popup({ window: BrowserWindow.fromWebContents(event.sender)! });
   });
 
+  ipcMain.on(IPC.SHOW_FOLDER_CONTEXT_MENU, (event, folderPath) => {
+    const template = [
+      {
+        label: "Refresh Thumbnails",
+        click: () => {
+          const win = getMainWindow();
+          if (win) {
+            win.webContents.send('trigger-refresh-folder', folderPath);
+          }
+        },
+      },
+      {
+        label: "Rescan Folder",
+        click: () => {
+          const win = getMainWindow();
+          if (win) {
+            win.webContents.send('trigger-rescan-folder', folderPath);
+          }
+        },
+      },
+      { type: 'separator' as const },
+      {
+        label: "Reveal in Finder / Explorer",
+        click: () => {
+          shell.showItemInFolder(folderPath);
+        },
+      },
+    ];
+    const menu = Menu.buildFromTemplate(template);
+    menu.popup({ window: BrowserWindow.fromWebContents(event.sender)! });
+  });
+
   ipcMain.handle(IPC.START_WATCHING, (event, folderPath) => {
     const mainWindow = getMainWindow();
     if (mainWindow) {

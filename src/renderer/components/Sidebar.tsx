@@ -32,7 +32,32 @@ interface FolderNode {
 }
 
 function buildFolderTree(roots: string[], directories: string[]): FolderNode[] {
-  const allPaths = Array.from(new Set([...roots, ...directories])).sort();
+  const pathSet = new Set([...roots, ...directories]);
+  
+  // Synthesize missing intermediate directories
+  for (const dir of directories) {
+    const isWin = dir.includes('\\');
+    const sep = isWin ? '\\' : '/';
+    let current = dir;
+    
+    while(current.length > 0) {
+      const lastSep = current.lastIndexOf(sep);
+      if (lastSep === -1) break;
+      current = current.substring(0, lastSep);
+      if (current === '' && dir.startsWith(sep)) current = sep;
+      
+      const hasRoot = roots.some(r => current.startsWith(r + sep) || current === r);
+      if (hasRoot) {
+        pathSet.add(current);
+      } else {
+        break;
+      }
+      
+      if (current === sep) break;
+    }
+  }
+
+  const allPaths = Array.from(pathSet).sort();
   const nodeMap = new Map<string, FolderNode>();
   
   for (const p of allPaths) {
@@ -90,7 +115,7 @@ const FolderTreeNode: React.FC<{
   onRescan: (path: string) => void;
   onRefreshThumbnails: (path: string) => void;
 }> = ({ node, level, activeFolder, onSelect, onRemove, onRescan, onRefreshThumbnails }) => {
-  const [expanded, setExpanded] = React.useState(true);
+  const [expanded, setExpanded] = React.useState(false);
   const hasChildren = node.children.length > 0;
   const isActive = activeFolder === node.path;
 
@@ -100,9 +125,12 @@ const FolderTreeNode: React.FC<{
         className={`library-folder-item ${isActive ? 'active' : ''}`}
         style={{ paddingLeft: `${level * 12 + 8}px`, cursor: 'pointer' }}
         onClick={(e) => {
-          // If clicking exactly on the toggle, don't select
           if ((e.target as HTMLElement).classList.contains('folder-toggle')) return;
           onSelect(isActive ? null : node.path);
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          window.polytray.showFolderContextMenu(node.path);
         }}
       >
         {hasChildren ? (
@@ -129,36 +157,21 @@ const FolderTreeNode: React.FC<{
         >
           <path d="M2 3.5A1.5 1.5 0 013.5 2h2.879a1.5 1.5 0 011.06.44l.622.62a1.5 1.5 0 001.06.44H12.5A1.5 1.5 0 0114 5v7.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12.5v-9z" />
         </svg>
-        <span className="library-folder-name" title={node.path} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span className="library-folder-name" title={node.path} style={{ flex: 1, whiteSpace: 'nowrap' }}>
           {node.name}
         </span>
         
-        <div className="folder-actions hide-on-idle">
-          <button
-            className="library-folder-remove"
-            title="Refresh thumbnails"
-            onClick={(e) => { e.stopPropagation(); onRefreshThumbnails(node.path); }}
-          >
-            🖼️
-          </button>
-          <button
-            className="library-folder-remove"
-            title="Rescan folder"
-            onClick={(e) => { e.stopPropagation(); onRescan(node.path); }}
-          >
-            ↻
-          </button>
-          
-          {node.isLibraryRoot && (
-            <button
-              className="library-folder-remove"
-              title="Remove from library"
-              onClick={(e) => { e.stopPropagation(); onRemove(node.path); }}
-            >
-              ×
-            </button>
-          )}
-        </div>
+        {node.isLibraryRoot && (
+           <div className="folder-actions hide-on-idle">
+             <button
+               className="library-folder-remove"
+               title="Remove from library"
+               onClick={(e) => { e.stopPropagation(); onRemove(node.path); }}
+             >
+               ×
+             </button>
+           </div>
+        )}
       </div>
       
       {expanded && hasChildren && (
@@ -206,7 +219,7 @@ export const Sidebar: React.FC<Props> = ({
   ];
 
   return (
-    <aside id="sidebar" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <aside id="sidebar" style={{ display: "flex", flexDirection: "column", overflow: "hidden", resize: "horizontal", minWidth: 220, maxWidth: "50vw" }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <div className="sidebar-section" style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, paddingBottom: 0 }}>
           <button
@@ -225,7 +238,7 @@ export const Sidebar: React.FC<Props> = ({
             </svg>
             Add Folder
           </button>
-          <div id="library-folders" className="library-folders sidebar-scrollable" style={{ marginTop: 8, flex: 1, overflowY: "auto", paddingBottom: 16 }}>
+          <div id="library-folders" className="library-folders sidebar-scrollable" style={{ marginTop: 8, flex: 1, overflowY: "auto", overflowX: "auto", paddingBottom: 16 }}>
             {tree.map((node) => (
                <FolderTreeNode
                  key={node.path}

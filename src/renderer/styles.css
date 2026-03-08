@@ -227,6 +227,7 @@ body {
   color: var(--text-secondary);
   cursor: default;
   transition: background var(--transition-fast);
+  min-width: max-content;
 }
 
 .library-folder-item:hover,
@@ -240,8 +241,6 @@ body {
 
 .library-folder-name {
   flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

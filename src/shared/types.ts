@@ -73,6 +73,7 @@ export const IPC = {
   // send channels (renderer → main, fire-and-forget)
   ON_DRAG_START: "ondragstart",
   SHOW_CONTEXT_MENU: "show-context-menu",
+  SHOW_FOLDER_CONTEXT_MENU: "show-folder-context-menu",
   THUMBNAIL_GENERATED: "thumbnail-generated",
 
   // send channels (main → renderer)

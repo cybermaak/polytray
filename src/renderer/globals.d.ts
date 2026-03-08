@@ -40,10 +40,14 @@ interface PolytrayAPI {
   ) => Promise<string | null>;
   startDrag: (filePath: string) => void;
   showContextMenu: (filePath: string) => void;
+  showFolderContextMenu: (path: string) => void;
 
   startWatching: (folderPath: string) => Promise<void>;
   stopWatching: () => Promise<void>;
 
+  onFolderAction: (
+    callback: (action: "refresh" | "rescan", folderPath: string) => void,
+  ) => () => void;
   onScanProgress: (callback: (data: ScanProgressData) => void) => () => void;
   onScanComplete: (callback: (data: ScanCompleteData) => void) => () => void;
   onFilesUpdated: (callback: (data: FilesUpdatedData) => void) => () => void;

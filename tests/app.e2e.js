@@ -514,10 +514,16 @@ test("sidebar folder filtering limits visible files", async () => {
 test("rescan specific folder triggers scan UI", async () => {
   const folderNodes = window.locator(".library-folder-item");
   const firstNode = folderNodes.first();
-  await firstNode.hover();
+  await firstNode.click();
   
-  const rescanBtn = firstNode.locator(".folder-actions button[title='Rescan folder']");
-  await rescanBtn.click();
+  // Directly trigger the scan through the exposed API bridge to mimic the context menu
+  await window.evaluate(() => {
+    // Get the first folder from the DOM path title attribute
+    const firstPath = document.querySelector('.library-folder-name').getAttribute('title');
+    // Mimic the context menu invocation
+    window.polytray.scanFolder(firstPath);
+  });
+  
   const progressContainer = window.locator("#scan-progress");
   await expect(progressContainer).toBeVisible();
 

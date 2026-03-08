@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld("polytray", {
     ipcRenderer.send(IPC.ON_DRAG_START, filePath),
   showContextMenu: (filePath: string) =>
     ipcRenderer.send(IPC.SHOW_CONTEXT_MENU, filePath),
+  showFolderContextMenu: (folderPath: string) =>
+    ipcRenderer.send(IPC.SHOW_FOLDER_CONTEXT_MENU, folderPath),
 
   // 3D preview
   readFileBuffer: (filePath: string) =>
@@ -61,9 +63,23 @@ contextBridge.exposeInMainWorld("polytray", {
     ipcRenderer.invoke(IPC.START_WATCHING, folderPath),
   stopWatching: () => ipcRenderer.invoke(IPC.STOP_WATCHING),
 
-  // Events (main → renderer)
-  onScanProgress: (cb: (data: ScanProgressData) => void) =>
-    onChannel<ScanProgressData>(IPC.SCAN_PROGRESS, cb),
+  // ── Event Listeners (return generic unsubscribe functions) ──────────
+
+  onFolderAction: (
+    callback: (action: "refresh" | "rescan", folderPath: string) => void,
+  ) => {
+    const refreshHandler = (_e: Electron.IpcRendererEvent, folder: string) => callback("refresh", folder);
+    const rescanHandler = (_e: Electron.IpcRendererEvent, folder: string) => callback("rescan", folder);
+    ipcRenderer.on("trigger-refresh-folder", refreshHandler);
+    ipcRenderer.on("trigger-rescan-folder", rescanHandler);
+    return () => {
+      ipcRenderer.removeListener("trigger-refresh-folder", refreshHandler);
+      ipcRenderer.removeListener("trigger-rescan-folder", rescanHandler);
+    };
+  },
+
+  onScanProgress: (callback: (data: ScanProgressData) => void) =>
+    onChannel<ScanProgressData>(IPC.SCAN_PROGRESS, callback),
   onScanComplete: (cb: (data: ScanCompleteData) => void) =>
     onChannel<ScanCompleteData>(IPC.SCAN_COMPLETE, cb),
   onFilesUpdated: (cb: (data: FilesUpdatedData) => void) =>
