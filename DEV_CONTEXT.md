@@ -51,6 +51,11 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Set sidebar folder trees to spawn collapsed by default.
   - Fixed severe node event loop UI freeze during startup by shifting `chokidar` watch instantiation out of a `for` loop and batching multi-root watch subscriptions.
   - Further aggressively solved UI freeze thread starvation by completely removing `chokidar` from the Main process, wrapping it inside a dedicated OS `utilityProcess` spawned by `src/main/worker.ts` and bridging I/O events via `process.parentPort`.
+- **2026-03-08:**
+  - Consolidated thumbnail generation orchestration into a unified `thumbnails.ts` service.
+  - Resolved Race Condition where Renderer grid reloaded before background rendering began.
+  - Implemented live `onThumbnailReady` IPC bridge to update UI cards individually without full reloads.
+  - Refactored `App.tsx` sorting/filtering to use a generalized `fetchFiles` utility.
 
 ---
 
@@ -61,6 +66,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 ### Future Features (v1.2 Roadmap)
 - **F6:** Interactive Tagging System
+- **F15:** Configurable Advanced Settings (User-tunable magic numbers)
 - **F7:** Model Notes & Descriptions
 - **F8:** Print Status Tracking
 - **F13:** Model Measurements & Dimensions

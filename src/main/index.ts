@@ -2,6 +2,7 @@ import { app, BrowserWindow, protocol, net } from "electron";
 import { join } from "path";
 import { initDatabase } from "./database";
 import { stopWatcher } from "./watcher";
+import { initThumbnailService } from "./thumbnails";
 import fs from "fs";
 
 // IPC handler modules
@@ -200,6 +201,7 @@ function registerIpcHandlers() {
   registerFileHandlers();
   registerThumbnailHandlers(getMainWindow);
   registerSystemHandlers(getMainWindow);
+  initThumbnailService();
 }
 
 // ── App Lifecycle ─────────────────────────────────────────────

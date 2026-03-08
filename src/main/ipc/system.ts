@@ -10,7 +10,7 @@ import {
   clipboard,
 } from "electron";
 import { join } from "path";
-import { getDb } from "../database";
+import { getDb, setSetting } from "../database";
 import { startWatcher, stopWatcher } from "../watcher";
 import { IPC } from "../../shared/types";
 
@@ -104,5 +104,10 @@ export function registerSystemHandlers(
 
   ipcMain.handle(IPC.STOP_WATCHING, () => {
     stopWatcher();
+  });
+
+  ipcMain.handle(IPC.UPDATE_SETTING, (_event, key: string, value: string | number | boolean) => {
+    setSetting(key, value);
+    return true;
   });
 }

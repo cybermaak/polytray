@@ -44,6 +44,7 @@ interface PolytrayAPI {
 
   startWatching: (folderPaths: string[]) => Promise<void>;
   stopWatching: () => Promise<void>;
+  updateSetting: (key: string, value: string | number | boolean) => Promise<boolean>;
 
   onFolderAction: (
     callback: (action: "refresh" | "rescan", folderPath: string) => void,

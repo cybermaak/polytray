@@ -19,6 +19,10 @@ export interface AppSettings {
   lightMode: boolean;
   gridSize: "small" | "medium" | "large";
   autoRescan: boolean;
+  thumbnail_timeout: number;
+  scanning_batch_size: number;
+  watcher_stability: number;
+  page_size: number;
 }
 
 export interface SettingRow {
@@ -69,6 +73,7 @@ export const IPC = {
   STOP_WATCHING: "stop-watching",
   RESCAN: "rescan",
   REFRESH_FOLDER_THUMBNAILS: "refresh-folder-thumbnails",
+  UPDATE_SETTING: "update-setting",
 
   // send channels (renderer → main, fire-and-forget)
   ON_DRAG_START: "ondragstart",

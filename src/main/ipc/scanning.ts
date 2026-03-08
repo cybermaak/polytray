@@ -30,8 +30,9 @@ export function registerScanningHandlers(
     const filesToThumbnail: ScannedFile[] = [];
     const yieldToEventLoop = () => new Promise<void>((r) => setImmediate(r));
 
+    const batchSize = getSetting<number>("scanning_batch_size", 50);
     for (let i = 0; i < files.length; i++) {
-      if (i % 50 === 0) {
+      if (i % batchSize === 0) {
         await yieldToEventLoop(); // Crucial: don't beachball macOS on 10,000 files
       }
       

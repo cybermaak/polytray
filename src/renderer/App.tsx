@@ -52,6 +52,10 @@ interface Settings {
   showGrid: boolean;
   thumbQuality: string;
   accentColor: string;
+  thumbnail_timeout: number;
+  scanning_batch_size: number;
+  watcher_stability: number;
+  page_size: number;
 }
 
 export const App: React.FC = () => {
@@ -87,6 +91,10 @@ export const App: React.FC = () => {
     showGrid: true,
     thumbQuality: "256",
     accentColor: "#6d9fff",
+    thumbnail_timeout: 20000,
+    scanning_batch_size: 50,
+    watcher_stability: 1000,
+    page_size: 500,
   });
 
   // Refs to get latest state in IPC callbacks
@@ -112,7 +120,7 @@ export const App: React.FC = () => {
       extension: extensionRef.current,
       folder: activeFolderRef.current,
       search: searchRef.current,
-      limit: 500,
+      limit: settings.page_size,
       offset: 0,
     });
     setFiles(result.files);
@@ -121,7 +129,7 @@ export const App: React.FC = () => {
     setStats(s);
     const d = await window.polytray.getDirectories();
     setDirectories(d);
-  }, []);
+  }, [settings.page_size]);
 
   // ── IPC Listeners (once) ────────────────────────────────────────
   useEffect(() => {
@@ -445,6 +453,21 @@ export const App: React.FC = () => {
         document.body.style.setProperty("--stl-color", newSettings.accentColor);
         window.dispatchEvent(new CustomEvent("polytray-accent-color", { detail: newSettings.accentColor }));
       }
+
+      // Sync advanced settings to main process (SQLite)
+      if (newSettings.thumbnail_timeout !== undefined) {
+        window.polytray.updateSetting("thumbnail_timeout", newSettings.thumbnail_timeout);
+      }
+      if (newSettings.scanning_batch_size !== undefined) {
+        window.polytray.updateSetting("scanning_batch_size", newSettings.scanning_batch_size);
+      }
+      if (newSettings.watcher_stability !== undefined) {
+        window.polytray.updateSetting("watcher_stability", newSettings.watcher_stability);
+      }
+      if (newSettings.page_size !== undefined) {
+        window.polytray.updateSetting("page_size", newSettings.page_size);
+      }
+
       return merged;
     });
   }, []);

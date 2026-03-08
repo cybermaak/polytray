@@ -15,7 +15,7 @@ if (process.parentPort) {
         ignoreInitial: true,
         depth: 99,
         awaitWriteFinish: {
-          stabilityThreshold: 1000,
+          stabilityThreshold: msg.watcherStability || 1000,
           pollInterval: 100,
         },
       });

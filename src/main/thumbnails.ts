@@ -5,7 +5,7 @@ import fsSync from "fs";
 import crypto from "crypto";
 import { IPC, ScannedFile } from "../shared/types";
 import { getThumbnailWindow } from "./index";
-import { getDb } from "./database";
+import { getDb, getSetting } from "./database";
 
 let thumbnailDir: string | null = null;
 const pendingRequests = new Map<string, Array<{ resolve: (val: string | null) => void }>>();
@@ -98,6 +98,7 @@ export async function generateThumbnail(
       });
 
       // Safety timeout
+      const timeout = getSetting<number>("thumbnail_timeout", 20000);
       setTimeout(() => {
         const currentCallbacks = pendingRequests.get(filePath);
         if (currentCallbacks) {
@@ -111,7 +112,7 @@ export async function generateThumbnail(
             resolve(null);
           }
         }
-      }, 20000);
+      }, timeout);
     });
   })();
 

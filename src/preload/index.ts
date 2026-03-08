@@ -62,6 +62,8 @@ contextBridge.exposeInMainWorld("polytray", {
   startWatching: (folderPaths: string[]) =>
     ipcRenderer.invoke(IPC.START_WATCHING, folderPaths),
   stopWatching: () => ipcRenderer.invoke(IPC.STOP_WATCHING),
+  updateSetting: (key: string, value: string | number | boolean): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.UPDATE_SETTING, key, value),
 
   // ── Event Listeners (return generic unsubscribe functions) ──────────
 

@@ -8,6 +8,10 @@ interface Settings {
   showGrid: boolean;
   thumbQuality: string;
   accentColor: string;
+  thumbnail_timeout: number;
+  scanning_batch_size: number;
+  watcher_stability: number;
+  page_size: number;
 }
 
 interface Props {
@@ -23,6 +27,7 @@ export const SettingsModal: React.FC<Props> = ({
   settings,
   onSettingsChange,
 }) => {
+  const [advancedExpanded, setAdvancedExpanded] = React.useState(false);
   return (
     <div
       id="settings-overlay"
@@ -186,6 +191,90 @@ export const SettingsModal: React.FC<Props> = ({
                 <option value="512">High (512px)</option>
               </select>
             </div>
+          </div>
+
+          {/* Advanced */}
+          <div className="settings-group">
+            <div 
+              className="settings-group-title advanced-toggle" 
+              onClick={() => setAdvancedExpanded(!advancedExpanded)}
+              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              Advanced
+              <span style={{ 
+                fontSize: '10px', 
+                transition: 'transform 0.2s',
+                transform: advancedExpanded ? 'rotate(90deg)' : 'rotate(0deg)' 
+              }}>▶</span>
+            </div>
+            
+            {advancedExpanded && (
+              <>
+                <div className="settings-row">
+                  <div>
+                    <div className="settings-row-label">Thumbnail Timeout (ms)</div>
+                    <div className="settings-row-desc">
+                      Max time to wait for a 3D render. Increase for very large models.
+                    </div>
+                  </div>
+                  <input
+                    type="number"
+                    id="setting-thumbnail-timeout"
+                    value={settings.thumbnail_timeout || 20000}
+                    style={{ width: '80px' }}
+                    onChange={(e) => onSettingsChange({ thumbnail_timeout: parseInt(e.target.value) || 20000 })}
+                  />
+                </div>
+
+                <div className="settings-row">
+                  <div>
+                    <div className="settings-row-label">Scanning Batch Size</div>
+                    <div className="settings-row-desc">
+                      Files to index before yielding. High values may freeze the UI.
+                    </div>
+                  </div>
+                  <input
+                    type="number"
+                    id="setting-batch-size"
+                    value={settings.scanning_batch_size || 50}
+                    style={{ width: '80px' }}
+                    onChange={(e) => onSettingsChange({ scanning_batch_size: parseInt(e.target.value) || 50 })}
+                  />
+                </div>
+
+                <div className="settings-row">
+                  <div>
+                    <div className="settings-row-label">Watcher Stability (ms)</div>
+                    <div className="settings-row-desc">
+                      Delay before responding to file changes (prevents partial reads).
+                    </div>
+                  </div>
+                  <input
+                    type="number"
+                    id="setting-watcher-stability"
+                    value={settings.watcher_stability || 1000}
+                    style={{ width: '80px' }}
+                    onChange={(e) => onSettingsChange({ watcher_stability: parseInt(e.target.value) || 1000 })}
+                  />
+                </div>
+
+                <div className="settings-row">
+                  <div>
+                    <div className="settings-row-label">Grid Page Size</div>
+                    <div className="settings-row-desc">
+                      Number of files to load at once. Lower values improve scroll performance.
+                    </div>
+                  </div>
+                  <input
+                    type="number"
+                    id="setting-page-size"
+                    value={settings.page_size || 500}
+                    style={{ width: '80px' }}
+                    onChange={(e) => onSettingsChange({ page_size: parseInt(e.target.value) || 500 })}
+                  />
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

@@ -6,6 +6,7 @@ import { Database } from "better-sqlite3";
 import { extractMetadata } from "./metadata";
 import { generateThumbnail } from "./thumbnails";
 import { EXT_SET, IPC } from "../shared/types";
+import { getSetting } from "./database";
 
 let workerProcess: UtilityProcess | null = null;
 
@@ -24,7 +25,8 @@ export function startWatcher(
   const workerPath = path.join(__dirname, "worker.js");
   workerProcess = utilityProcess.fork(workerPath);
 
-  workerProcess.postMessage({ type: "start", folderPaths });
+  const watcherStability = getSetting<number>("watcher_stability", 1000);
+  workerProcess.postMessage({ type: "start", folderPaths, watcherStability });
 
   workerProcess.on("message", (msg) => {
     if (msg.type === "add" || msg.type === "change") {
