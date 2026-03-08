@@ -14,6 +14,16 @@ import { registerSystemHandlers } from "./ipc/system";
 // Set the application name for macOS menu bar
 app.setName("PolyTray");
 
+// ── Structured Logging (TD2) ────────────────────────────────────────
+import log from "electron-log/main";
+import { homedir } from "os";
+
+log.transports.file.resolvePathFn = () => join(homedir(), ".polytray", "logs", "app.log");
+log.initialize();
+Object.assign(console, log.functions);
+log.info("🚀 PolyTray Main Process Starting...");
+// ────────────────────────────────────────────────────────────────────
+
 import inspector from "inspector";
 
 // ── Profiling Hook ──────────────────────────────────────────────────
