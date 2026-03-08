@@ -95,10 +95,10 @@ export function registerSystemHandlers(
     menu.popup({ window: BrowserWindow.fromWebContents(event.sender)! });
   });
 
-  ipcMain.handle(IPC.START_WATCHING, (event, folderPath) => {
+  ipcMain.handle(IPC.START_WATCHING, (event, folderPaths: string[]) => {
     const mainWindow = getMainWindow();
     if (mainWindow) {
-      startWatcher(folderPath, mainWindow, getDb());
+      startWatcher(folderPaths, mainWindow, getDb());
     }
   });
 

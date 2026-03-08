@@ -59,8 +59,8 @@ contextBridge.exposeInMainWorld("polytray", {
     ipcRenderer.invoke(IPC.REQUEST_THUMBNAIL_GENERATION, filePath, ext),
 
   // File watching
-  startWatching: (folderPath: string) =>
-    ipcRenderer.invoke(IPC.START_WATCHING, folderPath),
+  startWatching: (folderPaths: string[]) =>
+    ipcRenderer.invoke(IPC.START_WATCHING, folderPaths),
   stopWatching: () => ipcRenderer.invoke(IPC.STOP_WATCHING),
 
   // ── Event Listeners (return generic unsubscribe functions) ──────────

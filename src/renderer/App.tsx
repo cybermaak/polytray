@@ -153,9 +153,7 @@ export const App: React.FC = () => {
         setDirectories(d);
 
         // Start watching
-        for (const folder of foldersRef.current) {
-          window.polytray.startWatching(folder);
-        }
+        window.polytray.startWatching(foldersRef.current);
 
         setTimeout(() => {
           setProgress((p) => {
@@ -295,9 +293,7 @@ export const App: React.FC = () => {
         setDirectories(d);
 
         if (shouldWatch) {
-          for (const folder of f) {
-            window.polytray.startWatching(folder);
-          }
+          window.polytray.startWatching(f); // Pass the entire array
         }
 
         if (shouldAutoScan) {
@@ -324,6 +320,10 @@ export const App: React.FC = () => {
     const f = await window.polytray.getLibraryFolders();
     setFolders(f);
     foldersRef.current = f;
+    // If watching is enabled, start watching the new set of folders
+    if (settings.watch) {
+      window.polytray.startWatching(f);
+    }
     setProgress({
       visible: true,
       percent: 0,
@@ -331,13 +331,17 @@ export const App: React.FC = () => {
       count: "",
     });
     await window.polytray.scanFolder(folder);
-  }, []);
+  }, [settings.watch]);
 
   const handleRemoveFolder = useCallback(async (folderPath: string) => {
     await window.polytray.removeLibraryFolder(folderPath);
     const f = await window.polytray.getLibraryFolders();
     setFolders(f);
     foldersRef.current = f;
+    // If watching is enabled, update watching with the new set of folders
+    if (settings.watch) {
+      window.polytray.startWatching(f);
+    }
     const result = await window.polytray.getFiles({
           sort: sortRef.current,
           order: orderRef.current,
@@ -352,7 +356,7 @@ export const App: React.FC = () => {
         setStats(s);
         const d = await window.polytray.getDirectories();
         setDirectories(d);
-  }, []);
+  }, [settings.watch]);
 
   const handleRescan = useCallback(async () => {
     for (const folder of foldersRef.current) {
@@ -504,9 +508,7 @@ export const App: React.FC = () => {
     if (foldersRef.current.length === 0) return;
 
     if (settings.watch) {
-      for (const folder of foldersRef.current) {
-        window.polytray.startWatching(folder);
-      }
+      window.polytray.startWatching(foldersRef.current); // Pass the entire array
     } else {
       window.polytray.stopWatching();
     }

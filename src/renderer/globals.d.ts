@@ -42,7 +42,7 @@ interface PolytrayAPI {
   showContextMenu: (filePath: string) => void;
   showFolderContextMenu: (path: string) => void;
 
-  startWatching: (folderPath: string) => Promise<void>;
+  startWatching: (folderPaths: string[]) => Promise<void>;
   stopWatching: () => Promise<void>;
 
   onFolderAction: (

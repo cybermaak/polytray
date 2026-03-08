@@ -1,4 +1,4 @@
-import chokidar, { FSWatcher } from "chokidar";
+import { utilityProcess, UtilityProcess } from "electron";
 import path from "path";
 import fs from "fs";
 import { BrowserWindow } from "electron";
@@ -7,48 +7,43 @@ import { extractMetadata } from "./metadata";
 import { generateThumbnail } from "./thumbnails";
 import { EXT_SET, IPC } from "../shared/types";
 
-let watcher: FSWatcher | null = null;
+let workerProcess: UtilityProcess | null = null;
 
 /**
- * Starts watching a folder for 3D file changes.
+ * Starts watching a folder for 3D file changes using a background Utility process.
  */
 export function startWatcher(
-  folderPath: string,
+  folderPaths: string[],
   mainWindow: BrowserWindow,
   db: Database,
 ) {
   stopWatcher();
 
-  watcher = chokidar.watch(folderPath, {
-    ignored: /(^|[/\\])\./, // ignore dotfiles
-    persistent: true,
-    ignoreInitial: true,
-    depth: 99,
-    awaitWriteFinish: {
-      stabilityThreshold: 1000,
-      pollInterval: 100,
-    },
+  if (folderPaths.length === 0) return;
+
+  const workerPath = path.join(__dirname, "worker.js");
+  workerProcess = utilityProcess.fork(workerPath);
+
+  workerProcess.postMessage({ type: "start", folderPaths });
+
+  workerProcess.on("message", (msg) => {
+    if (msg.type === "add" || msg.type === "change") {
+      handleFileChange(msg.filePath, msg.type, mainWindow, db);
+    } else if (msg.type === "unlink") {
+      handleFileRemove(msg.filePath, mainWindow, db);
+    }
   });
 
-  watcher.on("add", (filePath: string) =>
-    handleFileChange(filePath, "add", mainWindow, db),
-  );
-  watcher.on("change", (filePath: string) =>
-    handleFileChange(filePath, "change", mainWindow, db),
-  );
-  watcher.on("unlink", (filePath: string) =>
-    handleFileRemove(filePath, mainWindow, db),
-  );
-
-  watcher.on("error", (error: unknown) => {
-    console.error("Watcher error:", error);
+  workerProcess.on("exit", (code) => {
+    if (code !== 0) console.warn(`Watcher worker exited suspiciously with code ${code}`);
   });
 }
 
 export function stopWatcher() {
-  if (watcher) {
-    watcher.close();
-    watcher = null;
+  if (workerProcess) {
+    workerProcess.postMessage({ type: "stop" });
+    // Aggressively kill if it doesn't close fast
+    workerProcess = null;
   }
 }
 
