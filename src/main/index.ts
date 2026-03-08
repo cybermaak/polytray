@@ -19,6 +19,9 @@ import log from "electron-log/main";
 import { homedir } from "os";
 
 log.transports.file.resolvePathFn = () => join(homedir(), ".polytray", "logs", "app.log");
+if (app.isPackaged && !process.env.POLYTRAY_LOGGING) {
+  log.transports.file.level = false;
+}
 log.initialize();
 Object.assign(console, log.functions);
 log.info("🚀 PolyTray Main Process Starting...");

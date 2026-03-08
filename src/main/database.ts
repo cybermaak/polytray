@@ -59,6 +59,16 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_files_faces     ON files(face_count);
     `,
   },
+  {
+    version: 4,
+    description: "Add columns for tags, notes, print_status, and dimensions",
+    sql: `
+      ALTER TABLE files ADD COLUMN tags TEXT;
+      ALTER TABLE files ADD COLUMN notes TEXT;
+      ALTER TABLE files ADD COLUMN print_status TEXT DEFAULT 'Not Printed';
+      ALTER TABLE files ADD COLUMN dimensions TEXT;
+    `,
+  },
 ];
 
 // ── Database Initialization ───────────────────────────────────────

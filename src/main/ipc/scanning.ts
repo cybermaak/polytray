@@ -136,6 +136,38 @@ export function registerScanningHandlers(
     return performScan(folderPath);
   });
 
+  ipcMain.handle(IPC.REFRESH_FOLDER_THUMBNAILS, async (event, folderPath) => {
+    const db = getDb();
+    // Reset flags for matched prefix
+    db.prepare("UPDATE files SET thumbnail = null, thumbnail_failed = 0 WHERE path LIKE ?").run(`${folderPath}%`);
+
+    const missingRows = db.prepare(
+      "SELECT path, name, extension, directory, size_bytes, modified_at FROM files WHERE path LIKE ? AND thumbnail IS NULL AND thumbnail_failed = 0",
+    ).all(`${folderPath}%`) as Array<{
+      path: string;
+      name: string;
+      extension: string;
+      directory: string;
+      size_bytes: number;
+      modified_at: number;
+    }>;
+
+    const filesToThumbnail: ScannedFile[] = missingRows.map((row) => ({
+      path: row.path,
+      name: row.name,
+      ext: row.extension,
+      dir: row.directory,
+      size: row.size_bytes,
+      mtime: row.modified_at,
+    }));
+
+    if (filesToThumbnail.length > 0) {
+      setTimeout(() => {
+        generateThumbnailsInBackground(filesToThumbnail, db, getMainWindow);
+      }, 500);
+    }
+  });
+
   ipcMain.handle(IPC.SCAN_ALL_LIBRARY, async () => {
     const folders = getSetting<string[]>("library_folders", []);
     for (const folder of folders) {
@@ -241,7 +273,7 @@ async function generateThumbnailsInBackground(
       progressWin.webContents.send(IPC.THUMBNAIL_PROGRESS, {
         current: i + 1,
         total,
-        filename: file.name,
+        filename: file.path,
         phase: "progress",
       });
     }

@@ -21,6 +21,7 @@ interface Props {
   onOpenSettings: () => void;
   lightMode: boolean;
   onSettingsChange: (settings: Record<string, boolean | string>) => void;
+  onRefreshFolderThumbnails: (folder: string) => void;
 }
 
 interface FolderNode {
@@ -70,6 +71,7 @@ function buildFolderTree(roots: string[], directories: string[]): FolderNode[] {
     }
     
     if (parentNode) {
+       node.name = p.substring(parentNode.path.length + 1);
        parentNode.children.push(node);
     } else {
        tree.push(node);
@@ -86,7 +88,8 @@ const FolderTreeNode: React.FC<{
   onSelect: (path: string | null) => void;
   onRemove: (path: string) => void;
   onRescan: (path: string) => void;
-}> = ({ node, level, activeFolder, onSelect, onRemove, onRescan }) => {
+  onRefreshThumbnails: (path: string) => void;
+}> = ({ node, level, activeFolder, onSelect, onRemove, onRescan, onRefreshThumbnails }) => {
   const [expanded, setExpanded] = React.useState(true);
   const hasChildren = node.children.length > 0;
   const isActive = activeFolder === node.path;
@@ -133,6 +136,13 @@ const FolderTreeNode: React.FC<{
         <div className="folder-actions hide-on-idle">
           <button
             className="library-folder-remove"
+            title="Refresh thumbnails"
+            onClick={(e) => { e.stopPropagation(); onRefreshThumbnails(node.path); }}
+          >
+            🖼️
+          </button>
+          <button
+            className="library-folder-remove"
             title="Rescan folder"
             onClick={(e) => { e.stopPropagation(); onRescan(node.path); }}
           >
@@ -162,6 +172,7 @@ const FolderTreeNode: React.FC<{
               onSelect={onSelect}
               onRemove={onRemove}
               onRescan={onRescan}
+              onRefreshThumbnails={onRefreshThumbnails}
             />
           ))}
         </div>
@@ -184,6 +195,7 @@ export const Sidebar: React.FC<Props> = ({
   onOpenSettings,
   lightMode,
   onSettingsChange,
+  onRefreshFolderThumbnails,
 }) => {
   const tree = React.useMemo(() => buildFolderTree(folders, directories), [folders, directories]);
   const filters = [
@@ -223,6 +235,7 @@ export const Sidebar: React.FC<Props> = ({
                  onSelect={onFolderSelect}
                  onRemove={onRemoveFolder}
                  onRescan={onRescanFolder}
+                 onRefreshThumbnails={onRefreshFolderThumbnails}
                />
             ))}
           </div>

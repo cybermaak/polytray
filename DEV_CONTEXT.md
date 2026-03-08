@@ -38,10 +38,15 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **F3:** Custom Accent Colors — User-configurable UI accent color + 3D preview material color via Settings.
 - **F5:** Target Folder Rescanning — Rescan individual folders from the sidebar.
 - **TD1:** Render-on-Demand — Battery optimization (stops 60FPS loop when idle).
-- **TD4:** Automated Schema Migrations — Formalized `user_version` pragma migrations in `database.ts`.
+- **TD4:** Automated Schema Migrations — Formalized `user_version` pragma migrations in `database.ts` (expanded to v4 for Tags/Notes).
 - **TD3:** Detached Background Thumbnail Window — Fully decoupled generation from main UI using a hidden browser window, `fetch()` streaming, and App Nap bypass.
 - **Performance:** Solved pre-scan "beachball" UI freezes by chunking SQLite inserts (yielding to the Node event loop) and streaming large `.3mf` zip archives via `unzipper` instead of buffering into RAM.
+- **TD2:** Structured logging via `electron-log` configured securely and correctly disabled in production unless specified.
 - UX Bugfixes: Prevent 3MF rendering detail loss, loading % progress, infinite loop fix in `buildFolderTree`.
+- **2026-03-07:**
+  - Implemented subpath-appropriate naming for folders within the React sidebar hierarchy display.
+  - Implemented per-folder thumbnail refresh targeting IPC capabilities.
+  - Corrected thumbnail loading popups to show `file.path` absolutely for disambiguation.
 
 ---
 

@@ -68,6 +68,7 @@ export const IPC = {
   START_WATCHING: "start-watching",
   STOP_WATCHING: "stop-watching",
   RESCAN: "rescan",
+  REFRESH_FOLDER_THUMBNAILS: "refresh-folder-thumbnails",
 
   // send channels (renderer → main, fire-and-forget)
   ON_DRAG_START: "ondragstart",

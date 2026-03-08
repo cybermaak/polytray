@@ -24,6 +24,7 @@ interface PolytrayAPI {
   scanFolder: (folderPath: string) => Promise<void>;
   rescan: () => Promise<void>;
   clearThumbnails: () => Promise<void>;
+  refreshFolderThumbnails: (folderPath: string) => Promise<void>;
 
   getFiles: (
     opts: SortOptions,

@@ -34,6 +34,8 @@ contextBridge.exposeInMainWorld("polytray", {
     ipcRenderer.invoke(IPC.SCAN_FOLDER, folderPath),
   rescan: () => ipcRenderer.invoke(IPC.RESCAN),
   clearThumbnails: () => ipcRenderer.invoke(IPC.CLEAR_THUMBNAILS),
+  refreshFolderThumbnails: (folderPath: string) =>
+    ipcRenderer.invoke(IPC.REFRESH_FOLDER_THUMBNAILS, folderPath),
 
   // File queries
   getFiles: (opts: SortOptions) => ipcRenderer.invoke(IPC.GET_FILES, opts),

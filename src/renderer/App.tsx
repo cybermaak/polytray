@@ -468,6 +468,16 @@ export const App: React.FC = () => {
     await window.polytray.scanFolder(folderPath);
   }, []);
 
+  const handleRefreshFolderThumbnails = useCallback(async (folderPath: string) => {
+    setProgress({
+      visible: true,
+      percent: 0,
+      text: "Refreshing thumbnails...",
+      count: "",
+    });
+    await window.polytray.refreshFolderThumbnails(folderPath);
+  }, []);
+
   const handleSettingsChange = useCallback((newSettings: Partial<Settings>) => {
     setSettings((prev) => {
       const merged = { ...prev, ...newSettings };
@@ -543,6 +553,7 @@ export const App: React.FC = () => {
           onOpenSettings={() => setSettingsOpen(true)}
           lightMode={settings.lightMode}
           onSettingsChange={handleSettingsChange}
+          onRefreshFolderThumbnails={handleRefreshFolderThumbnails}
         />
         <main id="content">
           <Toolbar
