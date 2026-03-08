@@ -47,13 +47,17 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Implemented subpath-appropriate naming for folders within the React sidebar hierarchy display.
   - Implemented per-folder thumbnail refresh targeting IPC capabilities.
   - Corrected thumbnail loading popups to show `file.path` absolutely for disambiguation.
+  - Replaced inline sidebar folder actions with a native right-click Context Menu (`IPC.SHOW_FOLDER_CONTEXT_MENU`).
+  - Set sidebar folder trees to spawn collapsed by default.
+  - Fixed severe node event loop UI freeze during startup by shifting `chokidar` watch instantiation out of a `for` loop and batching multi-root watch subscriptions.
+  - Further aggressively solved UI freeze thread starvation by completely removing `chokidar` from the Main process, wrapping it inside a dedicated OS `utilityProcess` spawned by `src/main/worker.ts` and bridging I/O events via `process.parentPort`.
 
 ---
 
 ## 🗺 Next Features Roadmap (Prioritized)
 
 ### Tech Debt
-- **TD2:** Structured Logging (`electron-log`)
+- **TD3 (Re-opened):** Background Worker (Partially completed for watching, needs review if thumbnails can be moved to worker too).
 
 ### Future Features (v1.2 Roadmap)
 - **F6:** Interactive Tagging System
