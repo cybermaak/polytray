@@ -80,8 +80,17 @@ export function registerScanningHandlers(
       }
 
       db.prepare(
-        `INSERT OR REPLACE INTO files (path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, thumbnail, thumbnail_failed, indexed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO files (path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, thumbnail, thumbnail_failed, indexed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(path) DO UPDATE SET
+           name = excluded.name,
+           size_bytes = excluded.size_bytes,
+           modified_at = excluded.modified_at,
+           vertex_count = excluded.vertex_count,
+           face_count = excluded.face_count,
+           thumbnail = CASE WHEN excluded.modified_at > files.modified_at THEN NULL ELSE files.thumbnail END,
+           thumbnail_failed = CASE WHEN excluded.modified_at > files.modified_at THEN 0 ELSE files.thumbnail_failed END,
+           indexed_at = excluded.indexed_at`,
       ).run(
         file.path,
         file.name,
@@ -91,8 +100,8 @@ export function registerScanningHandlers(
         file.mtime,
         meta.vertexCount,
         meta.faceCount,
-        null, // thumbnail will be generated in pass 2
-        0, // thumbnail_failed
+        null, // Base values if inserting new
+        0,
         Date.now(),
       );
 
