@@ -568,6 +568,7 @@ export const App: React.FC = () => {
                   key={file.id}
                   file={file}
                   index={index}
+                  selected={previewFile?.id === file.id}
                   onClick={() => setPreviewFile(file)}
                 />
               )}
@@ -671,19 +672,21 @@ const GridItem = ({
 interface FileCardProps {
   file: FileRecord;
   index: number;
+  selected?: boolean;
   onClick: () => void;
 }
 
 const FileCard: React.FC<FileCardProps> = ({
   file,
   index: _index,
+  selected,
   onClick,
 }) => {
   const extClass = file.extension === "3mf" ? "threemf" : file.extension;
 
   return (
     <div
-      className="file-card"
+      className={`file-card${selected ? " selected" : ""}`}
       data-file-id={file.id}
       onClick={onClick}
       draggable={true}
@@ -778,7 +781,8 @@ const FileCardMemo = React.memo(FileCard, (prev, next) => {
   return (
     prev.file.id === next.file.id &&
     prev.file.thumbnail === next.file.thumbnail &&
-    prev.index === next.index
+    prev.index === next.index &&
+    prev.selected === next.selected
   );
 });
 

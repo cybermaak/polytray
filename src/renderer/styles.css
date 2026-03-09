@@ -563,10 +563,15 @@ body {
   flex-direction: column;
 }
 
-.file-card:hover {
+.file-card:hover,
+.file-card.selected {
   border-color: var(--accent-primary);
   transform: translateY(-2px);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.file-card.selected {
+  box-shadow: 0 0 15px var(--accent-glow), 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
 .file-card:active {
