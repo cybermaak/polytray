@@ -7,9 +7,11 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { VIEWER_CONFIG } from "./viewerConfig";
-import { parseModelToGroup, setModelAccentColor } from "./modelParsers";
+import { parseModelToGroup, setModelAccentColor, createMaterial } from "./modelParsers";
 import { applySmartOrientation } from "./orientation";
 import { computeCameraFit } from "./cameraUtils";
+import ParserWorker from "./workers/parser.worker?worker";
+import type { SerializedMesh } from "./workers/parser.worker";
 
 // ── Re-exports for backward compatibility ─────────────────────────
 export { VIEWER_CONFIG } from "./viewerConfig";
@@ -49,6 +51,7 @@ function createInitialState(): ViewerState {
 }
 
 const state: ViewerState = createInitialState();
+let currentWorker: Worker | null = null;
 
 function getMultiModelContainer() {
   if (!state.multiModelContainer) {
@@ -233,6 +236,85 @@ export async function loadModelFromUrl(
 
     xhr.onerror = () => reject(new Error("Network error loading model"));
     xhr.send();
+  });
+}
+
+/**
+ * Modern non-blocking loader using Web Workers and AbortSignal.
+ */
+export async function loadModelWithWorker(
+  fileUrl: string,
+  extension: string,
+  fileName: string,
+  signal: AbortSignal,
+  onProgress?: (percent: number) => void,
+) {
+  if (currentWorker) {
+    currentWorker.terminate();
+    currentWorker = null;
+  }
+
+  const loadUrl = fileUrl.startsWith("polytray://local/")
+    ? fileUrl
+    : `polytray://local/${encodeURIComponent(fileUrl)}`;
+
+  // Phase 1: Fetch
+  if (onProgress) onProgress(-1);
+  const response = await fetch(loadUrl, { signal });
+  if (!response.ok)
+    throw new Error(`Failed to load ${loadUrl}: status ${response.status}`);
+  const buffer = await response.arrayBuffer();
+
+  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+
+  // Phase 2: Parse in Worker
+  return new Promise<void>((resolve, reject) => {
+    currentWorker = new ParserWorker();
+
+    const cleanup = () => {
+      if (currentWorker) {
+        currentWorker.terminate();
+        currentWorker = null;
+      }
+    };
+
+    if (!currentWorker) return;
+
+    currentWorker.onmessage = async (e) => {
+      const worker = currentWorker;
+      if (!worker || signal.aborted) {
+        cleanup();
+        reject(new DOMException("Aborted", "AbortError"));
+        return;
+      }
+
+      if (e.data.error) {
+        cleanup();
+        reject(new Error(e.data.error));
+      } else if (e.data.meshes) {
+        // Phase 3: Build in Three.js (back on main thread)
+        try {
+          await buildModelFromMeshes(e.data.meshes, fileName);
+          if (worker === currentWorker) cleanup();
+          resolve();
+        } catch (err) {
+          if (worker === currentWorker) cleanup();
+          reject(err);
+        }
+      }
+    };
+
+    currentWorker.onerror = (err) => {
+      cleanup();
+      reject(err);
+    };
+
+    currentWorker.postMessage({ buffer, extension }, [buffer]);
+
+    signal.addEventListener("abort", () => {
+      cleanup();
+      reject(new DOMException("Aborted", "AbortError"));
+    });
   });
 }
 
@@ -432,6 +514,11 @@ export function disposeViewer() {
     state.animationId = null;
   }
 
+  if (currentWorker) {
+    currentWorker.terminate();
+    currentWorker = null;
+  }
+
   window.removeEventListener("resize", handleResize);
 
   if (state.currentModel) {
@@ -459,6 +546,70 @@ export function disposeViewer() {
   state.multiModelMeshes = [];
   state.activeSubModelIndex = -1;
   state.multiModelContainer = null;
+}
+
+export async function buildModelFromMeshes(meshes: SerializedMesh[], name: string) {
+  // Remove previous model
+  if (state.currentModel) {
+    state.scene!.remove(state.currentModel);
+    disposeObject(state.currentModel);
+    state.currentModel = null;
+  }
+
+  const group = new THREE.Group();
+  group.name = name;
+
+  for (const m of meshes) {
+    const geometry = new THREE.BufferGeometry();
+    for (const [attrName, attrData] of Object.entries(m.geometry.attributes)) {
+      const { array, itemSize, normalized } = attrData;
+      geometry.setAttribute(attrName, new THREE.BufferAttribute(array, itemSize, normalized));
+    }
+    if (m.geometry.index) {
+      geometry.setIndex(new THREE.Uint32BufferAttribute(m.geometry.index.array, 1));
+    }
+    
+    // normals
+    geometry.computeVertexNormals();
+
+    const mesh = new THREE.Mesh(geometry, createMaterial());
+    mesh.name = m.name;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+
+  // Apply smart orientation heuristics
+  applySmartOrientation(group);
+
+  // Normalize scale
+  const scaledBox = new THREE.Box3().setFromObject(group);
+  const scaledSize = scaledBox.getSize(new THREE.Vector3());
+  const maxDim = Math.max(scaledSize.x, scaledSize.y, scaledSize.z);
+  if (maxDim > 0) {
+    const scale = VIEWER_CONFIG.normalizeScale / maxDim;
+    group.scale.set(scale, scale, scale);
+    group.updateMatrixWorld(true);
+  }
+
+  // Recenters base to floor
+  const finalBox = new THREE.Box3().setFromObject(group);
+  const finalCenter = finalBox.getCenter(new THREE.Vector3());
+  group.position.x -= finalCenter.x;
+  group.position.y -= finalBox.min.y;
+  group.position.z -= finalCenter.z;
+
+  state.scene!.add(group);
+  state.currentModel = group;
+
+  await updateMultiModelThumbnailStrip(group);
+
+  if (typeof window !== "undefined") {
+    (window as Window & { __POLYTRAY_CURRENT_MODEL?: THREE.Object3D | null }).__POLYTRAY_CURRENT_MODEL = state.currentModel;
+  }
+
+  fitCameraToObject(group);
+  state.wireframeMode = false;
 }
 
 function disposeObject(obj: THREE.Object3D) {

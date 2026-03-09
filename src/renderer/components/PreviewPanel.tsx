@@ -3,6 +3,7 @@ import { formatSize, formatNumber } from "../lib/formatters";
 import {
   initViewer,
   loadModelFromUrl,
+  loadModelWithWorker, // Add this
   disposeViewer,
   toggleWireframe,
   resetCamera,
@@ -39,9 +40,11 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
   useEffect(() => {
     if (!file) return;
 
-    let cancelled = false;
+    const abortController = new AbortController();
+    const { signal } = abortController;
+
     // These setState calls are intentional: reset UI state before async loading
-    setLoading(true); // eslint-disable-line react-hooks/set-state-in-effect
+    setLoading(true);
     setLoadError(null);
     setWireframe(false);
     setExpanded(false);
@@ -49,19 +52,36 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
     const load = async () => {
       // Wait for the container to have dimensions
       await new Promise((r) => setTimeout(r, 50));
-      if (cancelled || !containerRef.current) return;
+      if (signal.aborted || !containerRef.current) return;
 
       try {
         initViewer(containerRef.current);
-        await loadModelFromUrl(
-          file.path,
-          file.extension,
-          file.name,
-          (percent) => {
-            if (!cancelled) setLoadProgress(percent);
-          },
-        );
-        if (cancelled) return;
+
+        const ext = file.extension.toLowerCase();
+        if (ext === "stl" || ext === "obj") {
+          // Worker-based non-blocking load
+          await loadModelWithWorker(
+            file.path,
+            file.extension,
+            file.name,
+            signal,
+            (percent) => {
+              if (!signal.aborted) setLoadProgress(percent);
+            }
+          );
+        } else {
+          // Fallback for 3MF (currently requires main-thread DOMParser)
+          await loadModelFromUrl(
+            file.path,
+            file.extension,
+            file.name,
+            (percent) => {
+              if (!signal.aborted) setLoadProgress(percent);
+            }
+          );
+        }
+
+        if (signal.aborted) return;
         setLoading(false);
 
         // Thumbnail robustness: attempt one last generation if missing
@@ -69,7 +89,7 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
           window.polytray.requestThumbnailGeneration(file.path, file.extension);
         }
       } catch (e) {
-        if (cancelled) return;
+        if (signal.aborted || (e instanceof Error && e.name === "AbortError")) return;
         console.error("Failed to load model:", e);
         setLoadError("Failed to load model file");
         setLoading(false);
@@ -79,7 +99,7 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
     load();
 
     return () => {
-      cancelled = true;
+      abortController.abort();
       disposeViewer();
     };
   }, [file]);
