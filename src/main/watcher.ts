@@ -13,12 +13,12 @@ let workerProcess: UtilityProcess | null = null;
 /**
  * Starts watching a folder for 3D file changes using a background Utility process.
  */
-export function startWatcher(
+export async function startWatcher(
   folderPaths: string[],
   mainWindow: BrowserWindow,
   db: Database,
 ) {
-  stopWatcher();
+  await stopWatcher();
 
   if (folderPaths.length === 0) return;
 
@@ -37,16 +37,36 @@ export function startWatcher(
   });
 
   workerProcess.on("exit", (code) => {
-    if (code !== 0) console.warn(`Watcher worker exited suspiciously with code ${code}`);
+    if (code !== 0 && code !== null) {
+      console.warn(`Watcher worker exited suspiciously with code ${code}`);
+    }
+    workerProcess = null;
   });
 }
 
-export function stopWatcher() {
-  if (workerProcess) {
-    workerProcess.postMessage({ type: "stop" });
-    // Aggressively kill if it doesn't close fast
-    workerProcess = null;
-  }
+/**
+ * Gracefully stops the watcher worker process, with a timeout fallback.
+ */
+export async function stopWatcher(): Promise<void> {
+  if (!workerProcess) return;
+
+  const processToStop = workerProcess;
+  workerProcess = null; // Prevent new messages/interaction immediately
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      console.warn("Watcher: Stop timeout reached, force killing...");
+      processToStop.kill();
+      resolve();
+    }, 2000);
+
+    processToStop.once("exit", () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+
+    processToStop.postMessage({ type: "stop" });
+  });
 }
 
 async function handleFileChange(

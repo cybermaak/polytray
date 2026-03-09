@@ -95,15 +95,15 @@ export function registerSystemHandlers(
     menu.popup({ window: BrowserWindow.fromWebContents(event.sender)! });
   });
 
-  ipcMain.handle(IPC.START_WATCHING, (event, folderPaths: string[]) => {
+  ipcMain.handle(IPC.START_WATCHING, async (event, folderPaths: string[]) => {
     const mainWindow = getMainWindow();
     if (mainWindow) {
-      startWatcher(folderPaths, mainWindow, getDb());
+      await startWatcher(folderPaths, mainWindow, getDb());
     }
   });
 
-  ipcMain.handle(IPC.STOP_WATCHING, () => {
-    stopWatcher();
+  ipcMain.handle(IPC.STOP_WATCHING, async () => {
+    await stopWatcher();
   });
 
   ipcMain.handle(IPC.UPDATE_SETTING, (_event, key: string, value: string | number | boolean) => {
