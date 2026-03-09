@@ -108,8 +108,23 @@ async function handleFileChange(
 
     db.prepare(
       `
-      INSERT OR REPLACE INTO files (path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, thumbnail, thumbnail_failed, indexed_at)
+      INSERT INTO files (path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, thumbnail, thumbnail_failed, indexed_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(path) DO UPDATE SET
+        name = excluded.name,
+        size_bytes = excluded.size_bytes,
+        modified_at = excluded.modified_at,
+        vertex_count = excluded.vertex_count,
+        face_count = excluded.face_count,
+        thumbnail = CASE 
+          WHEN excluded.modified_at >= files.modified_at OR files.thumbnail IS NULL THEN excluded.thumbnail 
+          ELSE files.thumbnail 
+        END,
+        thumbnail_failed = CASE 
+          WHEN excluded.modified_at >= files.modified_at OR files.thumbnail IS NULL THEN excluded.thumbnail_failed 
+          ELSE files.thumbnail_failed 
+        END,
+        indexed_at = excluded.indexed_at
     `,
     ).run(
       filePath,

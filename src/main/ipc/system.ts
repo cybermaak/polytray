@@ -110,4 +110,5 @@ export function registerSystemHandlers(
     setSetting(key, value);
     return true;
   });
+
 }
