@@ -6,10 +6,7 @@ export function prepareStlGeometry(geometry: THREE.BufferGeometry): THREE.Buffer
   }
 
   (geometry as THREE.BufferGeometry & { hasColors?: boolean }).hasColors = false;
-
-  if (!geometry.getAttribute("normal")) {
-    geometry.computeVertexNormals();
-  }
+  geometry.computeVertexNormals();
 
   return geometry;
 }
