@@ -162,15 +162,15 @@ export async function renderThumbnail(
 export async function parsePreviewMeshes(
   arrayBuffer: ArrayBuffer,
   extension: string,
-): Promise<import("../../shared/types").SerializedMesh[]> {
+): Promise<ReturnType<typeof collectSerializedMeshes>> {
   const group = await parseModelToGroup(arrayBuffer, extension);
 
   try {
     if (group.children.length === 0) {
-      return [];
+      return { meshes: [], transferables: [] };
     }
 
-    return collectSerializedMeshes(group).meshes;
+    return collectSerializedMeshes(group);
   } finally {
     disposeObject(group);
   }
@@ -225,7 +225,7 @@ export function initThumbnailGenerator(canvas: HTMLCanvasElement) {
   });
 
   const previewCleanup = window.polytray.onPreviewParseRequest(async (data) => {
-    const { requestId, filePath, ext } = data;
+    const { filePath, ext } = data;
 
     try {
       const url = `polytray://local/${encodeURIComponent(filePath)}`;
@@ -236,20 +236,26 @@ export function initThumbnailGenerator(canvas: HTMLCanvasElement) {
       }
 
       const buffer = await response.arrayBuffer();
-      const meshes = await parsePreviewMeshes(buffer, ext);
-
-      window.polytray.sendPreviewParseResult({
-        requestId,
-        success: true,
-        meshes,
-      });
+      const { meshes, transferables } = await parsePreviewMeshes(buffer, ext);
+      window.postMessage(
+        {
+          type: "__polytray-preview-parse-result",
+          requestId: data.requestId,
+          meshes,
+        },
+        "*",
+        transferables,
+      );
     } catch (e) {
       console.warn("Preview parse failed for", filePath, e);
-      window.polytray.sendPreviewParseResult({
-        requestId,
-        success: false,
-        error: e instanceof Error ? e.message : String(e),
-      });
+      window.postMessage(
+        {
+          type: "__polytray-preview-parse-error",
+          requestId: data.requestId,
+          error: e instanceof Error ? e.message : String(e),
+        },
+        "*",
+      );
     }
   });
 

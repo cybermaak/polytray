@@ -25,8 +25,10 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Heavy 3D file parsing is offloaded from the main UI thread. Files are streamed directly into the hidden canvas using a custom `polytray://local/` protocol and `fetch()`, entirely bypassing slow Node-to-Chromium IPC ArrayBuffer serialization overhead.
 - **Preview Loading Architecture:**
   - Interactive preview now uses one unified background-loading entrypoint for all formats.
+  - Format-specific parse execution is selected through `src/renderer/lib/previewStrategies.ts` so the UI/viewer path stays unified while the heavy background step can vary by format.
   - `STL` and `OBJ` parse in a dedicated renderer `Worker` and rebuild meshes on the main viewer thread.
   - `3MF` preview parsing is routed through the existing hidden thumbnail `BrowserWindow` instead of the worker because `ThreeMFLoader` and local 3MF repair rely on DOM APIs such as `DOMParser` that are unavailable in a plain worker context.
+  - Large `3MF` preview payloads now travel through a preload-brokered `MessagePort` path so geometry buffers can be transferred renderer-to-renderer without bouncing the full mesh payload back through normal main-process IPC cloning.
   - Shared mesh preparation/serialization logic lives in `src/renderer/lib/meshPrep.ts` and `src/renderer/lib/meshSerialization.ts` to keep thumbnail and preview behavior aligned.
 - **File Watching Architecture:**
   - Chokidar runs in a dedicated Electron `utilityProcess` (`src/main/worker.ts`) to avoid Main process event-loop starvation.
@@ -78,6 +80,10 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Added shared mesh prep + serialization helpers so preview and thumbnail paths preserve the same transforms/orientation semantics.
   - Added regression coverage for large-preview responsiveness and the real `/Volumes/exssd/3D Models/base.3mf` repro case.
   - Fixed a transform-loss regression in serialized `3MF` preview meshes by baking child world transforms before IPC transfer, restoring orientation parity with cached thumbnails.
+  - Refactored preview parsing behind a strategy registry (`previewStrategies.ts`) so `PreviewPanel`/`viewer.ts` stay unified while `3MF` can continue using a DOM-capable hidden renderer and `STL`/`OBJ` remain on workers.
+  - Reworked the `3MF` preview transport so preload owns the real `MessagePort` and forwards transferred geometry buffers directly to the visible renderer, avoiding the earlier full structured-clone IPC roundtrip.
+  - Reduced `3MF` serialization overhead by reusing unshared geometries during transform baking instead of cloning every mesh geometry unconditionally.
+  - Hardened the `base.3mf` E2E harness to locate the actual main window explicitly and to treat UI-freeze regression as the primary invariant; kept only a loose absolute load ceiling because machine/disk variance was too high for a tight timing budget.
 
 ---
 
@@ -116,9 +122,9 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Define and track performance budgets: scan start responsiveness, first thumbnail latency, full queue completion.
 
 6. **Preview Transfer Cost Reduction (Current Follow-up)**
-   - The `3MF` preview freeze is fixed, but the hidden-renderer fallback now serializes large prepared meshes back over IPC to the interactive viewer.
-   - Investigate whether the current bottleneck is geometry serialization, IPC transfer volume, or main-thread rebuild cost for large `3MF` assemblies.
-   - Preserve orientation parity between cached thumbnails and interactive preview while reducing `3MF` preview latency.
+   - The main freeze regression is fixed and the `3MF` transport no longer uses the slow invoke/result IPC path.
+   - Remaining work, if revisited, should be driven by profiling `base.3mf` end-to-end timings across: hidden-renderer parse time, mesh serialization time, buffer transfer time, and viewer rebuild time.
+   - Preserve orientation parity between cached thumbnails and interactive preview if any further `3MF` serialization or transport changes are made.
 
 ### Engineering Improvement Backlog (Priority + Impact + Effort)
 

@@ -10,8 +10,8 @@ import { VIEWER_CONFIG } from "./viewerConfig";
 import { parseModelToGroup, setModelAccentColor, createMaterial } from "./modelParsers";
 import { applySmartOrientation } from "./orientation";
 import { computeCameraFit } from "./cameraUtils";
-import ParserWorker from "./workers/parser.worker?worker";
 import type { SerializedMesh } from "../../shared/types";
+import { loadPreviewMeshes } from "./previewStrategies";
 
 // ── Re-exports for backward compatibility ─────────────────────────
 export { VIEWER_CONFIG } from "./viewerConfig";
@@ -51,7 +51,6 @@ function createInitialState(): ViewerState {
 }
 
 const state: ViewerState = createInitialState();
-let currentWorker: Worker | null = null;
 const BUILD_MESH_BATCH_SIZE = 8;
 
 function getMultiModelContainer() {
@@ -254,80 +253,13 @@ export async function loadModelWithWorker(
   signal: AbortSignal,
   onProgress?: (percent: number) => void,
 ) {
-  if (currentWorker) {
-    currentWorker.terminate();
-    currentWorker = null;
-  }
-
-  const loadUrl = fileUrl.startsWith("polytray://local/")
-    ? fileUrl
-    : `polytray://local/${encodeURIComponent(fileUrl)}`;
-
-  // Phase 1: Fetch
-  if (onProgress) onProgress(-1);
-  const response = await fetch(loadUrl, { signal });
-  if (!response.ok)
-    throw new Error(`Failed to load ${loadUrl}: status ${response.status}`);
-  const buffer = await response.arrayBuffer();
-
-  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-
-  if (extension.toLowerCase() === "3mf") {
-    const meshes = await window.polytray.requestPreviewParse(fileUrl, extension);
-    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-    await buildModelFromMeshes(meshes, fileName);
-    return;
-  }
-
-  // Phase 2: Parse in Worker
-  return new Promise<void>((resolve, reject) => {
-    currentWorker = new ParserWorker();
-
-    const cleanup = () => {
-      if (currentWorker) {
-        currentWorker.terminate();
-        currentWorker = null;
-      }
-    };
-
-    if (!currentWorker) return;
-
-    currentWorker.onmessage = async (e) => {
-      const worker = currentWorker;
-      if (!worker || signal.aborted) {
-        cleanup();
-        reject(new DOMException("Aborted", "AbortError"));
-        return;
-      }
-
-      if (e.data.error) {
-        cleanup();
-        reject(new Error(e.data.error));
-      } else if (e.data.meshes) {
-        // Phase 3: Build in Three.js (back on main thread)
-        try {
-          await buildModelFromMeshes(e.data.meshes, fileName);
-          if (worker === currentWorker) cleanup();
-          resolve();
-        } catch (err) {
-          if (worker === currentWorker) cleanup();
-          reject(err);
-        }
-      }
-    };
-
-    currentWorker.onerror = (err) => {
-      cleanup();
-      reject(err);
-    };
-
-    currentWorker.postMessage({ buffer, extension }, [buffer]);
-
-    signal.addEventListener("abort", () => {
-      cleanup();
-      reject(new DOMException("Aborted", "AbortError"));
-    });
+  const meshes = await loadPreviewMeshes({
+    fileUrl,
+    extension,
+    signal,
+    onProgress,
   });
+  await buildModelFromMeshes(meshes, fileName);
 }
 
 export async function loadModel(
@@ -523,11 +455,6 @@ export function disposeViewer() {
   if (state.animationId) {
     cancelAnimationFrame(state.animationId);
     state.animationId = null;
-  }
-
-  if (currentWorker) {
-    currentWorker.terminate();
-    currentWorker = null;
   }
 
   window.removeEventListener("resize", handleResize);

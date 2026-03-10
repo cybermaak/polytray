@@ -11,7 +11,8 @@ import {
   ThumbnailResultData,
   SortOptions,
   PreviewParseRequestData,
-  PreviewParseResultData,
+  PreviewParsePortData,
+  SerializedMesh,
 } from "../shared/types";
 
 function onChannel<T>(channel: string, callback: (data: T) => void) {
@@ -19,6 +20,128 @@ function onChannel<T>(channel: string, callback: (data: T) => void) {
   ipcRenderer.on(channel, subscription);
   return () => ipcRenderer.removeListener(channel, subscription);
 }
+
+const pendingPreviewParses = new Map<
+  string,
+  {
+    resolve: (meshes: SerializedMesh[]) => void;
+    reject: (error: Error) => void;
+    timeoutId: ReturnType<typeof setTimeout>;
+  }
+>();
+
+const pendingHiddenPreviewPorts = new Map<string, MessagePort>();
+let hiddenPreviewParseListener:
+  | ((data: PreviewParseRequestData) => void)
+  | null = null;
+
+function collectMeshTransferables(meshes: SerializedMesh[]): ArrayBuffer[] {
+  const transferables: ArrayBuffer[] = [];
+
+  for (const mesh of meshes) {
+    for (const attribute of Object.values(mesh.geometry.attributes)) {
+      if (attribute.array.buffer instanceof ArrayBuffer) {
+        transferables.push(attribute.array.buffer);
+      }
+    }
+
+    if (mesh.geometry.index?.array.buffer instanceof ArrayBuffer) {
+      transferables.push(mesh.geometry.index.array.buffer);
+    }
+  }
+
+  return transferables;
+}
+
+ipcRenderer.on(IPC.PREVIEW_PARSE_PORT, (event, data: PreviewParsePortData) => {
+  const pending = pendingPreviewParses.get(data.requestId);
+  if (!pending) return;
+
+  const [port] = event.ports;
+  if (!port) {
+    clearTimeout(pending.timeoutId);
+    pendingPreviewParses.delete(data.requestId);
+    pending.reject(new Error("Preview parse transport was not delivered"));
+    return;
+  }
+
+  const finalize = () => {
+    clearTimeout(pending.timeoutId);
+    pendingPreviewParses.delete(data.requestId);
+    port.close();
+  };
+
+  port.onmessage = (messageEvent) => {
+    const payload = messageEvent.data as
+      | { type: "done"; meshes: SerializedMesh[] }
+      | { type: "error"; error: string };
+
+    if (payload.type === "done") {
+      finalize();
+      pending.resolve(payload.meshes);
+      return;
+    }
+
+    finalize();
+    pending.reject(new Error(payload.error));
+  };
+
+  port.start();
+});
+
+ipcRenderer.on(IPC.GENERATE_PREVIEW_PARSE_REQUEST, (event, data: PreviewParseRequestData) => {
+  const [port] = event.ports;
+  if (!port) {
+    return;
+  }
+
+  pendingHiddenPreviewPorts.set(data.requestId, port);
+  port.start();
+  hiddenPreviewParseListener?.(data);
+});
+
+window.addEventListener("message", (event) => {
+  if (event.source !== window) return;
+
+  const payload = event.data as
+    | {
+      type: "__polytray-preview-parse-result";
+      requestId: string;
+      meshes: SerializedMesh[];
+    }
+    | {
+      type: "__polytray-preview-parse-error";
+      requestId: string;
+      error: string;
+    }
+    | undefined;
+
+  if (!payload || (payload.type !== "__polytray-preview-parse-result" && payload.type !== "__polytray-preview-parse-error")) {
+    return;
+  }
+
+  const port = pendingHiddenPreviewPorts.get(payload.requestId);
+  if (!port) {
+    return;
+  }
+
+  pendingHiddenPreviewPorts.delete(payload.requestId);
+
+  if (payload.type === "__polytray-preview-parse-result") {
+    const transferables = collectMeshTransferables(payload.meshes);
+    port.postMessage(
+      { type: "done", meshes: payload.meshes },
+      transferables,
+    );
+  } else {
+    port.postMessage({
+      type: "error",
+      error: payload.error,
+    });
+  }
+
+  port.close();
+});
 
 // ── Exposed API ─────────────────────────────────────────────────────
 
@@ -59,8 +182,34 @@ contextBridge.exposeInMainWorld("polytray", {
     ipcRenderer.invoke(IPC.READ_THUMBNAIL, thumbnailPath),
   requestThumbnailGeneration: (filePath: string, ext: string) =>
     ipcRenderer.invoke(IPC.REQUEST_THUMBNAIL_GENERATION, filePath, ext),
-  requestPreviewParse: (filePath: string, ext: string) =>
-    ipcRenderer.invoke(IPC.REQUEST_PREVIEW_PARSE, filePath, ext),
+  requestPreviewParse: (filePath: string, ext: string) => {
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    return new Promise<SerializedMesh[]>((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        pendingPreviewParses.delete(requestId);
+        reject(new Error("Preview parse timed out"));
+      }, 120000);
+
+      pendingPreviewParses.set(requestId, {
+        resolve,
+        reject,
+        timeoutId,
+      });
+
+      ipcRenderer
+        .invoke(IPC.REQUEST_PREVIEW_PARSE, {
+          requestId,
+          filePath,
+          ext,
+        } satisfies PreviewParseRequestData)
+        .catch((error) => {
+          clearTimeout(timeoutId);
+          pendingPreviewParses.delete(requestId);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        });
+    });
+  },
 
   // File watching
   startWatching: (folderPaths: string[]) =>
@@ -103,9 +252,12 @@ contextBridge.exposeInMainWorld("polytray", {
   sendThumbnailResult: (result: ThumbnailResultData) => {
     ipcRenderer.send(IPC.THUMBNAIL_GENERATED, result);
   },
-  onPreviewParseRequest: (cb: (data: PreviewParseRequestData) => void) =>
-    onChannel<PreviewParseRequestData>(IPC.GENERATE_PREVIEW_PARSE_REQUEST, cb),
-  sendPreviewParseResult: (result: PreviewParseResultData) => {
-    ipcRenderer.send(IPC.PREVIEW_PARSED, result);
+  onPreviewParseRequest: (cb: (data: PreviewParseRequestData) => void) => {
+    hiddenPreviewParseListener = cb;
+    return () => {
+      if (hiddenPreviewParseListener === cb) {
+        hiddenPreviewParseListener = null;
+      }
+    };
   },
 });

@@ -91,7 +91,7 @@ export const IPC = {
   THUMBNAIL_PROGRESS: "thumbnail-progress",
   GENERATE_THUMBNAIL_REQUEST: "generate-thumbnail-request",
   GENERATE_PREVIEW_PARSE_REQUEST: "generate-preview-parse-request",
-  PREVIEW_PARSED: "preview-parsed",
+  PREVIEW_PARSE_PORT: "preview-parse-port",
 } as const;
 
 // ── IPC Payload Types (single source of truth) ──────────────────────
@@ -198,9 +198,6 @@ export interface PreviewParseRequestData {
   ext: string;
 }
 
-export interface PreviewParseResultData {
+export interface PreviewParsePortData {
   requestId: string;
-  success: boolean;
-  error?: string;
-  meshes?: SerializedMesh[];
 }

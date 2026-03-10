@@ -69,6 +69,23 @@ let window;
 // Use a temp userData dir so we don't pollute the real one
 let tempUserData;
 
+async function findMainWindow(app) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    for (const page of app.windows()) {
+      try {
+        await page.locator("#search-input").waitFor({ timeout: 1000 });
+        return page;
+      } catch {
+        // Keep probing until the main UI is ready.
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error("Main window did not become ready");
+}
+
 test.beforeAll(async () => {
   // Build the app first
   const { execSync } = require("child_process");
@@ -97,20 +114,9 @@ test.beforeAll(async () => {
   });
 
   // Wait for the first window and let it load
-  let page1 = await app.firstWindow();
-  await page1.waitForLoadState("domcontentloaded");
-
-  // Since we now spawn a background thumbnail worker, ensure we test the main UI
-  if (page1.url().includes("thumbnail.html")) {
-    const allWindows = app.windows();
-    window = allWindows.find((w) => w !== page1);
-    if (!window) window = await app.waitForEvent("window");
-  } else {
-    window = page1;
-  }
-  // Wait for render to be ready
+  await app.firstWindow();
+  window = await findMainWindow(app);
   await window.waitForLoadState("domcontentloaded");
-  // Give app.js time to initialize
   await window.waitForTimeout(1000);
 });
 
@@ -522,8 +528,10 @@ test("base.3mf preview does not freeze the UI for multiple seconds", async () =>
     window.__polytrayFreezeStats.last = performance.now();
   });
 
+  const loadStartedAt = Date.now();
   await target.click();
   await expect(window.locator("#viewer-loading")).toHaveClass(/hidden/, { timeout: 120000 });
+  const loadDurationMs = Date.now() - loadStartedAt;
 
   const freeze = await window.evaluate(() => {
     cancelAnimationFrame(window.__polytrayFreezeRaf);
@@ -552,6 +560,9 @@ test("base.3mf preview does not freeze the UI for multiple seconds", async () =>
 
   expect(freeze.filename).toBe("base.3mf");
   expect(freeze.path).toBe(REAL_BASE_3MF_PATH);
+  // Absolute load time varies substantially with machine speed and background I/O.
+  // Keep a loose ceiling here and rely on the RAF-gap assertions to catch the freeze regression.
+  expect(loadDurationMs).toBeLessThan(70000);
   expect(freeze.load.maxGap).toBeLessThan(Math.max(5000, freeze.baseline.maxGap * 8));
   expect(freeze.load.p95).toBeLessThan(Math.max(200, freeze.baseline.p95 * 5));
 });

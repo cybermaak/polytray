@@ -11,7 +11,6 @@ import type {
   ThumbnailRequestData,
   ThumbnailResultData,
   PreviewParseRequestData,
-  PreviewParseResultData,
   SerializedMesh,
 } from "../shared/types";
 
@@ -74,7 +73,6 @@ interface PolytrayAPI {
   onPreviewParseRequest: (
     callback: (data: PreviewParseRequestData) => void,
   ) => () => void;
-  sendPreviewParseResult: (result: PreviewParseResultData) => void;
 }
 
 declare global {

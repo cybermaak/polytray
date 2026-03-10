@@ -42,18 +42,41 @@ export function serializeGeometry(
 export function collectSerializedMeshes(root: THREE.Object3D) {
   const meshes: SerializedMesh[] = [];
   const transferables: ArrayBuffer[] = [];
+  const geometryUseCounts = new Map<THREE.BufferGeometry, number>();
+  const identityMatrix = new THREE.Matrix4();
 
   root.updateMatrixWorld(true);
 
   root.traverse((child) => {
     if (child instanceof THREE.Mesh) {
-      const geometry = child.geometry.clone().applyMatrix4(child.matrixWorld);
+      geometryUseCounts.set(
+        child.geometry,
+        (geometryUseCounts.get(child.geometry) || 0) + 1,
+      );
+    }
+  });
+
+  root.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      const geometry =
+        (geometryUseCounts.get(child.geometry) || 0) > 1
+          ? child.geometry.clone()
+          : child.geometry;
+
+      if (!child.matrixWorld.equals(identityMatrix)) {
+        geometry.applyMatrix4(child.matrixWorld);
+      }
+
       const { data, transferables: meshTransfers } = serializeGeometry(geometry);
       meshes.push({
         geometry: data,
         name: child.name,
       });
       transferables.push(...meshTransfers);
+
+      if (geometry !== child.geometry) {
+        geometry.dispose();
+      }
     }
   });
 
