@@ -3,25 +3,35 @@
  */
 import { BrowserWindow, ipcMain } from "electron";
 import { getDb } from "../database";
-import { generateThumbnail, getThumbnailDir } from "../thumbnails";
+import {
+  getThumbnailDir,
+  scheduleSingleThumbnailGeneration,
+} from "../thumbnails";
 import fs from "fs";
 import { IPC } from "../../shared/types";
 import { DEFAULT_APP_SETTINGS, toRuntimeSettings } from "../../shared/settings";
+import { isPathContained } from "../pathContainment";
+import {
+  parseExtension,
+  parseFilePath,
+  parseThumbnailPath,
+} from "./runtimeValidation";
 
 export function registerThumbnailHandlers(
   getMainWindow: () => BrowserWindow | null,
 ) {
   ipcMain.handle(IPC.READ_THUMBNAIL, async (event, thumbnailPath) => {
     if (!thumbnailPath) return null;
+    const parsedThumbnailPath = parseThumbnailPath(thumbnailPath);
 
     // Security check: Ensure we only read from the dedicated thumbnail directory
     const thumbDir = getThumbnailDir();
-    if (!thumbnailPath.startsWith(thumbDir)) {
+    if (!isPathContained(thumbDir, parsedThumbnailPath)) {
       throw new Error("Access denied: Path is outside thumbnail directory");
     }
 
     try {
-      const data = await fs.promises.readFile(thumbnailPath);
+      const data = await fs.promises.readFile(parsedThumbnailPath);
       return `data:image/png;base64,${data.toString("base64")}`;
     } catch (_e) {
       return null;
@@ -41,10 +51,11 @@ export function registerThumbnailHandlers(
     async (event, filePath, ext) => {
       const mainWindow = getMainWindow();
       if (!mainWindow) return null;
-      const thumbnailPath = await generateThumbnail(
-        filePath,
-        ext,
+      const thumbnailPath = await scheduleSingleThumbnailGeneration(
+        parseFilePath(filePath),
+        parseExtension(ext),
         toRuntimeSettings(DEFAULT_APP_SETTINGS),
+        "manual",
       );
       const db = getDb();
       if (thumbnailPath) {

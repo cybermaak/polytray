@@ -4,7 +4,7 @@ import fs from "fs";
 import { BrowserWindow } from "electron";
 import { Database } from "better-sqlite3";
 import { extractMetadata } from "./metadata";
-import { generateThumbnail } from "./thumbnails";
+import { scheduleSingleThumbnailGeneration } from "./thumbnails";
 import { EXT_SET, IPC, RuntimeSettingsData } from "../shared/types";
 
 let workerProcess: UtilityProcess | null = null;
@@ -100,7 +100,12 @@ async function handleFileChange(
     let thumbnailPath: string | null = null;
     let thumbnailFailed = 0;
     try {
-      thumbnailPath = await generateThumbnail(filePath, ext, settings);
+      thumbnailPath = await scheduleSingleThumbnailGeneration(
+        filePath,
+        ext,
+        settings,
+        "watch",
+      );
       if (!thumbnailPath) thumbnailFailed = 1;
     } catch (e: unknown) {
       console.warn(

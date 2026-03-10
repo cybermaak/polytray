@@ -9,13 +9,13 @@ let db: Database.Database | null = null;
 // Each migration runs exactly once, guarded by the SQLite user_version pragma.
 // Add new migrations to the END of this array. Never remove or reorder entries.
 
-interface Migration {
+export interface Migration {
   version: number; // Target version AFTER this migration runs
   description: string;
   sql: string;
 }
 
-const MIGRATIONS: Migration[] = [
+export const MIGRATIONS: Migration[] = [
   {
     version: 1,
     description: "Initial schema: files + settings tables with base indexes",
@@ -71,6 +71,8 @@ const MIGRATIONS: Migration[] = [
   },
 ];
 
+export const LATEST_DB_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
+
 // ── Database Initialization ───────────────────────────────────────
 
 export function initDatabase() {
@@ -86,12 +88,12 @@ export function initDatabase() {
   db.pragma("journal_mode = WAL");
 
   // Run pending migrations
-  runMigrations(db);
+  runMigrationsOnDatabase(db);
 
   return db;
 }
 
-function runMigrations(database: Database.Database) {
+export function runMigrationsOnDatabase(database: Database.Database) {
   let currentVersion =
     (database.pragma("user_version", { simple: true }) as number) || 0;
 

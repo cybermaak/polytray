@@ -81,6 +81,7 @@ endsolid ${solidName}
 // Ensure we have a clean database for each test run
 let app;
 let window;
+let startupDurationMs;
 
 // Use a temp userData dir so we don't pollute the real one
 let tempUserData;
@@ -120,6 +121,7 @@ test.beforeAll(async () => {
   }
 
   // Launch Electron with explicit user-data-dir to strictly isolate DB/settings from production
+  const launchStartedAt = Date.now();
   app = await electron.launch({
     args,
     env: {
@@ -134,6 +136,7 @@ test.beforeAll(async () => {
   window = await findMainWindow(app);
   await window.waitForLoadState("domcontentloaded");
   await window.waitForTimeout(1000);
+  startupDurationMs = Date.now() - launchStartedAt;
 });
 
 test.afterAll(async () => {
@@ -192,6 +195,10 @@ test("app launches and shows main UI elements", async () => {
   }
 });
 
+test("startup stays within the responsiveness budget", async () => {
+  expect(startupDurationMs).toBeLessThan(10000);
+});
+
 // ── Test 2: Can scan a folder and file cards appear ────────────────
 
 test("scanning a folder shows file cards in the grid", async () => {
@@ -219,6 +226,34 @@ test("scanning a folder shows file cards in the grid", async () => {
 
   // We created 3 STL + 1 OBJ = 4 test files
   expect(count).toBeGreaterThanOrEqual(3);
+});
+
+test("fixture scanning stays within the scan performance budget", async () => {
+  const perfFixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "polytray-scan-budget-"));
+
+  try {
+    for (let i = 0; i < 12; i++) {
+      writeTinyAsciiStl(path.join(perfFixtureDir, `scan-budget-${i}.stl`), `scan_budget_${i}`);
+    }
+
+    const durationMs = await window.evaluate(async (folderPath) => {
+      const startedAt = performance.now();
+
+      await new Promise((resolve) => {
+        const unsubscribe = window.polytray.onScanComplete(() => {
+          unsubscribe();
+          resolve();
+        });
+        window.polytray.scanFolder(folderPath);
+      });
+
+      return performance.now() - startedAt;
+    }, perfFixtureDir);
+
+    expect(durationMs).toBeLessThan(5000);
+  } finally {
+    fs.rmSync(perfFixtureDir, { recursive: true, force: true });
+  }
 });
 
 // ── Test 3: File grid is scrollable ────────────────────────────────

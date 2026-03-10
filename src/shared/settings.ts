@@ -144,11 +144,20 @@ export function serializeAppSettings(input: unknown) {
   return JSON.stringify(normalizeAppSettings(input));
 }
 
-export function toRuntimeSettings(settings: AppSettings): RuntimeSettings {
+export function normalizeRuntimeSettings(input: unknown): RuntimeSettings {
+  const normalized = normalizeAppSettings({
+    ...DEFAULT_APP_SETTINGS,
+    ...(input && typeof input === "object" ? input : {}),
+  });
+
   return {
-    thumbnail_timeout: settings.thumbnail_timeout,
-    scanning_batch_size: settings.scanning_batch_size,
-    watcher_stability: settings.watcher_stability,
-    page_size: settings.page_size,
+    thumbnail_timeout: normalized.thumbnail_timeout,
+    scanning_batch_size: normalized.scanning_batch_size,
+    watcher_stability: normalized.watcher_stability,
+    page_size: normalized.page_size,
   };
+}
+
+export function toRuntimeSettings(settings: AppSettings): RuntimeSettings {
+  return normalizeRuntimeSettings(settings);
 }

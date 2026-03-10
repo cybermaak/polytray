@@ -13,6 +13,7 @@ import {
   LibraryStats,
 } from "../../shared/types";
 import { isPathContained } from "../pathContainment";
+import { parseFilePath, parseSortOptions } from "./runtimeValidation";
 
 export function registerFileHandlers() {
   ipcMain.handle(IPC.GET_FILES, (event, opts: SortOptions = {}) => {
@@ -24,7 +25,7 @@ export function registerFileHandlers() {
       search = "",
       limit = 200,
       offset = 0,
-    } = opts;
+    } = parseSortOptions(opts);
 
     const validSorts: Record<string, string> = {
       name: "name",
@@ -111,16 +112,17 @@ export function registerFileHandlers() {
   });
 
   ipcMain.handle(IPC.READ_FILE_BUFFER, async (event, filePath) => {
+    const parsedFilePath = parseFilePath(filePath);
     // Validate that the file is part of the indexed library
     const db = getDb();
     const record = db
       .prepare("SELECT id FROM files WHERE path = ?")
-      .get(filePath);
+      .get(parsedFilePath);
     if (!record) {
       throw new Error("Access denied: File not in library");
     }
 
-    const buffer = await fs.promises.readFile(filePath);
+    const buffer = await fs.promises.readFile(parsedFilePath);
     return buffer.buffer.slice(
       buffer.byteOffset,
       buffer.byteOffset + buffer.byteLength,

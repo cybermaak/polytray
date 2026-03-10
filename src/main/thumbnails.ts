@@ -13,10 +13,30 @@ import {
 import { getThumbnailWindow } from "./index";
 import { getDb } from "./database";
 import { filterContainedPaths } from "./pathContainment";
+import { createThumbnailJobScheduler } from "./thumbnailJobScheduler";
+import { reconcileThumbnailCache } from "./thumbnailCacheLifecycle";
+import { parsePreviewParseRequest, parseRuntimeSettings } from "./ipc/runtimeValidation";
 
 let thumbnailDir: string | null = null;
 const pendingRequests = new Map<string, Array<{ resolve: (val: string | null) => void }>>();
 const inflightPromises = new Map<string, Promise<string | null>>();
+const thumbnailScheduler = createThumbnailJobScheduler({
+  execute: async (job) => {
+    const startedAt = Date.now();
+    try {
+      return await generateThumbnail(job.filePath, job.ext, job.settings);
+    } finally {
+      console.info("[ThumbnailQueue]", {
+        filePath: job.filePath,
+        source: job.source,
+        elapsedMs: Date.now() - startedAt,
+      });
+    }
+  },
+  onStats: (stats) => {
+    console.info("[ThumbnailQueueStats]", stats);
+  },
+});
 
 export function getThumbnailDir(): string {
   if (!thumbnailDir) {
@@ -32,6 +52,15 @@ export function getThumbnailDir(): string {
  * Initializes the thumbnail service by setting up a global IPC listener.
  */
 export function initThumbnailService() {
+  void reconcileThumbnailCache({
+    thumbnailDir: getThumbnailDir(),
+    referencedThumbnailPaths: (
+      getDb().prepare("SELECT thumbnail FROM files WHERE thumbnail IS NOT NULL").all() as Array<{ thumbnail: string }>
+    ).map((row) => row.thumbnail),
+  }).catch((error) => {
+    console.warn("[Thumbnails] Cache reconciliation failed:", error);
+  });
+
   ipcMain.on(IPC.THUMBNAIL_GENERATED, async (_event, result) => {
     const filePath = result.filePath;
     const callbacks = pendingRequests.get(filePath);
@@ -60,7 +89,7 @@ export function initThumbnailService() {
   });
 
   ipcMain.handle(IPC.REQUEST_PREVIEW_PARSE, async (event, request: PreviewParseRequestData) => {
-    requestPreviewParse(event.sender, request);
+    requestPreviewParse(event.sender, parsePreviewParseRequest(request));
     return true;
   });
 }
@@ -184,7 +213,14 @@ export async function generateThumbnailsInBackground(
     const startTime = Date.now();
 
     try {
-      const thumbnailPath = await generateThumbnail(file.path, file.ext, settings);
+      const thumbnailPath = await thumbnailScheduler.enqueue({
+        filePath: file.path,
+        ext: file.ext,
+        settings,
+        source: "scan",
+        priority: 1,
+        retries: 1,
+      });
       if (thumbnailPath) {
         db.prepare("UPDATE files SET thumbnail = ?, thumbnail_failed = 0 WHERE path = ?").run(
           thumbnailPath,
@@ -241,6 +277,7 @@ export function queueThumbnailGeneration(
   getMainWindow: () => BrowserWindow | null,
   settings: RuntimeSettingsData,
 ) {
+  const normalizedSettings = parseRuntimeSettings(settings);
   const db = getDb();
   const query =
     "SELECT path, name, extension, directory, size_bytes, modified_at FROM files WHERE thumbnail IS NULL AND thumbnail_failed = 0";
@@ -273,7 +310,35 @@ export function queueThumbnailGeneration(
   if (filesToThumbnail.length > 0) {
     // Small delay to let the DB settle and UI update
     setTimeout(() => {
-      generateThumbnailsInBackground(filesToThumbnail, getMainWindow, settings);
+      generateThumbnailsInBackground(filesToThumbnail, getMainWindow, normalizedSettings).catch((error) => {
+        console.warn("[Thumbnails] Background generation failed:", error);
+      });
     }, 500);
   }
+}
+
+export function scheduleSingleThumbnailGeneration(
+  filePath: string,
+  ext: string,
+  settings: RuntimeSettingsData,
+  source: "watch" | "manual",
+) {
+  return thumbnailScheduler.enqueue({
+    filePath,
+    ext,
+    settings: parseRuntimeSettings(settings),
+    source,
+    priority: source === "manual" ? 3 : 2,
+    retries: 1,
+  });
+}
+
+export function getThumbnailSchedulerStats() {
+  return thumbnailScheduler.getStats();
+}
+
+export function cancelPendingThumbnailJobs(
+  predicate?: (job: { filePath: string; ext: string; settings: RuntimeSettingsData; source: "scan" | "watch" | "manual" }) => boolean,
+) {
+  thumbnailScheduler.clearPending(predicate);
 }

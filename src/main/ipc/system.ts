@@ -13,18 +13,25 @@ import { join } from "path";
 import { getDb } from "../database";
 import { startWatcher, stopWatcher } from "../watcher";
 import { IPC, RuntimeSettingsData } from "../../shared/types";
+import {
+  parseFilePath,
+  parseFolderPath,
+  parseFolderPathList,
+  parseRuntimeSettings,
+} from "./runtimeValidation";
 
 export function registerSystemHandlers(
   getMainWindow: () => BrowserWindow | null,
 ) {
   ipcMain.on(IPC.ON_DRAG_START, (event, filePath) => {
+    const parsedFilePath = parseFilePath(filePath);
     // Try to use the file's thumbnail as the drag icon
     let icon: Electron.NativeImage | undefined = undefined;
     try {
       const db = getDb();
       const row = db
         .prepare("SELECT thumbnail FROM files WHERE path = ?")
-        .get(filePath) as { thumbnail: string | null } | undefined;
+        .get(parsedFilePath) as { thumbnail: string | null } | undefined;
       if (row?.thumbnail) {
         const thumbImage = nativeImage.createFromPath(row.thumbnail);
         if (!thumbImage.isEmpty()) {
@@ -39,23 +46,24 @@ export function registerSystemHandlers(
       ).resize({ width: 128, height: 128 });
     }
     event.sender.startDrag({
-      file: filePath,
+      file: parsedFilePath,
       icon: icon,
     });
   });
 
   ipcMain.on(IPC.SHOW_CONTEXT_MENU, (event, filePath) => {
+    const parsedFilePath = parseFilePath(filePath);
     const template = [
       {
         label: "Reveal in Finder / Explorer",
         click: () => {
-          shell.showItemInFolder(filePath);
+          shell.showItemInFolder(parsedFilePath);
         },
       },
       {
         label: "Copy Absolute Path",
         click: () => {
-          clipboard.writeText(filePath);
+          clipboard.writeText(parsedFilePath);
         },
       },
     ];
@@ -64,13 +72,14 @@ export function registerSystemHandlers(
   });
 
   ipcMain.on(IPC.SHOW_FOLDER_CONTEXT_MENU, (event, folderPath) => {
+    const parsedFolderPath = parseFolderPath(folderPath);
     const template = [
       {
         label: "Refresh Thumbnails",
         click: () => {
           const win = getMainWindow();
           if (win) {
-            win.webContents.send('trigger-refresh-folder', folderPath);
+            win.webContents.send('trigger-refresh-folder', parsedFolderPath);
           }
         },
       },
@@ -79,7 +88,7 @@ export function registerSystemHandlers(
         click: () => {
           const win = getMainWindow();
           if (win) {
-            win.webContents.send('trigger-rescan-folder', folderPath);
+            win.webContents.send('trigger-rescan-folder', parsedFolderPath);
           }
         },
       },
@@ -87,7 +96,7 @@ export function registerSystemHandlers(
       {
         label: "Reveal in Finder / Explorer",
         click: () => {
-          shell.showItemInFolder(folderPath);
+          shell.showItemInFolder(parsedFolderPath);
         },
       },
     ];
@@ -98,9 +107,11 @@ export function registerSystemHandlers(
   ipcMain.handle(
     IPC.START_WATCHING,
     async (event, folderPaths: string[], settings: RuntimeSettingsData) => {
+    const parsedFolderPaths = parseFolderPathList(folderPaths);
+    const parsedSettings = parseRuntimeSettings(settings);
     const mainWindow = getMainWindow();
     if (mainWindow) {
-      await startWatcher(folderPaths, mainWindow, getDb(), settings);
+      await startWatcher(parsedFolderPaths, mainWindow, getDb(), parsedSettings);
     }
   });
 

@@ -23,6 +23,11 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **Thumbnail Generation:**
   - Runs in a completely detached, invisible `BrowserWindow` with `backgroundThrottling: false` to prevent macOS App Nap from freezing the worker.
   - Heavy 3D file parsing is offloaded from the main UI thread. Files are streamed directly into the hidden canvas using a custom `polytray://local/` protocol and `fetch()`, entirely bypassing slow Node-to-Chromium IPC ArrayBuffer serialization overhead.
+  - A shared thumbnail job scheduler now provides single-flight execution, path-level dedupe, priority, cancellation of pending work, and bounded retry across scan-triggered, watcher-triggered, and manual thumbnail requests.
+  - Thumbnail cache startup now reconciles a versioned cache metadata file, pruning orphaned PNGs and resetting the cache on version changes.
+- **IPC Validation Architecture:**
+  - High-risk IPC handlers now parse/normalize runtime payloads at the main-process boundary in `src/main/ipc/runtimeValidation.ts` before side effects run.
+  - Runtime settings are normalized once and validated before scan, watcher, thumbnail, and preview-parse entry points execute.
 - **Preview Loading Architecture:**
   - Interactive preview now uses one unified background-loading entrypoint for all formats.
   - Format-specific parse execution is selected through `src/renderer/lib/previewStrategies.ts` so the UI/viewer path stays unified while the heavy background step can vary by format.
@@ -91,6 +96,11 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Replaced path-prefix folder filtering with canonical containment checks for file queries, stale scan cleanup, folder thumbnail refresh, and folder removal.
   - Centralized settings validation/defaults in `src/shared/settings.ts` and removed main-process runtime reads of numeric settings from SQLite.
   - Moved library folder persistence to renderer `localStorage` with a one-time migration fallback from legacy SQLite keys.
+  - Added a runtime IPC validation layer for scan, watcher, thumbnail, file-read, sort, and preview-parse entry points.
+  - Added a shared thumbnail job scheduler covering scan, watcher, and manual thumbnail generation with queue stats logging and pending-job cancellation hooks.
+  - Added startup thumbnail cache reconciliation with versioned metadata plus orphaned-cache pruning.
+  - Added explicit startup and scan performance budget tests in Playwright so regressions fail CI instead of relying on ad-hoc timing checks.
+  - Added a schema migration test matrix covering upgrades from database versions 0 through 4 to the current schema.
 
 ---
 
@@ -106,29 +116,13 @@ If you are an AI assistant reading this file at the start of a session, use it t
    - Ensure no duplicate `message` listeners accumulate after restart/reconfigure.
    - Add stress test scenario: rapid start/stop/restart cycles.
 
-2. **TD8 IPC Path Security Hardening (Do Second)**
-   - In `src/main/ipc/thumbnails.ts`, replace `thumbnailPath.startsWith(thumbDir)` checks.
-   - Use canonical containment validation: `resolve(thumbnailPath)`, `relative(thumbDir, resolved)` and reject `..`/absolute escapes.
-   - Add regression tests for traversal and symlink edge cases.
-
-3. **TD7 Scan/Watch Write Conflict Mitigation (Do Third)**
+2. **TD7 Scan/Watch Write Conflict Mitigation (Do Second)**
    - Audit `INSERT OR REPLACE` usage in `src/main/ipc/scanning.ts` and `src/main/watcher.ts`.
    - Replace clobber-prone writes with conflict-safe upserts/updates that preserve newer state.
    - Define deterministic conflict policy (e.g., compare `modified_at` / `indexed_at` / thumbnail presence).
    - Add regression tests for concurrent scan + watcher updates.
 
-4. **TD6 Thumbnail Job Scheduler (Do Fourth)**
-   - Centralize queue orchestration in `src/main/thumbnails.ts`.
-   - Enforce single-flight execution, dedupe by file path, coalesce repeated queue requests.
-   - Add cancellation/replace semantics for full-library refresh operations.
-   - Add queue dedupe tests and throughput assertions.
-
-5. **TD9 Observability + Guardrails (Do Fifth)**
-  - Add structured counters/logs: queue depth, thumb latency, failures, worker restarts.
-  - Add perf guardrails for large libraries (batch size sanity bounds, timeout constraints).
-  - Define and track performance budgets: scan start responsiveness, first thumbnail latency, full queue completion.
-
-6. **Preview Transfer Cost Reduction (Current Follow-up)**
+3. **Preview Transfer Cost Reduction (Current Follow-up)**
    - The main freeze regression is fixed and the `3MF` transport no longer uses the slow invoke/result IPC path.
    - Remaining work, if revisited, should be driven by profiling `base.3mf` end-to-end timings across: hidden-renderer parse time, mesh serialization time, buffer transfer time, and viewer rebuild time.
    - Preserve orientation parity between cached thumbnails and interactive preview if any further `3MF` serialization or transport changes are made.
@@ -224,16 +218,17 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 ### Delivery Buckets
 
-- **1-day bucket:** TD8 path security, protocol allowlisting, watcher/UI refresh debouncing, PreviewPanel lint cleanup.
-- **3-day bucket:** Thumbnail single-flight queue, containment-aware folder filtering, scan-time DB roundtrip reduction.
-- **1-week bucket:** App renderer decomposition, thumbnail transport redesign, IPC runtime validation slice, E2E flake reduction.
+- **1-day bucket:** Protocol allowlisting, watcher/UI refresh debouncing, PreviewPanel lint cleanup.
+- **3-day bucket:** Scan/write conflict mitigation, scan-time DB roundtrip reduction, thumbnail symlink-containment regression coverage.
+- **1-week bucket:** App renderer decomposition, thumbnail transport profiling, watcher lifecycle hardening, E2E flake reduction.
 
 ### Recommended Sequence After TD5-TD9
 
-1. Secure filesystem access surfaces first: thumbnail IPC path containment, then `polytray://local/` allowlisting.
-2. Stabilize event/queue behavior next: watcher refresh coalescing, single-flight thumbnail scheduling, containment-aware folder filtering.
-3. Optimize throughput once semantics are stable: reduce scan DB roundtrips and separate list refreshes from stats/directory refreshes.
-4. Refactor renderer architecture and thumbnail transport only after the background/runtime contracts stop shifting.
+1. Finish remaining filesystem hardening work: `polytray://local/` allowlisting, then thumbnail symlink-containment regression coverage.
+2. Stabilize event/lifecycle behavior next: watcher refresh coalescing and watcher stop/restart hardening.
+3. Resolve scan/write conflict semantics before deeper throughput work.
+4. Optimize throughput once semantics are stable: reduce scan DB roundtrips and separate list refreshes from stats/directory refreshes.
+5. Refactor renderer architecture and thumbnail transport only after the background/runtime contracts stop shifting.
 5. Finish with test hardening and runtime validation so future regressions fail earlier in CI.
 
 ### Code Improvement Suggestions (Actionable)
@@ -343,17 +338,25 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **TD3b:** Background Runtime Consolidation (watching is in utilityProcess; evaluate whether thumbnail orchestration should also move to utilityProcess and define one unified background-runtime model).
 - **TD5:** Watcher Lifecycle Hardening — graceful stop with timeout + forced kill fallback, prevent duplicate listeners during rapid restart/reconfigure.
 - **TD6:** Thumbnail Job Scheduler — single-flight queue, dedupe by path, cancellation/coalescing to avoid overlapping full-library loops.
+  - **Status:** Completed on 2026-03-10 via `src/main/thumbnailJobScheduler.ts` and integration in `src/main/thumbnails.ts`, `src/main/watcher.ts`, and `src/main/ipc/thumbnails.ts`.
 - **TD7:** Scan/Watch Write Conflict Mitigation — avoid destructive `INSERT OR REPLACE` clobbers; preserve newer thumbnail/metadata state under races.
 - **TD8:** IPC Path Security Hardening — canonical path containment checks (`resolve` + `relative`) for thumbnail reads.
+  - **Status:** Partially completed on 2026-03-10 via canonical containment checks in thumbnail IPC; symlink-escape regression coverage remains open.
 - **TD9:** Background Observability — queue depth, avg thumbnail latency, failure counters, worker restart metrics.
+  - **Status:** Partially completed on 2026-03-10 via queue stats/timing logs and explicit startup/scan performance budgets; worker restart metrics and structured logging remain open.
 
 ### Stabilization Backlog (v1.1.x Recommended)
 
 - **S1:** IPC Runtime Validation Layer — enforce runtime schema checks for all high-risk IPC entry points.
+  - **Status:** Completed on 2026-03-10 via `src/main/ipc/runtimeValidation.ts` and handler integration in scan/system/files/thumbnails/preview IPC paths.
 - **S2:** Background Job Queue Control — central dedupe/priority/cancel/retry policy shared by scan/watch/thumb flows.
+  - **Status:** Completed on 2026-03-10 via `src/main/thumbnailJobScheduler.ts` and integration in `src/main/thumbnails.ts`, `src/main/watcher.ts`, and `src/main/ipc/thumbnails.ts`.
 - **S3:** Startup + Scan Performance Budgets — codify measurable thresholds and fail CI/alerts on regression.
+  - **Status:** Completed on 2026-03-10 via Playwright startup/scan budget tests in `tests/app.e2e.js`.
 - **S4:** Schema Migration Test Matrix — verify upgrades from older `user_version` states to current schema.
+  - **Status:** Completed on 2026-03-10 via `tests/databaseMigrations.test.js`.
 - **S5:** Thumbnail Cache Lifecycle Plan — define cleanup, stale detection, and optional migration strategy if cache growth becomes problematic.
+  - **Status:** Completed on 2026-03-10 via `src/main/thumbnailCacheLifecycle.ts` plus startup reconciliation and versioned cache metadata.
 
 ### Future Features (v1.2 Roadmap)
 
