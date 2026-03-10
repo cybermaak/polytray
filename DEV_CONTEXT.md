@@ -103,6 +103,108 @@ If you are an AI assistant reading this file at the start of a session, use it t
    - Add perf guardrails for large libraries (batch size sanity bounds, timeout constraints).
    - Define and track performance budgets: scan start responsiveness, first thumbnail latency, full queue completion.
 
+### Engineering Improvement Backlog (Priority + Impact + Effort)
+
+> Objective: convert the current code/design/performance review into a concrete execution queue with expected payoff and scope.
+
+1. **P0 Security: Canonicalize all thumbnail path reads**
+   - **Impact:** High. Closes an obvious filesystem escape risk at the IPC boundary.
+   - **Effort:** ~0.5-1 day.
+   - **Primary Files:** `src/main/ipc/thumbnails.ts`, tests for path traversal/symlink cases.
+   - **Why first:** Current `startsWith()` path checks are not a sufficient containment guard.
+   - **Done when:** Thumbnail reads reject `..`, symlink escapes, and unrelated absolute paths with regression coverage.
+
+2. **P0 Security: Restrict `polytray://local/` protocol reads to indexed/library files**
+   - **Impact:** High. Prevents arbitrary local file access via the custom protocol.
+   - **Effort:** ~1 day.
+   - **Primary Files:** `src/main/index.ts`, potentially `src/main/ipc/files.ts`, protocol tests.
+   - **Why second:** The protocol currently trusts decoded file paths too broadly.
+   - **Done when:** Only canonicalized, allowed library paths are served and rejected paths fail closed.
+
+3. **P1 Stability/Perf: Debounce renderer refreshes from watcher churn**
+   - **Impact:** High for large libraries. Reduces repeated DB queries and UI reload storms during bursty file events.
+   - **Effort:** ~0.5-1 day.
+   - **Primary Files:** `src/renderer/App.tsx`.
+   - **Why now:** `FILES_UPDATED` currently triggers immediate `fetchFiles()` on every event.
+   - **Done when:** Bursty add/change/remove events coalesce into bounded UI refresh work without stale UI regressions.
+
+4. **P1 Stability/Perf: Enforce single-flight thumbnail queue orchestration**
+   - **Impact:** High. Prevents overlapping background loops, duplicate heavy parsing, and racey progress reporting.
+   - **Effort:** ~1-2 days.
+   - **Primary Files:** `src/main/thumbnails.ts`, `src/main/ipc/scanning.ts`.
+   - **Why now:** Current queue entrypoints can start overlapping runs.
+   - **Done when:** Queue requests dedupe by path, only one orchestrator runs at a time, and repeated full refreshes coalesce predictably.
+
+5. **P1 Correctness: Replace path-prefix folder matching with containment-aware filtering**
+   - **Impact:** Medium-high. Prevents sibling-path false positives like `/foo/bar` matching `/foo/bar2`.
+   - **Effort:** ~1 day.
+   - **Primary Files:** `src/main/ipc/files.ts`, `src/main/ipc/scanning.ts`, `src/main/ipc/library.ts`.
+   - **Why now:** The current `LIKE '${folder}%'` strategy is logically incorrect for folder boundaries.
+   - **Done when:** Folder filtering, stale deletion, and folder removal only affect the intended subtree.
+
+6. **P1 Data Layer: Reduce scan-time DB roundtrips**
+   - **Impact:** Medium-high on large libraries. Lowers scan latency and main-process pressure.
+   - **Effort:** ~1-2 days.
+   - **Primary Files:** `src/main/ipc/scanning.ts`, `src/main/database.ts`.
+   - **Why now:** The scan loop performs per-file reads before writes.
+   - **Done when:** Existing-row state is prefetched or batched efficiently and scan throughput improves measurably.
+
+7. **P2 Renderer Architecture: Break `App.tsx` into focused hooks/modules**
+   - **Impact:** Medium. Improves maintainability, testability, and reduces accidental coupling.
+   - **Effort:** ~2-3 days.
+   - **Primary Files:** `src/renderer/App.tsx`, new renderer hooks/modules.
+   - **Why later:** Important, but lower urgency than security and queue correctness.
+   - **Done when:** Bootstrapping, IPC subscriptions, library data orchestration, and progress state are separated cleanly.
+
+8. **P2 Renderer Perf: Stop re-fetching stats/directories for every sort/search refresh**
+   - **Impact:** Medium. Avoids unnecessary IPC/DB work during high-frequency user interactions.
+   - **Effort:** ~0.5-1 day.
+   - **Primary Files:** `src/renderer/App.tsx`.
+   - **Why later:** Straightforward win once refresh semantics are cleaned up.
+   - **Done when:** File-list refreshes are independent from stats/directory refreshes unless topology actually changes.
+
+9. **P2 Memory/IPC Perf: Replace thumbnail data URLs with a less expensive transport**
+   - **Impact:** Medium. Reduces base64 overhead, memory churn, and renderer state size.
+   - **Effort:** ~1-2 days.
+   - **Primary Files:** `src/main/ipc/thumbnails.ts`, `src/renderer/App.tsx`, `src/preload/index.ts`.
+   - **Why later:** Valuable, but should follow path hardening and queue stabilization.
+   - **Done when:** Thumbnails no longer require large base64 strings for steady-state rendering.
+
+10. **P2 Quality: Remove timing-based E2E waits and add event-driven assertions**
+    - **Impact:** Medium. Lowers flake rate and makes perf regressions easier to reason about.
+    - **Effort:** ~1-2 days.
+    - **Primary Files:** `tests/app.e2e.js`.
+    - **Why later:** Testing quality matters, but product correctness/security still comes first.
+    - **Done when:** Major workflows wait on observable app state instead of fixed sleeps.
+
+11. **P3 React Hygiene: Resolve `set-state-in-effect` lint failure in preview loading**
+    - **Impact:** Low-medium. Improves React correctness and keeps lint green.
+    - **Effort:** ~0.5 day.
+    - **Primary Files:** `src/renderer/components/PreviewPanel.tsx`.
+    - **Why later:** Isolated issue, but worth addressing during renderer cleanup.
+    - **Done when:** `npm run lint` passes without suppressing the rule.
+
+12. **P3 IPC Robustness: Add runtime validation for high-risk handlers**
+    - **Impact:** Medium. Complements TypeScript IPC typing with actual runtime safety.
+    - **Effort:** ~1-2 days initial slice, more if expanded across all handlers.
+    - **Primary Files:** `src/shared/types.ts`, `src/main/ipc/*.ts`, `src/preload/index.ts`.
+    - **Why later:** Strong follow-on to the security hardening work.
+    - **Done when:** High-risk inbound payloads are schema-validated and fail closed.
+
+### Delivery Buckets
+
+- **1-day bucket:** TD8 path security, protocol allowlisting, watcher/UI refresh debouncing, PreviewPanel lint cleanup.
+- **3-day bucket:** Thumbnail single-flight queue, containment-aware folder filtering, scan-time DB roundtrip reduction.
+- **1-week bucket:** App renderer decomposition, thumbnail transport redesign, IPC runtime validation slice, E2E flake reduction.
+
+### Recommended Sequence After TD5-TD9
+
+1. Secure filesystem access surfaces first: thumbnail IPC path containment, then `polytray://local/` allowlisting.
+2. Stabilize event/queue behavior next: watcher refresh coalescing, single-flight thumbnail scheduling, containment-aware folder filtering.
+3. Optimize throughput once semantics are stable: reduce scan DB roundtrips and separate list refreshes from stats/directory refreshes.
+4. Refactor renderer architecture and thumbnail transport only after the background/runtime contracts stop shifting.
+5. Finish with test hardening and runtime validation so future regressions fail earlier in CI.
+
 ### Code Improvement Suggestions (Actionable)
 
 - **Unify background runtime contracts**
@@ -135,6 +237,74 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 - **Customer-centric delivery guardrails**
   - For each feature PR, require: user problem statement, acceptance criteria, rollback path, and telemetry/review note.
+
+### Engineering Standards & Design Practices
+
+> Objective: capture repo-wide coding and architecture standards that should guide future changes beyond framework-specific performance rules. These are referenceable by ID in future discussions, reviews, and implementation notes.
+
+- **EP1: Validate at process boundaries**
+  - Treat all renderer-to-main IPC, preload APIs, custom protocol requests, and filesystem-facing inputs as untrusted.
+  - Apply runtime validation, canonical path checks, and fail-closed behavior before any side effect.
+  - Relevant files today: `src/main/ipc/*.ts`, `src/main/index.ts`, `src/preload/index.ts`.
+
+- **EP2: One owner per subsystem**
+  - Each major concern should have a single authoritative owner: settings, watcher lifecycle, thumbnail scheduling, viewer state, scan orchestration.
+  - Avoid spreading the same responsibility across renderer callbacks, IPC handlers, and utility modules.
+  - Use explicit service boundaries instead of shared incidental state.
+
+- **EP3: Single source of truth for settings**
+  - Settings should come from one typed schema with defaults, validation, persistence rules, and migration behavior.
+  - Avoid split ownership between `localStorage`, renderer defaults, and SQLite-backed settings unless the division is intentional and documented.
+  - Clamp and validate numeric settings centrally, not only in UI controls.
+
+- **EP4: Prefer declarative state transitions over imperative synchronization**
+  - Avoid patterns where state is set, then side effects patch the DOM, then more state is used to reconcile the result.
+  - Favor reducers, explicit events, or small state machines for scan progress, preview loading, and background job status.
+  - Timers should not be the primary correctness mechanism.
+
+- **EP5: Keep domain logic separate from transport and UI**
+  - Business rules like folder containment, queue dedupe, conflict resolution, retry policy, and thumbnail invalidation should live in service-layer logic.
+  - IPC handlers should validate input, call domain services, and map errors, not own core policy decisions.
+
+- **EP6: Prefer constrained types over stringly-typed control flow**
+  - Use literal unions/enums for sort keys, action names, event phases, settings keys, and worker message types.
+  - Reduce broad `string` inputs in shared contracts when the legal values are known ahead of time.
+  - Keep `src/shared/types.ts` as the contract source of truth, but tighten it over time.
+
+- **EP7: Canonical containment over string prefix matching**
+  - Do not use path prefix or `LIKE '${folder}%'` semantics for security or correctness-sensitive folder matching.
+  - Use canonicalized paths and explicit subtree containment checks instead.
+  - This applies to thumbnail reads, folder filtering, stale deletion, protocol serving, and folder removal.
+
+- **EP8: Make performance budgets explicit**
+  - Every intentional delay, yield, or batching strategy should be justified by a measurable budget such as scan responsiveness, preview-interaction latency, or first-thumbnail latency.
+  - Replace arbitrary sleeps with observable readiness conditions whenever possible.
+  - Capture the reason for “magic numbers” in code comments or settings documentation.
+
+- **EP9: Prefer React-owned UI over imperative DOM construction**
+  - Three.js rendering can remain imperative, but UI chrome, controls, strips, and interactive overlays should be owned by React where practical.
+  - Avoid ad hoc DOM construction, `innerHTML`, and manual event wiring for renderer-visible UI if React already owns that surface.
+
+- **EP10: Accessibility is part of correctness**
+  - Interactive UI should use semantic controls, keyboard support, focus handling, and explicit ARIA state where needed.
+  - Clickable `div` patterns are acceptable only when there is a documented reason they cannot be semantic elements.
+
+- **EP11: Structured logging and error taxonomy**
+  - Prefer structured, category-based logging over ad hoc `console.*` calls.
+  - Distinguish expected recoverable issues, operator-actionable warnings, and user-visible failures.
+  - Main, renderer, thumbnail window, and utility worker logs should follow the same vocabulary.
+
+- **EP12: Tests should observe contracts, not timing guesses**
+  - Prefer waiting on emitted events, visible state transitions, or explicit readiness markers instead of fixed sleep durations.
+  - High-risk areas should have targeted tests around lifecycle, queue semantics, path validation, and race handling in addition to broad E2E flows.
+
+- **EP13: Tighten lint rules around architectural drift**
+  - Keep lint fast, but use it to enforce discipline where regressions are common: promise handling, exhaustive branching, consistent type imports, and environment-specific globals.
+  - Lint should catch structural mistakes early, not only syntax/style issues.
+
+- **EP14: Document policy decisions where tradeoffs are non-obvious**
+  - If a queue is single-flight, a watcher stop has timeout semantics, or a thumbnail failure is sticky, that policy should be written down in code and `DEV_CONTEXT.md`.
+  - Future agents should not need to infer core behavior from scattered implementation details.
 
 ### Tech Debt
 
