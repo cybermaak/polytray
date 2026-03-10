@@ -62,6 +62,22 @@ function generateLargeBinaryStl(filePath, triangleCount = 220000) {
   fs.writeFileSync(filePath, Buffer.concat([header, count, triangleBytes]));
 }
 
+function writeTinyAsciiStl(filePath, solidName = "fixture") {
+  fs.writeFileSync(
+    filePath,
+    `solid ${solidName}
+facet normal 0 0 1
+  outer loop
+    vertex 0 0 0
+    vertex 1 0 0
+    vertex 0 1 0
+  endloop
+endfacet
+endsolid ${solidName}
+`,
+  );
+}
+
 // Ensure we have a clean database for each test run
 let app;
 let window;
@@ -600,6 +616,40 @@ test("search filters file cards by name", async () => {
   // Should show all cards again
   const resetCount = await window.locator(".file-card").count();
   expect(resetCount).toBe(initialCount);
+});
+
+test("folder filtering uses canonical containment instead of raw path prefixes", async () => {
+  const parentDir = fs.mkdtempSync(path.join(os.tmpdir(), "polytray-containment-"));
+  const rootDir = path.join(parentDir, "models");
+  const siblingPrefixDir = path.join(parentDir, "models-archive");
+  fs.mkdirSync(rootDir, { recursive: true });
+  fs.mkdirSync(siblingPrefixDir, { recursive: true });
+
+  try {
+    writeTinyAsciiStl(path.join(rootDir, "inside.stl"), "inside");
+    writeTinyAsciiStl(path.join(siblingPrefixDir, "outside.stl"), "outside");
+
+    await window.evaluate(
+      async ({ firstDir, secondDir }) => {
+        await window.polytray.scanFolder(firstDir);
+        await window.polytray.scanFolder(secondDir);
+      },
+      { firstDir: rootDir, secondDir: siblingPrefixDir },
+    );
+
+    await window.waitForTimeout(1500);
+
+    const result = await window.evaluate(
+      (folder) => window.polytray.getFiles({ folder, limit: 100, offset: 0 }),
+      rootDir,
+    );
+
+    expect(result.total).toBe(1);
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0].path).toBe(path.join(rootDir, "inside.stl"));
+  } finally {
+    fs.rmSync(parentDir, { recursive: true, force: true });
+  }
 });
 
 // ── Test 8: Sort order changes ─────────────────────────────────────

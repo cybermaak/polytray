@@ -30,6 +30,10 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - `3MF` preview parsing is routed through the existing hidden thumbnail `BrowserWindow` instead of the worker because `ThreeMFLoader` and local 3MF repair rely on DOM APIs such as `DOMParser` that are unavailable in a plain worker context.
   - Large `3MF` preview payloads now travel through a preload-brokered `MessagePort` path so geometry buffers can be transferred renderer-to-renderer without bouncing the full mesh payload back through normal main-process IPC cloning.
   - Shared mesh preparation/serialization logic lives in `src/renderer/lib/meshPrep.ts` and `src/renderer/lib/meshSerialization.ts` to keep thumbnail and preview behavior aligned.
+- **Renderer Persistence Architecture:**
+  - User-configurable settings are normalized and persisted in renderer `localStorage` via `src/shared/settings.ts`.
+  - Library folder state (`libraryFolders`, `lastFolder`) is also renderer-owned in `localStorage` via `src/shared/libraryState.ts`.
+  - Main-process `GET_LIBRARY_FOLDERS` / `GET_LAST_FOLDER` remain only as a migration fallback for older installs that still have legacy SQLite-backed values.
 - **File Watching Architecture:**
   - Chokidar runs in a dedicated Electron `utilityProcess` (`src/main/worker.ts`) to avoid Main process event-loop starvation.
   - Main process orchestration/lifecycle lives in `src/main/watcher.ts` (start/stop + event bridge back into DB/UI updates).
@@ -84,6 +88,9 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Reworked the `3MF` preview transport so preload owns the real `MessagePort` and forwards transferred geometry buffers directly to the visible renderer, avoiding the earlier full structured-clone IPC roundtrip.
   - Reduced `3MF` serialization overhead by reusing unshared geometries during transform baking instead of cloning every mesh geometry unconditionally.
   - Hardened the `base.3mf` E2E harness to locate the actual main window explicitly and to treat UI-freeze regression as the primary invariant; kept only a loose absolute load ceiling because machine/disk variance was too high for a tight timing budget.
+  - Replaced path-prefix folder filtering with canonical containment checks for file queries, stale scan cleanup, folder thumbnail refresh, and folder removal.
+  - Centralized settings validation/defaults in `src/shared/settings.ts` and removed main-process runtime reads of numeric settings from SQLite.
+  - Moved library folder persistence to renderer `localStorage` with a one-time migration fallback from legacy SQLite keys.
 
 ---
 
@@ -159,11 +166,12 @@ If you are an AI assistant reading this file at the start of a session, use it t
    - **Done when:** Queue requests dedupe by path, only one orchestrator runs at a time, and repeated full refreshes coalesce predictably.
 
 5. **P1 Correctness: Replace path-prefix folder matching with containment-aware filtering**
-   - **Impact:** Medium-high. Prevents sibling-path false positives like `/foo/bar` matching `/foo/bar2`.
-   - **Effort:** ~1 day.
-   - **Primary Files:** `src/main/ipc/files.ts`, `src/main/ipc/scanning.ts`, `src/main/ipc/library.ts`.
-   - **Why now:** The current `LIKE '${folder}%'` strategy is logically incorrect for folder boundaries.
-   - **Done when:** Folder filtering, stale deletion, and folder removal only affect the intended subtree.
+  - **Impact:** Medium-high. Prevents sibling-path false positives like `/foo/bar` matching `/foo/bar2`.
+  - **Effort:** ~1 day.
+  - **Primary Files:** `src/main/ipc/files.ts`, `src/main/ipc/scanning.ts`, `src/main/ipc/library.ts`.
+  - **Why now:** The current `LIKE '${folder}%'` strategy is logically incorrect for folder boundaries.
+  - **Done when:** Folder filtering, stale deletion, and folder removal only affect the intended subtree.
+  - **Status:** Completed on 2026-03-10 via canonical containment helper (`src/main/pathContainment.ts`) plus regression coverage.
 
 6. **P1 Data Layer: Reduce scan-time DB roundtrips**
    - **Impact:** Medium-high on large libraries. Lowers scan latency and main-process pressure.
@@ -279,6 +287,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Settings should come from one typed schema with defaults, validation, persistence rules, and migration behavior.
   - Avoid split ownership between `localStorage`, renderer defaults, and SQLite-backed settings unless the division is intentional and documented.
   - Clamp and validate numeric settings centrally, not only in UI controls.
+  - **Status:** Completed on 2026-03-10 via `src/shared/settings.ts` and `src/shared/libraryState.ts`; renderer `localStorage` now owns both user-configurable settings and library folder state, with validated runtime settings passed explicitly to main IPC consumers.
 
 - **EP4: Prefer declarative state transitions over imperative synchronization**
   - Avoid patterns where state is set, then side effects patch the DOM, then more state is used to reconcile the result.

@@ -13,18 +13,6 @@ export interface FileRecord {
   indexed_at: number;
 }
 
-export interface AppSettings {
-  library_folders: string[];
-  last_folder: string | null;
-  lightMode: boolean;
-  gridSize: "small" | "medium" | "large";
-  autoRescan: boolean;
-  thumbnail_timeout: number;
-  scanning_batch_size: number;
-  watcher_stability: number;
-  page_size: number;
-}
-
 export interface SettingRow {
   key: string;
   value: string;
@@ -200,4 +188,11 @@ export interface PreviewParseRequestData {
 
 export interface PreviewParsePortData {
   requestId: string;
+}
+
+export interface RuntimeSettingsData {
+  thumbnail_timeout: number;
+  scanning_batch_size: number;
+  watcher_stability: number;
+  page_size: number;
 }

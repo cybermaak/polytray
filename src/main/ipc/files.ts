@@ -12,6 +12,7 @@ import {
   SortOptions,
   LibraryStats,
 } from "../../shared/types";
+import { isPathContained } from "../pathContainment";
 
 export function registerFileHandlers() {
   ipcMain.handle(IPC.GET_FILES, (event, opts: SortOptions = {}) => {
@@ -38,12 +39,6 @@ export function registerFileHandlers() {
     const where: string[] = [];
     const params: (string | number)[] = [];
 
-    if (opts.folder) {
-      where.push("directory LIKE ?");
-      // Use % wildcard to match this directory or any subdirectories
-      params.push(`${opts.folder}%`);
-    }
-
     if (extension) {
       where.push("extension = ?");
       params.push(extension.toLowerCase());
@@ -54,6 +49,41 @@ export function registerFileHandlers() {
     }
 
     const whereClause = where.length > 0 ? "WHERE " + where.join(" AND ") : "";
+
+    if (opts.folder) {
+      const query = `SELECT * FROM files ${whereClause}`;
+      const filtered = (db.prepare(query).all(...params) as FileRecord[])
+        .filter((file) => isPathContained(opts.folder!, file.path));
+
+      filtered.sort((a, b) => {
+        const left = a[sortCol as keyof FileRecord];
+        const right = b[sortCol as keyof FileRecord];
+
+        let comparison = 0;
+        if (sortCol === "name") {
+          comparison = String(left).localeCompare(String(right), undefined, {
+            sensitivity: "base",
+          });
+        } else if (left == null && right == null) {
+          comparison = 0;
+        } else if (left == null) {
+          comparison = -1;
+        } else if (right == null) {
+          comparison = 1;
+        } else if (left < right) {
+          comparison = -1;
+        } else if (left > right) {
+          comparison = 1;
+        }
+
+        return sortOrder === "DESC" ? comparison * -1 : comparison;
+      });
+
+      return {
+        files: filtered.slice(offset, offset + limit),
+        total: filtered.length,
+      };
+    }
 
     const countQuery = `SELECT COUNT(*) as total FROM files ${whereClause}`;
     const countRow = db.prepare(countQuery).get(...params) as TotalRow;

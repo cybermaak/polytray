@@ -8,29 +8,47 @@ import { getDb, getSetting } from "../database";
 import { scanFolder } from "../scanner";
 import { extractMetadata } from "../metadata";
 import { getThumbnailDir, queueThumbnailGeneration } from "../thumbnails";
-import { FileRecord, ScannedFile, IPC } from "../../shared/types";
+import {
+  FileRecord,
+  IPC,
+  RuntimeSettingsData,
+  ScannedFile,
+} from "../../shared/types";
+import { filterContainedPaths } from "../pathContainment";
+import { DEFAULT_APP_SETTINGS } from "../../shared/settings";
 
 export function registerScanningHandlers(
   getMainWindow: () => BrowserWindow | null,
 ) {
-  async function performScan(folderPath: string) {
+  async function performScan(
+    folderPath: string,
+    settings: RuntimeSettingsData = {
+      thumbnail_timeout: DEFAULT_APP_SETTINGS.thumbnail_timeout,
+      scanning_batch_size: DEFAULT_APP_SETTINGS.scanning_batch_size,
+      watcher_stability: DEFAULT_APP_SETTINGS.watcher_stability,
+      page_size: DEFAULT_APP_SETTINGS.page_size,
+    },
+  ) {
     const db = getDb();
     const mainWindow = getMainWindow();
     const files = await scanFolder(folderPath);
     const total = files.length;
 
+    const existingRows = db.prepare("SELECT path FROM files").all() as Array<{
+      path: string;
+    }>;
     const existingPaths = new Set(
-      db
-        .prepare("SELECT path FROM files WHERE directory LIKE ?")
-        .all(folderPath + "%")
-        .map((r) => (r as { path: string }).path),
+      filterContainedPaths(
+        folderPath,
+        existingRows.map((row) => row.path),
+      ),
     );
 
     // ── Pass 1: Index files quickly (metadata only, no thumbnails) ──
     const filesToThumbnail: ScannedFile[] = [];
     const yieldToEventLoop = () => new Promise<void>((r) => setImmediate(r));
 
-    const batchSize = getSetting<number>("scanning_batch_size", 50);
+    const batchSize = settings.scanning_batch_size;
     for (let i = 0; i < files.length; i++) {
       if (i % batchSize === 0) {
         await yieldToEventLoop(); // Crucial: don't beachball macOS on 10,000 files
@@ -136,26 +154,43 @@ export function registerScanningHandlers(
     }
 
     // ── Pass 2: Generate thumbnails in the background (fire-and-forget) ──
-    queueThumbnailGeneration(folderPath, getMainWindow);
+    queueThumbnailGeneration(folderPath, getMainWindow, settings);
 
     return { totalFiles: total };
   }
 
-  ipcMain.handle(IPC.SCAN_FOLDER, async (event, folderPath) => {
-    return performScan(folderPath);
+  ipcMain.handle(IPC.SCAN_FOLDER, async (event, folderPath, settings: RuntimeSettingsData) => {
+    return performScan(folderPath, settings);
   });
 
-  ipcMain.handle(IPC.REFRESH_FOLDER_THUMBNAILS, async (event, folderPath) => {
+  ipcMain.handle(IPC.REFRESH_FOLDER_THUMBNAILS, async (event, folderPath, settings: RuntimeSettingsData) => {
     const db = getDb();
-    // Reset flags for matched prefix
-    db.prepare("UPDATE files SET thumbnail = null, thumbnail_failed = 0 WHERE path LIKE ?").run(`${folderPath}%`);
-    queueThumbnailGeneration(folderPath, getMainWindow);
+    const rows = db.prepare("SELECT path FROM files").all() as Array<{ path: string }>;
+    const containedPaths = filterContainedPaths(
+      folderPath,
+      rows.map((row) => row.path),
+    );
+    const resetThumbs = db.transaction((paths: string[]) => {
+      const stmt = db.prepare(
+        "UPDATE files SET thumbnail = null, thumbnail_failed = 0 WHERE path = ?",
+      );
+      for (const filePath of paths) {
+        stmt.run(filePath);
+      }
+    });
+    resetThumbs(containedPaths);
+    queueThumbnailGeneration(folderPath, getMainWindow, settings);
   });
 
-  ipcMain.handle(IPC.SCAN_ALL_LIBRARY, async () => {
-    const folders = getSetting<string[]>("library_folders", []);
+  ipcMain.handle(
+    IPC.SCAN_ALL_LIBRARY,
+    async (
+      event,
+      folders: string[] = getSetting<string[]>("library_folders", []),
+      settings?: RuntimeSettingsData,
+    ) => {
     for (const folder of folders) {
-      await performScan(folder);
+      await performScan(folder, settings);
     }
     return folders;
   });
@@ -174,9 +209,16 @@ export function registerScanningHandlers(
       // Directory may not exist yet
     }
     db.prepare("UPDATE files SET thumbnail = null, thumbnail_failed = 0").run();
-    queueThumbnailGeneration(null, getMainWindow);
+    queueThumbnailGeneration(
+      null,
+      getMainWindow,
+      {
+        thumbnail_timeout: DEFAULT_APP_SETTINGS.thumbnail_timeout,
+        scanning_batch_size: DEFAULT_APP_SETTINGS.scanning_batch_size,
+        watcher_stability: DEFAULT_APP_SETTINGS.watcher_stability,
+        page_size: DEFAULT_APP_SETTINGS.page_size,
+      },
+    );
     return true;
   });
 }
-
-

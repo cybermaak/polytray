@@ -1,24 +1,11 @@
 import React from "react";
-
-interface Settings {
-  lightMode: boolean;
-  gridSize: string;
-  autoScan: boolean;
-  watch: boolean;
-  showGrid: boolean;
-  thumbQuality: string;
-  accentColor: string;
-  thumbnail_timeout: number;
-  scanning_batch_size: number;
-  watcher_stability: number;
-  page_size: number;
-}
+import type { AppSettings } from "../../shared/settings";
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  settings: Settings;
-  onSettingsChange: (newSettings: Partial<Settings>) => void;
+  settings: AppSettings;
+  onSettingsChange: (newSettings: Partial<AppSettings>) => void;
 }
 
 export const SettingsModal: React.FC<Props> = ({
@@ -98,7 +85,11 @@ export const SettingsModal: React.FC<Props> = ({
               <select
                 id="setting-grid-size"
                 value={settings.gridSize}
-                onChange={(e) => onSettingsChange({ gridSize: e.target.value })}
+                onChange={(e) =>
+                  onSettingsChange({
+                    gridSize: e.target.value as AppSettings["gridSize"],
+                  })
+                }
               >
                 <option value="small">Small</option>
                 <option value="medium">Medium</option>
@@ -183,7 +174,9 @@ export const SettingsModal: React.FC<Props> = ({
                 id="setting-thumb-quality"
                 value={settings.thumbQuality}
                 onChange={(e) =>
-                  onSettingsChange({ thumbQuality: e.target.value })
+                  onSettingsChange({
+                    thumbQuality: e.target.value as AppSettings["thumbQuality"],
+                  })
                 }
               >
                 <option value="128">Low (128px)</option>

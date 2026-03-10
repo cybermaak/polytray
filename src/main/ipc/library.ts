@@ -2,8 +2,9 @@
  * IPC handlers for library folder management.
  */
 import { BrowserWindow, dialog, ipcMain } from "electron";
-import { getDb, getSetting, setSetting } from "../database";
+import { getDb, getSetting } from "../database";
 import { IPC } from "../../shared/types";
+import { filterContainedPaths } from "../pathContainment";
 
 export function registerLibraryHandlers(
   getMainWindow: () => BrowserWindow | null,
@@ -16,15 +17,7 @@ export function registerLibraryHandlers(
     });
     if (result.canceled || result.filePaths.length === 0) return null;
 
-    const folderPath = result.filePaths[0];
-    const folders = getSetting<string[]>("library_folders", []);
-    if (!folders.includes(folderPath)) {
-      folders.push(folderPath);
-    }
-    setSetting("library_folders", folders);
-    setSetting("last_folder", folderPath);
-
-    return folderPath;
+    return result.filePaths[0];
   });
 
   ipcMain.handle(IPC.GET_LIBRARY_FOLDERS, () => {
@@ -32,15 +25,20 @@ export function registerLibraryHandlers(
   });
 
   ipcMain.handle(IPC.REMOVE_LIBRARY_FOLDER, (event, folderPath) => {
-    let folders = getSetting<string[]>("library_folders", []);
-    folders = folders.filter((f: string) => f !== folderPath);
-    setSetting("library_folders", folders);
-    // Remove files from this folder
     const db = getDb();
-    db.prepare("DELETE FROM files WHERE directory LIKE ?").run(
-      folderPath + "%",
+    const rows = db.prepare("SELECT path FROM files").all() as Array<{ path: string }>;
+    const containedPaths = filterContainedPaths(
+      folderPath,
+      rows.map((row) => row.path),
     );
-    return folders;
+    const deleteFiles = db.transaction((paths: string[]) => {
+      const stmt = db.prepare("DELETE FROM files WHERE path = ?");
+      for (const filePath of paths) {
+        stmt.run(filePath);
+      }
+    });
+    deleteFiles(containedPaths);
+    return true;
   });
 
   ipcMain.handle(IPC.GET_LAST_FOLDER, () => {

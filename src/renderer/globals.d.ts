@@ -12,6 +12,7 @@ import type {
   ThumbnailResultData,
   PreviewParseRequestData,
   SerializedMesh,
+  RuntimeSettingsData,
 } from "../shared/types";
 
 export type { FileRecord };
@@ -21,12 +22,12 @@ interface PolytrayAPI {
   getLastFolder: () => Promise<string | null>;
   getLibraryFolders: () => Promise<string[]>;
   getDirectories: () => Promise<string[]>;
-  removeLibraryFolder: (path: string) => Promise<string[]>;
+  removeLibraryFolder: (path: string) => Promise<boolean>;
 
-  scanFolder: (folderPath: string) => Promise<void>;
+  scanFolder: (folderPath: string, settings: RuntimeSettingsData) => Promise<void>;
   rescan: () => Promise<void>;
-  clearThumbnails: () => Promise<void>;
-  refreshFolderThumbnails: (folderPath: string) => Promise<void>;
+  clearThumbnails: (settings: RuntimeSettingsData) => Promise<void>;
+  refreshFolderThumbnails: (folderPath: string, settings: RuntimeSettingsData) => Promise<void>;
 
   getFiles: (
     opts: SortOptions,
@@ -48,9 +49,8 @@ interface PolytrayAPI {
   showContextMenu: (filePath: string) => void;
   showFolderContextMenu: (path: string) => void;
 
-  startWatching: (folderPaths: string[]) => Promise<void>;
+  startWatching: (folderPaths: string[], settings: RuntimeSettingsData) => Promise<void>;
   stopWatching: () => Promise<void>;
-  updateSetting: (key: string, value: string | number | boolean) => Promise<boolean>;
 
   onFolderAction: (
     callback: (action: "refresh" | "rescan", folderPath: string) => void,

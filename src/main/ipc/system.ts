@@ -10,9 +10,9 @@ import {
   clipboard,
 } from "electron";
 import { join } from "path";
-import { getDb, setSetting } from "../database";
+import { getDb } from "../database";
 import { startWatcher, stopWatcher } from "../watcher";
-import { IPC } from "../../shared/types";
+import { IPC, RuntimeSettingsData } from "../../shared/types";
 
 export function registerSystemHandlers(
   getMainWindow: () => BrowserWindow | null,
@@ -95,20 +95,17 @@ export function registerSystemHandlers(
     menu.popup({ window: BrowserWindow.fromWebContents(event.sender)! });
   });
 
-  ipcMain.handle(IPC.START_WATCHING, async (event, folderPaths: string[]) => {
+  ipcMain.handle(
+    IPC.START_WATCHING,
+    async (event, folderPaths: string[], settings: RuntimeSettingsData) => {
     const mainWindow = getMainWindow();
     if (mainWindow) {
-      await startWatcher(folderPaths, mainWindow, getDb());
+      await startWatcher(folderPaths, mainWindow, getDb(), settings);
     }
   });
 
   ipcMain.handle(IPC.STOP_WATCHING, async () => {
     await stopWatcher();
-  });
-
-  ipcMain.handle(IPC.UPDATE_SETTING, (_event, key: string, value: string | number | boolean) => {
-    setSetting(key, value);
-    return true;
   });
 
 }

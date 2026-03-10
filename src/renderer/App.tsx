@@ -12,6 +12,23 @@ import { PreviewPanel } from "./components/PreviewPanel";
 import { SettingsModal } from "./components/SettingsModal";
 import { formatSize, formatVertices, formatTimestamp } from "./lib/formatters";
 import { VirtuosoGrid } from "react-virtuoso";
+import {
+  AppSettings,
+  DEFAULT_APP_SETTINGS,
+  normalizeAppSettings,
+  serializeAppSettings,
+  SETTINGS_STORAGE_KEY,
+  toRuntimeSettings,
+} from "../shared/settings";
+import {
+  DEFAULT_LIBRARY_STATE,
+  LIBRARY_STATE_STORAGE_KEY,
+  LibraryState,
+  normalizeLibraryState,
+  serializeLibraryState,
+  withAddedLibraryFolder,
+  withRemovedLibraryFolder,
+} from "../shared/libraryState";
 
 // Types for file records from the database
 interface FileRecord {
@@ -44,20 +61,6 @@ interface ProgressState {
   count: string;
 }
 
-interface Settings {
-  lightMode: boolean;
-  gridSize: string;
-  autoScan: boolean;
-  watch: boolean;
-  showGrid: boolean;
-  thumbQuality: string;
-  accentColor: string;
-  thumbnail_timeout: number;
-  scanning_batch_size: number;
-  watcher_stability: number;
-  page_size: number;
-}
-
 export const App: React.FC = () => {
   // ── State ───────────────────────────────────────────────────────
   const [folders, setFolders] = useState<string[]>([]);
@@ -83,19 +86,7 @@ export const App: React.FC = () => {
     text: "",
     count: "",
   });
-  const [settings, setSettings] = useState({
-    lightMode: false,
-    gridSize: "medium",
-    autoScan: true,
-    watch: true,
-    showGrid: true,
-    thumbQuality: "256",
-    accentColor: "#6d9fff",
-    thumbnail_timeout: 20000,
-    scanning_batch_size: 50,
-    watcher_stability: 1000,
-    page_size: 500,
-  });
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
 
   // Refs to get latest state in IPC callbacks
   const foldersRef = useRef(folders);
@@ -112,6 +103,45 @@ export const App: React.FC = () => {
   activeFolderRef.current = activeFolder;
   const searchRef = useRef(search);
   searchRef.current = search;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const libraryStateRef = useRef<LibraryState>(DEFAULT_LIBRARY_STATE);
+
+  const applySettingsToDocument = useCallback((nextSettings: AppSettings) => {
+    document.body.classList.toggle("light", nextSettings.lightMode);
+    document.body.style.setProperty("--accent-primary", nextSettings.accentColor);
+    document.body.style.setProperty("--stl-color", nextSettings.accentColor);
+    window.dispatchEvent(
+      new CustomEvent("polytray-accent-color", {
+        detail: nextSettings.accentColor,
+      }),
+    );
+  }, []);
+
+  const persistSettings = useCallback((nextSettings: AppSettings) => {
+    localStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      serializeAppSettings(nextSettings),
+    );
+  }, []);
+
+  const getRuntimeSettings = useCallback(
+    () => toRuntimeSettings(settingsRef.current),
+    [],
+  );
+
+  const applyLibraryState = useCallback((nextState: LibraryState) => {
+    libraryStateRef.current = nextState;
+    setFolders(nextState.libraryFolders);
+    foldersRef.current = nextState.libraryFolders;
+  }, []);
+
+  const persistLibraryState = useCallback((nextState: LibraryState) => {
+    localStorage.setItem(
+      LIBRARY_STATE_STORAGE_KEY,
+      serializeLibraryState(nextState),
+    );
+  }, []);
 
   const fetchFiles = useCallback(async () => {
     const result = await window.polytray.getFiles({
@@ -164,8 +194,10 @@ export const App: React.FC = () => {
 
         await fetchFiles();
 
-        // Start watching
-        window.polytray.startWatching(foldersRef.current);
+        window.polytray.startWatching(
+          foldersRef.current,
+          getRuntimeSettings(),
+        );
 
         setTimeout(() => {
           setProgress((p) => {
@@ -247,7 +279,7 @@ export const App: React.FC = () => {
     return () => {
       cleanups.forEach((c) => c());
     };
-  }, [fetchFiles]);
+  }, [fetchFiles, getRuntimeSettings]);
 
   // ── Boot ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -255,34 +287,47 @@ export const App: React.FC = () => {
     hasBooted.current = true;
 
     (async () => {
-      const f = await window.polytray.getLibraryFolders();
-      setFolders(f);
-      foldersRef.current = f;
+      const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      let loadedSettings = DEFAULT_APP_SETTINGS;
 
-      const raw = localStorage.getItem("polytray-settings");
       if (raw) {
         try {
-          const parsed = JSON.parse(raw);
-          setSettings((prev) => ({ ...prev, ...parsed }));
-          if (parsed.lightMode) {
-            document.body.classList.add("light");
-          }
-          if (parsed.accentColor) {
-            document.body.style.setProperty("--accent-primary", parsed.accentColor);
-            document.body.style.setProperty("--stl-color", parsed.accentColor);
-          }
-        } catch (e) {
-          console.error("Failed to parse settings", e);
+          loadedSettings = normalizeAppSettings(JSON.parse(raw));
+        } catch (error) {
+          console.error("Failed to parse settings", error);
         }
       }
+      setSettings(loadedSettings);
+      settingsRef.current = loadedSettings;
+      persistSettings(loadedSettings);
+      applySettingsToDocument(loadedSettings);
 
-      const savedSettings = raw ? JSON.parse(raw) : null;
-      const shouldAutoScan = savedSettings?.autoScan ?? true;
-      const shouldWatch = savedSettings?.watch ?? true;
+      const savedLibraryStateRaw = localStorage.getItem(LIBRARY_STATE_STORAGE_KEY);
+      let loadedLibraryState = DEFAULT_LIBRARY_STATE;
 
-      if (f.length > 0) {
+      if (savedLibraryStateRaw) {
+        try {
+          loadedLibraryState = normalizeLibraryState(JSON.parse(savedLibraryStateRaw));
+        } catch (error) {
+          console.error("Failed to parse library state", error);
+        }
+      } else {
+        const [legacyFolders, legacyLastFolder] = await Promise.all([
+          window.polytray.getLibraryFolders(),
+          window.polytray.getLastFolder(),
+        ]);
+        loadedLibraryState = normalizeLibraryState({
+          libraryFolders: legacyFolders,
+          lastFolder: legacyLastFolder,
+        });
+      }
+
+      applyLibraryState(loadedLibraryState);
+      persistLibraryState(loadedLibraryState);
+
+      if (loadedLibraryState.libraryFolders.length > 0) {
         const result = await window.polytray.getFiles({
-          limit: 500,
+          limit: loadedSettings.page_size,
           offset: 0,
         });
         setFiles(result.files);
@@ -291,37 +336,37 @@ export const App: React.FC = () => {
         const d = await window.polytray.getDirectories();
         setDirectories(d);
 
-        if (shouldWatch) {
-          window.polytray.startWatching(f); // Pass the entire array
+        if (loadedSettings.watch) {
+          window.polytray.startWatching(
+            loadedLibraryState.libraryFolders,
+            toRuntimeSettings(loadedSettings),
+          );
         }
 
-        if (shouldAutoScan) {
+        if (loadedSettings.autoScan) {
           handleRescan();
         }
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Update body class when lightMode change
-  useEffect(() => {
-    if (settings.lightMode) {
-      document.body.classList.add("light");
-    } else {
-      document.body.classList.remove("light");
-    }
-  }, [settings.lightMode]);
+  }, [applyLibraryState, applySettingsToDocument, persistLibraryState, persistSettings]);
 
   // ── Handlers ────────────────────────────────────────────────────
   const handleAddFolder = useCallback(async () => {
     const folder = await window.polytray.selectFolder();
     if (!folder) return;
-    const f = await window.polytray.getLibraryFolders();
-    setFolders(f);
-    foldersRef.current = f;
+    const nextLibraryState = withAddedLibraryFolder(
+      libraryStateRef.current,
+      folder,
+    );
+    applyLibraryState(nextLibraryState);
+    persistLibraryState(nextLibraryState);
     // If watching is enabled, start watching the new set of folders
     if (settings.watch) {
-      window.polytray.startWatching(f);
+      window.polytray.startWatching(
+        nextLibraryState.libraryFolders,
+        getRuntimeSettings(),
+      );
     }
     setProgress({
       visible: true,
@@ -329,17 +374,29 @@ export const App: React.FC = () => {
       text: "Starting scan...",
       count: "",
     });
-    await window.polytray.scanFolder(folder);
-  }, [settings.watch]);
+    await window.polytray.scanFolder(folder, getRuntimeSettings());
+  }, [applyLibraryState, getRuntimeSettings, persistLibraryState, settings.watch]);
 
   const handleRemoveFolder = useCallback(async (folderPath: string) => {
     await window.polytray.removeLibraryFolder(folderPath);
-    const f = await window.polytray.getLibraryFolders();
-    setFolders(f);
-    foldersRef.current = f;
+    const nextLibraryState = withRemovedLibraryFolder(
+      libraryStateRef.current,
+      folderPath,
+    );
+    applyLibraryState(nextLibraryState);
+    persistLibraryState(nextLibraryState);
     // If watching is enabled, update watching with the new set of folders
     if (settings.watch) {
-      window.polytray.startWatching(f);
+      window.polytray.startWatching(
+        nextLibraryState.libraryFolders,
+        getRuntimeSettings(),
+      );
+    } else {
+      window.polytray.stopWatching();
+    }
+    if (activeFolderRef.current === folderPath) {
+      setActiveFolder(null);
+      activeFolderRef.current = null;
     }
     const result = await window.polytray.getFiles({
           sort: sortRef.current,
@@ -347,7 +404,7 @@ export const App: React.FC = () => {
           extension: extensionRef.current,
           folder: activeFolderRef.current,
           search: searchRef.current,
-          limit: 500,
+          limit: settingsRef.current.page_size,
           offset: 0,
         });
     setFiles(result.files);
@@ -355,7 +412,7 @@ export const App: React.FC = () => {
         setStats(s);
         const d = await window.polytray.getDirectories();
         setDirectories(d);
-  }, [settings.watch]);
+  }, [applyLibraryState, getRuntimeSettings, persistLibraryState, settings.watch]);
 
   const handleRescan = useCallback(async () => {
     for (const folder of foldersRef.current) {
@@ -365,13 +422,13 @@ export const App: React.FC = () => {
         text: "Starting scan...",
         count: "",
       });
-      await window.polytray.scanFolder(folder);
+      await window.polytray.scanFolder(folder, getRuntimeSettings());
     }
-  }, []);
+  }, [getRuntimeSettings]);
 
   const handleClearThumbnails = useCallback(async () => {
     if (confirm("Regenerate all thumbnails? This may take a while.")) {
-      await window.polytray.clearThumbnails();
+      await window.polytray.clearThumbnails(getRuntimeSettings());
       fetchFiles(); // Immediate UI update to show clear state
       for (const folder of foldersRef.current) {
         setProgress({
@@ -380,10 +437,10 @@ export const App: React.FC = () => {
           text: "Starting scan...",
           count: "",
         });
-        await window.polytray.scanFolder(folder);
+        await window.polytray.scanFolder(folder, getRuntimeSettings());
       }
     }
-  }, [fetchFiles]);
+  }, [fetchFiles, getRuntimeSettings]);
 
   const handleSortChange = useCallback(async (newSort: string) => {
     setSort(newSort);
@@ -425,8 +482,8 @@ export const App: React.FC = () => {
       text: "Scanning folder...",
       count: "",
     });
-    await window.polytray.scanFolder(folderPath);
-  }, []);
+    await window.polytray.scanFolder(folderPath, getRuntimeSettings());
+  }, [getRuntimeSettings]);
 
   const handleRefreshFolderThumbnails = useCallback(async (folderPath: string) => {
     setProgress({
@@ -435,56 +492,30 @@ export const App: React.FC = () => {
       text: "Refreshing thumbnails...",
       count: "",
     });
-    await window.polytray.refreshFolderThumbnails(folderPath);
+    await window.polytray.refreshFolderThumbnails(folderPath, getRuntimeSettings());
     fetchFiles(); // Update UI to show loading pulses
-  }, [fetchFiles]);
+  }, [fetchFiles, getRuntimeSettings]);
 
-  const handleSettingsChange = useCallback((newSettings: Partial<Settings>) => {
+  const handleSettingsChange = useCallback((newSettings: Partial<AppSettings>) => {
     setSettings((prev) => {
-      const merged = { ...prev, ...newSettings };
-      localStorage.setItem("polytray-settings", JSON.stringify(merged));
-
-      // Immediate side effects
-      if (typeof newSettings.lightMode !== "undefined") {
-        document.body.classList.toggle("light", newSettings.lightMode);
-      }
-      if (typeof newSettings.accentColor !== "undefined") {
-        document.body.style.setProperty("--accent-primary", newSettings.accentColor);
-        document.body.style.setProperty("--stl-color", newSettings.accentColor);
-        window.dispatchEvent(new CustomEvent("polytray-accent-color", { detail: newSettings.accentColor }));
-      }
-
-      // Sync advanced settings to main process (SQLite)
-      if (newSettings.thumbnail_timeout !== undefined) {
-        window.polytray.updateSetting("thumbnail_timeout", newSettings.thumbnail_timeout);
-      }
-      if (newSettings.scanning_batch_size !== undefined) {
-        window.polytray.updateSetting("scanning_batch_size", newSettings.scanning_batch_size);
-      }
-      if (newSettings.watcher_stability !== undefined) {
-        window.polytray.updateSetting("watcher_stability", newSettings.watcher_stability);
-      }
-      if (newSettings.page_size !== undefined) {
-        window.polytray.updateSetting("page_size", newSettings.page_size);
-      }
-
+      const merged = normalizeAppSettings({ ...prev, ...newSettings });
+      settingsRef.current = merged;
+      persistSettings(merged);
+      applySettingsToDocument(merged);
       return merged;
     });
-  }, []);
+  }, [applySettingsToDocument, persistSettings]);
 
   // ── Reactive watch toggle ──────────────────────────────────────
-  const settingsRef = useRef(settings);
-  settingsRef.current = settings;
-
   useEffect(() => {
     if (foldersRef.current.length === 0) return;
 
     if (settings.watch) {
-      window.polytray.startWatching(foldersRef.current); // Pass the entire array
+      window.polytray.startWatching(foldersRef.current, getRuntimeSettings());
     } else {
       window.polytray.stopWatching();
     }
-  }, [settings.watch]);
+  }, [getRuntimeSettings, settings.watch]);
 
   // Context Menu Callbacks
   useEffect(() => {

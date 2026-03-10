@@ -3,9 +3,16 @@ import path from "path";
 import fs from "fs/promises";
 import fsSync from "fs";
 import crypto from "crypto";
-import { IPC, PreviewParseRequestData, PreviewParsePortData, ScannedFile } from "../shared/types";
+import {
+  IPC,
+  PreviewParseRequestData,
+  PreviewParsePortData,
+  RuntimeSettingsData,
+  ScannedFile,
+} from "../shared/types";
 import { getThumbnailWindow } from "./index";
-import { getDb, getSetting } from "./database";
+import { getDb } from "./database";
+import { filterContainedPaths } from "./pathContainment";
 
 let thumbnailDir: string | null = null;
 const pendingRequests = new Map<string, Array<{ resolve: (val: string | null) => void }>>();
@@ -84,6 +91,7 @@ function requestPreviewParse(
 export async function generateThumbnail(
   filePath: string,
   ext: string,
+  settings: RuntimeSettingsData,
 ): Promise<string | null> {
   // 1. De-duplicate if already being processed
   const existing = inflightPromises.get(filePath);
@@ -119,7 +127,7 @@ export async function generateThumbnail(
       });
 
       // Safety timeout
-      const timeout = getSetting<number>("thumbnail_timeout", 20000);
+      const timeout = settings.thumbnail_timeout;
       setTimeout(() => {
         const currentCallbacks = pendingRequests.get(filePath);
         if (currentCallbacks) {
@@ -147,6 +155,7 @@ export async function generateThumbnail(
 export async function generateThumbnailsInBackground(
   filesToThumbnail: ScannedFile[],
   getMainWindow: () => BrowserWindow | null,
+  settings: RuntimeSettingsData,
 ) {
   const db = getDb();
   const total = filesToThumbnail.length;
@@ -175,7 +184,7 @@ export async function generateThumbnailsInBackground(
     const startTime = Date.now();
 
     try {
-      const thumbnailPath = await generateThumbnail(file.path, file.ext);
+      const thumbnailPath = await generateThumbnail(file.path, file.ext, settings);
       if (thumbnailPath) {
         db.prepare("UPDATE files SET thumbnail = ?, thumbnail_failed = 0 WHERE path = ?").run(
           thumbnailPath,
@@ -230,14 +239,13 @@ export async function generateThumbnailsInBackground(
 export function queueThumbnailGeneration(
   folderPath: string | null,
   getMainWindow: () => BrowserWindow | null,
+  settings: RuntimeSettingsData,
 ) {
   const db = getDb();
-  const query = folderPath
-    ? "SELECT path, name, extension, directory, size_bytes, modified_at FROM files WHERE path LIKE ? AND thumbnail IS NULL AND thumbnail_failed = 0"
-    : "SELECT path, name, extension, directory, size_bytes, modified_at FROM files WHERE thumbnail IS NULL AND thumbnail_failed = 0";
-  const params = folderPath ? [`${folderPath}%`] : [];
+  const query =
+    "SELECT path, name, extension, directory, size_bytes, modified_at FROM files WHERE thumbnail IS NULL AND thumbnail_failed = 0";
 
-  const missingRows = db.prepare(query).all(...params) as Array<{
+  const missingRows = db.prepare(query).all() as Array<{
     path: string;
     name: string;
     extension: string;
@@ -246,7 +254,14 @@ export function queueThumbnailGeneration(
     modified_at: number;
   }>;
 
-  const filesToThumbnail: ScannedFile[] = missingRows.map((row) => ({
+  const allowedPaths =
+    folderPath === null
+      ? null
+      : new Set(filterContainedPaths(folderPath, missingRows.map((row) => row.path)));
+
+  const filesToThumbnail: ScannedFile[] = missingRows
+    .filter((row) => allowedPaths === null || allowedPaths.has(row.path))
+    .map((row) => ({
     path: row.path,
     name: row.name,
     ext: row.extension,
@@ -258,7 +273,7 @@ export function queueThumbnailGeneration(
   if (filesToThumbnail.length > 0) {
     // Small delay to let the DB settle and UI update
     setTimeout(() => {
-      generateThumbnailsInBackground(filesToThumbnail, getMainWindow);
+      generateThumbnailsInBackground(filesToThumbnail, getMainWindow, settings);
     }, 500);
   }
 }

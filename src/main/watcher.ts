@@ -5,8 +5,7 @@ import { BrowserWindow } from "electron";
 import { Database } from "better-sqlite3";
 import { extractMetadata } from "./metadata";
 import { generateThumbnail } from "./thumbnails";
-import { EXT_SET, IPC } from "../shared/types";
-import { getSetting } from "./database";
+import { EXT_SET, IPC, RuntimeSettingsData } from "../shared/types";
 
 let workerProcess: UtilityProcess | null = null;
 
@@ -17,6 +16,7 @@ export async function startWatcher(
   folderPaths: string[],
   mainWindow: BrowserWindow,
   db: Database,
+  settings: RuntimeSettingsData,
 ) {
   await stopWatcher();
 
@@ -25,12 +25,15 @@ export async function startWatcher(
   const workerPath = path.join(__dirname, "worker.js");
   workerProcess = utilityProcess.fork(workerPath);
 
-  const watcherStability = getSetting<number>("watcher_stability", 1000);
-  workerProcess.postMessage({ type: "start", folderPaths, watcherStability });
+  workerProcess.postMessage({
+    type: "start",
+    folderPaths,
+    watcherStability: settings.watcher_stability,
+  });
 
   workerProcess.on("message", (msg) => {
     if (msg.type === "add" || msg.type === "change") {
-      handleFileChange(msg.filePath, msg.type, mainWindow, db);
+      handleFileChange(msg.filePath, msg.type, mainWindow, db, settings);
     } else if (msg.type === "unlink") {
       handleFileRemove(msg.filePath, mainWindow, db);
     }
@@ -74,6 +77,7 @@ async function handleFileChange(
   eventType: string,
   mainWindow: BrowserWindow,
   db: Database,
+  settings: RuntimeSettingsData,
 ) {
   const ext = path.extname(filePath).toLowerCase().slice(1);
   if (!EXT_SET.has(ext)) return;
@@ -96,7 +100,7 @@ async function handleFileChange(
     let thumbnailPath: string | null = null;
     let thumbnailFailed = 0;
     try {
-      thumbnailPath = await generateThumbnail(filePath, ext);
+      thumbnailPath = await generateThumbnail(filePath, ext, settings);
       if (!thumbnailPath) thumbnailFailed = 1;
     } catch (e: unknown) {
       console.warn(

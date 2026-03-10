@@ -6,6 +6,7 @@ import { getDb } from "../database";
 import { generateThumbnail, getThumbnailDir } from "../thumbnails";
 import fs from "fs";
 import { IPC } from "../../shared/types";
+import { DEFAULT_APP_SETTINGS, toRuntimeSettings } from "../../shared/settings";
 
 export function registerThumbnailHandlers(
   getMainWindow: () => BrowserWindow | null,
@@ -40,7 +41,11 @@ export function registerThumbnailHandlers(
     async (event, filePath, ext) => {
       const mainWindow = getMainWindow();
       if (!mainWindow) return null;
-      const thumbnailPath = await generateThumbnail(filePath, ext);
+      const thumbnailPath = await generateThumbnail(
+        filePath,
+        ext,
+        toRuntimeSettings(DEFAULT_APP_SETTINGS),
+      );
       const db = getDb();
       if (thumbnailPath) {
         db.prepare(

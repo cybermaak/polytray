@@ -1,5 +1,6 @@
 import React from "react";
 import { formatSize } from "../lib/formatters";
+import type { AppSettings } from "../../shared/settings";
 
 interface Props {
   folders: string[];
@@ -20,7 +21,7 @@ interface Props {
   onFilterChange: (ext: string | null) => void;
   onOpenSettings: () => void;
   lightMode: boolean;
-  onSettingsChange: (settings: Record<string, boolean | string>) => void;
+  onSettingsChange: (settings: Partial<AppSettings>) => void;
   onRefreshFolderThumbnails: (folder: string) => void;
 }
 

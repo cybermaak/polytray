@@ -12,6 +12,7 @@ import {
   SortOptions,
   PreviewParseRequestData,
   PreviewParsePortData,
+  RuntimeSettingsData,
   SerializedMesh,
 } from "../shared/types";
 
@@ -155,12 +156,13 @@ contextBridge.exposeInMainWorld("polytray", {
     ipcRenderer.invoke(IPC.REMOVE_LIBRARY_FOLDER, path),
 
   // Scanning
-  scanFolder: (folderPath: string) =>
-    ipcRenderer.invoke(IPC.SCAN_FOLDER, folderPath),
+  scanFolder: (folderPath: string, settings: RuntimeSettingsData) =>
+    ipcRenderer.invoke(IPC.SCAN_FOLDER, folderPath, settings),
   rescan: () => ipcRenderer.invoke(IPC.RESCAN),
-  clearThumbnails: () => ipcRenderer.invoke(IPC.CLEAR_THUMBNAILS),
-  refreshFolderThumbnails: (folderPath: string) =>
-    ipcRenderer.invoke(IPC.REFRESH_FOLDER_THUMBNAILS, folderPath),
+  clearThumbnails: (settings: RuntimeSettingsData) =>
+    ipcRenderer.invoke(IPC.CLEAR_THUMBNAILS, settings),
+  refreshFolderThumbnails: (folderPath: string, settings: RuntimeSettingsData) =>
+    ipcRenderer.invoke(IPC.REFRESH_FOLDER_THUMBNAILS, folderPath, settings),
 
   // File queries
   getFiles: (opts: SortOptions) => ipcRenderer.invoke(IPC.GET_FILES, opts),
@@ -212,11 +214,9 @@ contextBridge.exposeInMainWorld("polytray", {
   },
 
   // File watching
-  startWatching: (folderPaths: string[]) =>
-    ipcRenderer.invoke(IPC.START_WATCHING, folderPaths),
+  startWatching: (folderPaths: string[], settings: RuntimeSettingsData) =>
+    ipcRenderer.invoke(IPC.START_WATCHING, folderPaths, settings),
   stopWatching: () => ipcRenderer.invoke(IPC.STOP_WATCHING),
-  updateSetting: (key: string, value: string | number | boolean): Promise<boolean> =>
-    ipcRenderer.invoke(IPC.UPDATE_SETTING, key, value),
 
   // ── Event Listeners (return generic unsubscribe functions) ──────────
 
