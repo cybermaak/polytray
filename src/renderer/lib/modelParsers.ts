@@ -10,6 +10,11 @@ import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
 import { fix3MF } from "./threemf-repair";
 import { VIEWER_CONFIG } from "./viewerConfig";
+import {
+  prepare3mfGeometry,
+  prepareObjGeometry,
+  prepareStlGeometry,
+} from "./meshPrep";
 
 let currentAccentColor: number | string = VIEWER_CONFIG.material.color;
 
@@ -29,19 +34,7 @@ export function createMaterial(): THREE.MeshStandardMaterial {
 
 function loadSTL(arrayBuffer: ArrayBuffer, group: THREE.Group): void {
   const loader = new STLLoader();
-  const geometry = loader.parse(arrayBuffer);
-
-  // Some STLs incorrectly specify vertex colors (which default to black)
-  // We explicitly remove the color attribute so our designated material color applies
-  if (geometry.hasAttribute("color")) {
-    geometry.deleteAttribute("color");
-  }
-  // Also explicitly override the custom flag STLLoader might set
-  (geometry as THREE.BufferGeometry & { hasColors?: boolean }).hasColors =
-    false;
-
-  // Ensure we have correct normals for lighting calculations (prevents black rendering)
-  geometry.computeVertexNormals();
+  const geometry = prepareStlGeometry(loader.parse(arrayBuffer));
 
   const material = createMaterial();
   const mesh = new THREE.Mesh(geometry, material);
@@ -58,6 +51,7 @@ function loadOBJ(arrayBuffer: ArrayBuffer, group: THREE.Group): void {
 
   obj.traverse((child) => {
     if (child instanceof THREE.Mesh) {
+      child.geometry = prepareObjGeometry(child.geometry);
       child.material = createMaterial();
       child.castShadow = true;
       child.receiveShadow = true;
@@ -80,17 +74,7 @@ async function load3MF(
 
   obj.traverse((child: THREE.Object3D) => {
     if (child instanceof THREE.Mesh) {
-      // 3MF uses indexed geometry (shared vertices). computeVertexNormals()
-      // on indexed geometry averages normals across all adjacent faces,
-      // which over-smooths hard edges and loses detail.
-      // Convert to non-indexed first so each triangle gets its own vertices,
-      // matching STL's per-face normal behavior.
-      if (child.geometry.index) {
-        child.geometry = child.geometry.toNonIndexed();
-      }
-
-      // Recompute normals per-face for correct lighting
-      child.geometry.computeVertexNormals();
+      child.geometry = prepare3mfGeometry(child.geometry);
 
       // Always upgrade to our standard material for consistent lighting/shading
       child.material = createMaterial();

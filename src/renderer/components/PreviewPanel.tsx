@@ -2,8 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 import { formatSize, formatNumber } from "../lib/formatters";
 import {
   initViewer,
-  loadModelFromUrl,
-  loadModelWithWorker, // Add this
+  loadModelWithWorker,
   disposeViewer,
   toggleWireframe,
   resetCamera,
@@ -56,30 +55,15 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
 
       try {
         initViewer(containerRef.current);
-
-        const ext = file.extension.toLowerCase();
-        if (ext === "stl" || ext === "obj") {
-          // Worker-based non-blocking load
-          await loadModelWithWorker(
-            file.path,
-            file.extension,
-            file.name,
-            signal,
-            (percent) => {
-              if (!signal.aborted) setLoadProgress(percent);
-            }
-          );
-        } else {
-          // Fallback for 3MF (currently requires main-thread DOMParser)
-          await loadModelFromUrl(
-            file.path,
-            file.extension,
-            file.name,
-            (percent) => {
-              if (!signal.aborted) setLoadProgress(percent);
-            }
-          );
-        }
+        await loadModelWithWorker(
+          file.path,
+          file.extension,
+          file.name,
+          signal,
+          (percent) => {
+            if (!signal.aborted) setLoadProgress(percent);
+          }
+        );
 
         if (signal.aborted) return;
         setLoading(false);

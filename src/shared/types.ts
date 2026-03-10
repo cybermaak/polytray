@@ -68,6 +68,7 @@ export const IPC = {
   GET_THUMBNAIL_PATH: "get-thumbnail-path",
   GET_DIRECTORIES: "get-directories",
   REQUEST_THUMBNAIL_GENERATION: "request-thumbnail-generation",
+  REQUEST_PREVIEW_PARSE: "request-preview-parse",
   GET_STATS: "get-stats",
   START_WATCHING: "start-watching",
   STOP_WATCHING: "stop-watching",
@@ -89,6 +90,8 @@ export const IPC = {
   THUMBNAIL_READY: "thumbnail-ready",
   THUMBNAIL_PROGRESS: "thumbnail-progress",
   GENERATE_THUMBNAIL_REQUEST: "generate-thumbnail-request",
+  GENERATE_PREVIEW_PARSE_REQUEST: "generate-preview-parse-request",
+  PREVIEW_PARSED: "preview-parsed",
 } as const;
 
 // ── IPC Payload Types (single source of truth) ──────────────────────
@@ -166,4 +169,38 @@ export interface ThumbnailResultData {
   thumbPath: string;
   success: boolean;
   dataUrl?: string;
+}
+
+export interface SerializedAttribute {
+  array: Float32Array;
+  itemSize: number;
+  normalized: boolean;
+}
+
+export interface SerializedIndex {
+  array: Uint16Array | Uint32Array;
+  itemSize: number;
+}
+
+export interface SerializedGeometry {
+  attributes: Record<string, SerializedAttribute>;
+  index: SerializedIndex | null;
+}
+
+export interface SerializedMesh {
+  geometry: SerializedGeometry;
+  name: string;
+}
+
+export interface PreviewParseRequestData {
+  requestId: string;
+  filePath: string;
+  ext: string;
+}
+
+export interface PreviewParseResultData {
+  requestId: string;
+  success: boolean;
+  error?: string;
+  meshes?: SerializedMesh[];
 }

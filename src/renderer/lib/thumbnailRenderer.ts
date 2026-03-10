@@ -9,6 +9,7 @@ import { VIEWER_CONFIG } from "./viewerConfig";
 import { parseModelToGroup } from "./modelParsers";
 import { applySmartOrientation } from "./orientation";
 import { computeCameraFit } from "./cameraUtils";
+import { collectSerializedMeshes } from "./meshSerialization";
 
 // ── Thumbnail Rendering State ─────────────────────────────────────
 
@@ -158,6 +159,23 @@ export async function renderThumbnail(
   return dataUrl;
 }
 
+export async function parsePreviewMeshes(
+  arrayBuffer: ArrayBuffer,
+  extension: string,
+): Promise<import("../../shared/types").SerializedMesh[]> {
+  const group = await parseModelToGroup(arrayBuffer, extension);
+
+  try {
+    if (group.children.length === 0) {
+      return [];
+    }
+
+    return collectSerializedMeshes(group).meshes;
+  } finally {
+    disposeObject(group);
+  }
+}
+
 // ── IPC-Driven Thumbnail Pipeline ─────────────────────────────────
 
 /**
@@ -206,5 +224,37 @@ export function initThumbnailGenerator(canvas: HTMLCanvasElement) {
     }
   });
 
-  return cleanup;
+  const previewCleanup = window.polytray.onPreviewParseRequest(async (data) => {
+    const { requestId, filePath, ext } = data;
+
+    try {
+      const url = `polytray://local/${encodeURIComponent(filePath)}`;
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${url}: ${response.status}`);
+      }
+
+      const buffer = await response.arrayBuffer();
+      const meshes = await parsePreviewMeshes(buffer, ext);
+
+      window.polytray.sendPreviewParseResult({
+        requestId,
+        success: true,
+        meshes,
+      });
+    } catch (e) {
+      console.warn("Preview parse failed for", filePath, e);
+      window.polytray.sendPreviewParseResult({
+        requestId,
+        success: false,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  });
+
+  return () => {
+    cleanup();
+    previewCleanup();
+  };
 }

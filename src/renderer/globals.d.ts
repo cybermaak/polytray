@@ -10,6 +10,9 @@ import type {
   ThumbnailProgressData,
   ThumbnailRequestData,
   ThumbnailResultData,
+  PreviewParseRequestData,
+  PreviewParseResultData,
+  SerializedMesh,
 } from "../shared/types";
 
 export type { FileRecord };
@@ -38,6 +41,10 @@ interface PolytrayAPI {
     filePath: string,
     ext: string,
   ) => Promise<string | null>;
+  requestPreviewParse: (
+    filePath: string,
+    ext: string,
+  ) => Promise<SerializedMesh[]>;
   startDrag: (filePath: string) => void;
   showContextMenu: (filePath: string) => void;
   showFolderContextMenu: (path: string) => void;
@@ -64,6 +71,10 @@ interface PolytrayAPI {
     callback: (data: ThumbnailRequestData) => void,
   ) => () => void;
   sendThumbnailResult: (result: ThumbnailResultData) => void;
+  onPreviewParseRequest: (
+    callback: (data: PreviewParseRequestData) => void,
+  ) => () => void;
+  sendPreviewParseResult: (result: PreviewParseResultData) => void;
 }
 
 declare global {

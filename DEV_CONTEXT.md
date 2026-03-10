@@ -23,6 +23,11 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **Thumbnail Generation:**
   - Runs in a completely detached, invisible `BrowserWindow` with `backgroundThrottling: false` to prevent macOS App Nap from freezing the worker.
   - Heavy 3D file parsing is offloaded from the main UI thread. Files are streamed directly into the hidden canvas using a custom `polytray://local/` protocol and `fetch()`, entirely bypassing slow Node-to-Chromium IPC ArrayBuffer serialization overhead.
+- **Preview Loading Architecture:**
+  - Interactive preview now uses one unified background-loading entrypoint for all formats.
+  - `STL` and `OBJ` parse in a dedicated renderer `Worker` and rebuild meshes on the main viewer thread.
+  - `3MF` preview parsing is routed through the existing hidden thumbnail `BrowserWindow` instead of the worker because `ThreeMFLoader` and local 3MF repair rely on DOM APIs such as `DOMParser` that are unavailable in a plain worker context.
+  - Shared mesh preparation/serialization logic lives in `src/renderer/lib/meshPrep.ts` and `src/renderer/lib/meshSerialization.ts` to keep thumbnail and preview behavior aligned.
 - **File Watching Architecture:**
   - Chokidar runs in a dedicated Electron `utilityProcess` (`src/main/worker.ts`) to avoid Main process event-loop starvation.
   - Main process orchestration/lifecycle lives in `src/main/watcher.ts` (start/stop + event bridge back into DB/UI updates).
@@ -66,6 +71,13 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Resolved Race Condition where Renderer grid reloaded before background rendering began.
   - Implemented live `onThumbnailReady` IPC bridge to update UI cards individually without full reloads.
   - Refactored `App.tsx` sorting/filtering to use a generalized `fetchFiles` utility.
+- **2026-03-10:**
+  - Unified interactive preview loading so all formats use a background parse pipeline from `PreviewPanel` instead of format-specific top-level branches.
+  - Fixed severe interactive UI freeze when loading large `3MF` previews by moving `3MF` parsing off the visible renderer thread.
+  - Added a hidden-renderer preview parse IPC path for `3MF` because `ThreeMFLoader` and `fix3MF()` depend on DOM APIs unavailable in a plain worker.
+  - Added shared mesh prep + serialization helpers so preview and thumbnail paths preserve the same transforms/orientation semantics.
+  - Added regression coverage for large-preview responsiveness and the real `/Volumes/exssd/3D Models/base.3mf` repro case.
+  - Fixed a transform-loss regression in serialized `3MF` preview meshes by baking child world transforms before IPC transfer, restoring orientation parity with cached thumbnails.
 
 ---
 
@@ -99,9 +111,14 @@ If you are an AI assistant reading this file at the start of a session, use it t
    - Add queue dedupe tests and throughput assertions.
 
 5. **TD9 Observability + Guardrails (Do Fifth)**
-   - Add structured counters/logs: queue depth, thumb latency, failures, worker restarts.
-   - Add perf guardrails for large libraries (batch size sanity bounds, timeout constraints).
-   - Define and track performance budgets: scan start responsiveness, first thumbnail latency, full queue completion.
+  - Add structured counters/logs: queue depth, thumb latency, failures, worker restarts.
+  - Add perf guardrails for large libraries (batch size sanity bounds, timeout constraints).
+  - Define and track performance budgets: scan start responsiveness, first thumbnail latency, full queue completion.
+
+6. **Preview Transfer Cost Reduction (Current Follow-up)**
+   - The `3MF` preview freeze is fixed, but the hidden-renderer fallback now serializes large prepared meshes back over IPC to the interactive viewer.
+   - Investigate whether the current bottleneck is geometry serialization, IPC transfer volume, or main-thread rebuild cost for large `3MF` assemblies.
+   - Preserve orientation parity between cached thumbnails and interactive preview while reducing `3MF` preview latency.
 
 ### Engineering Improvement Backlog (Priority + Impact + Effort)
 

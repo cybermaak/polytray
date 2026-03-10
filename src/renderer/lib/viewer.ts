@@ -11,7 +11,7 @@ import { parseModelToGroup, setModelAccentColor, createMaterial } from "./modelP
 import { applySmartOrientation } from "./orientation";
 import { computeCameraFit } from "./cameraUtils";
 import ParserWorker from "./workers/parser.worker?worker";
-import type { SerializedMesh } from "./workers/parser.worker";
+import type { SerializedMesh } from "../../shared/types";
 
 // ── Re-exports for backward compatibility ─────────────────────────
 export { VIEWER_CONFIG } from "./viewerConfig";
@@ -52,6 +52,7 @@ function createInitialState(): ViewerState {
 
 const state: ViewerState = createInitialState();
 let currentWorker: Worker | null = null;
+const BUILD_MESH_BATCH_SIZE = 8;
 
 function getMultiModelContainer() {
   if (!state.multiModelContainer) {
@@ -196,6 +197,10 @@ function handleResize() {
   state.renderer.setSize(width, height);
 }
 
+function yieldToMainThread(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
 // ── Model Loading ─────────────────────────────────────────────────
 
 export async function loadModelFromUrl(
@@ -266,6 +271,13 @@ export async function loadModelWithWorker(
   const buffer = await response.arrayBuffer();
 
   if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+
+  if (extension.toLowerCase() === "3mf") {
+    const meshes = await window.polytray.requestPreviewParse(fileUrl, extension);
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    await buildModelFromMeshes(meshes, fileName);
+    return;
+  }
 
   // Phase 2: Parse in Worker
   return new Promise<void>((resolve, reject) => {
@@ -402,15 +414,14 @@ async function updateMultiModelThumbnailStrip(group: THREE.Group) {
   // We have multiple distinct models! Let's build a thumbnail strip.
   multiModelContainer.classList.remove("hidden");
 
-  // We need a temporary offscreen canvas for rendering mini-thumbnails
-  const tempCanvas = document.createElement("canvas");
-  tempCanvas.width = 128; // high-res enough for 64px display
-  tempCanvas.height = 128;
-
   // Wait a frame so the UI flexbox can settle before generating thumbs
   await new Promise((r) => setTimeout(r, 10));
 
   for (let i = 0; i < state.multiModelMeshes.length; i++) {
+    if (i > 0 && i % 2 === 0) {
+      await yieldToMainThread();
+    }
+
     const sub = state.multiModelMeshes[i];
 
     // Hide everything else temporarily to take a picture
@@ -559,24 +570,35 @@ export async function buildModelFromMeshes(meshes: SerializedMesh[], name: strin
   const group = new THREE.Group();
   group.name = name;
 
-  for (const m of meshes) {
+  for (let i = 0; i < meshes.length; i++) {
+    const m = meshes[i];
     const geometry = new THREE.BufferGeometry();
     for (const [attrName, attrData] of Object.entries(m.geometry.attributes)) {
       const { array, itemSize, normalized } = attrData;
       geometry.setAttribute(attrName, new THREE.BufferAttribute(array, itemSize, normalized));
     }
     if (m.geometry.index) {
-      geometry.setIndex(new THREE.Uint32BufferAttribute(m.geometry.index.array, 1));
+      if (m.geometry.index.array instanceof Uint16Array) {
+        geometry.setIndex(new THREE.Uint16BufferAttribute(m.geometry.index.array, 1));
+      } else {
+        geometry.setIndex(new THREE.Uint32BufferAttribute(m.geometry.index.array, 1));
+      }
     }
-    
-    // normals
-    geometry.computeVertexNormals();
+
+    // Fallback safety for old worker payloads.
+    if (!geometry.getAttribute("normal")) {
+      geometry.computeVertexNormals();
+    }
 
     const mesh = new THREE.Mesh(geometry, createMaterial());
     mesh.name = m.name;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     group.add(mesh);
+
+    if (i > 0 && i % BUILD_MESH_BATCH_SIZE === 0) {
+      await yieldToMainThread();
+    }
   }
 
   // Apply smart orientation heuristics

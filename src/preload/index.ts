@@ -10,6 +10,8 @@ import {
   ThumbnailRequestData,
   ThumbnailResultData,
   SortOptions,
+  PreviewParseRequestData,
+  PreviewParseResultData,
 } from "../shared/types";
 
 function onChannel<T>(channel: string, callback: (data: T) => void) {
@@ -57,6 +59,8 @@ contextBridge.exposeInMainWorld("polytray", {
     ipcRenderer.invoke(IPC.READ_THUMBNAIL, thumbnailPath),
   requestThumbnailGeneration: (filePath: string, ext: string) =>
     ipcRenderer.invoke(IPC.REQUEST_THUMBNAIL_GENERATION, filePath, ext),
+  requestPreviewParse: (filePath: string, ext: string) =>
+    ipcRenderer.invoke(IPC.REQUEST_PREVIEW_PARSE, filePath, ext),
 
   // File watching
   startWatching: (folderPaths: string[]) =>
@@ -98,5 +102,10 @@ contextBridge.exposeInMainWorld("polytray", {
     onChannel<ThumbnailRequestData>(IPC.GENERATE_THUMBNAIL_REQUEST, cb),
   sendThumbnailResult: (result: ThumbnailResultData) => {
     ipcRenderer.send(IPC.THUMBNAIL_GENERATED, result);
+  },
+  onPreviewParseRequest: (cb: (data: PreviewParseRequestData) => void) =>
+    onChannel<PreviewParseRequestData>(IPC.GENERATE_PREVIEW_PARSE_REQUEST, cb),
+  sendPreviewParseResult: (result: PreviewParseResultData) => {
+    ipcRenderer.send(IPC.PREVIEW_PARSED, result);
   },
 });

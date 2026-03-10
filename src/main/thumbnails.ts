@@ -3,13 +3,22 @@ import path from "path";
 import fs from "fs/promises";
 import fsSync from "fs";
 import crypto from "crypto";
-import { IPC, ScannedFile } from "../shared/types";
+import { IPC, PreviewParseResultData, ScannedFile, SerializedMesh } from "../shared/types";
 import { getThumbnailWindow } from "./index";
 import { getDb, getSetting } from "./database";
 
 let thumbnailDir: string | null = null;
 const pendingRequests = new Map<string, Array<{ resolve: (val: string | null) => void }>>();
 const inflightPromises = new Map<string, Promise<string | null>>();
+const PREVIEW_PARSE_TIMEOUT_MS = 120000;
+const pendingPreviewParses = new Map<
+  string,
+  {
+    resolve: (meshes: SerializedMesh[]) => void;
+    reject: (error: Error) => void;
+    timeoutId: NodeJS.Timeout;
+  }
+>();
 
 export function getThumbnailDir(): string {
   if (!thumbnailDir) {
@@ -51,10 +60,60 @@ export function initThumbnailService() {
 
     callbacks.forEach((cb) => cb.resolve(savedPath));
   });
+
+  ipcMain.on(IPC.PREVIEW_PARSED, (_event, result: PreviewParseResultData) => {
+    const pending = pendingPreviewParses.get(result.requestId);
+    if (!pending) return;
+
+    pendingPreviewParses.delete(result.requestId);
+    clearTimeout(pending.timeoutId);
+
+    if (result.success && result.meshes) {
+      pending.resolve(result.meshes);
+      return;
+    }
+
+    pending.reject(new Error(result.error || "Preview parse failed"));
+  });
+
+  ipcMain.handle(IPC.REQUEST_PREVIEW_PARSE, async (_event, filePath: string, ext: string) => {
+    return requestPreviewParse(filePath, ext);
+  });
 }
 
 function generatePathHash(filePath: string): string {
   return crypto.createHash("sha256").update(filePath).digest("hex").slice(0, 16);
+}
+
+async function requestPreviewParse(
+  filePath: string,
+  ext: string,
+): Promise<SerializedMesh[]> {
+  const thumbWindow = getThumbnailWindow();
+  if (!thumbWindow || thumbWindow.isDestroyed()) {
+    throw new Error("Background preview parser is unavailable");
+  }
+
+  const requestId = crypto.randomUUID();
+
+  return new Promise<SerializedMesh[]>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      pendingPreviewParses.delete(requestId);
+      reject(new Error("Background preview parse timed out"));
+    }, Math.max(getSetting<number>("thumbnail_timeout", 20000), PREVIEW_PARSE_TIMEOUT_MS));
+
+    pendingPreviewParses.set(requestId, {
+      resolve,
+      reject,
+      timeoutId,
+    });
+
+    thumbWindow.webContents.send(IPC.GENERATE_PREVIEW_PARSE_REQUEST, {
+      requestId,
+      filePath,
+      ext,
+    });
+  });
 }
 
 /**

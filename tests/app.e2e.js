@@ -24,6 +24,43 @@ const os = require("os");
 
 const FIXTURE_DIR = path.join(__dirname, "fixtures");
 const APP_DIR = path.resolve(__dirname, "..");
+const REAL_BASE_3MF_PATH = "/Volumes/exssd/3D Models/base.3mf";
+
+function generateLargeBinaryStl(filePath, triangleCount = 220000) {
+  const header = Buffer.alloc(80, 0);
+  header.write("polytray-large-perf-fixture", 0, "ascii");
+
+  const count = Buffer.alloc(4);
+  count.writeUInt32LE(triangleCount, 0);
+
+  const triangleBytes = Buffer.alloc(triangleCount * 50);
+  for (let i = 0; i < triangleCount; i++) {
+    const base = i * 50;
+
+    triangleBytes.writeFloatLE(0, base + 0);
+    triangleBytes.writeFloatLE(0, base + 4);
+    triangleBytes.writeFloatLE(1, base + 8);
+
+    const x = i % 1000;
+    const y = Math.floor(i / 1000);
+
+    triangleBytes.writeFloatLE(x, base + 12);
+    triangleBytes.writeFloatLE(y, base + 16);
+    triangleBytes.writeFloatLE(0, base + 20);
+
+    triangleBytes.writeFloatLE(x + 0.5, base + 24);
+    triangleBytes.writeFloatLE(y + 1, base + 28);
+    triangleBytes.writeFloatLE(0, base + 32);
+
+    triangleBytes.writeFloatLE(x + 1, base + 36);
+    triangleBytes.writeFloatLE(y, base + 40);
+    triangleBytes.writeFloatLE(0, base + 44);
+
+    triangleBytes.writeUInt16LE(0, base + 48);
+  }
+
+  fs.writeFileSync(filePath, Buffer.concat([header, count, triangleBytes]));
+}
 
 // Ensure we have a clean database for each test run
 let app;
@@ -54,6 +91,7 @@ test.beforeAll(async () => {
     args,
     env: {
       ...process.env,
+      ELECTRON_RUN_AS_NODE: "",
       ELECTRON_USER_DATA: tempUserData,
     },
   });
@@ -335,6 +373,187 @@ test("preview panel controls work (wireframe, reset, close)", async () => {
   const previewPanel = window.locator("#preview-panel");
   const classes = await previewPanel.getAttribute("class");
   expect(classes).toContain("hidden");
+});
+
+test("large preview loading does not stall renderer event loop for multiple seconds", async () => {
+  test.setTimeout(150000);
+  const perfFixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "polytray-perf-"));
+  try {
+    const largeModelPath = path.join(perfFixtureDir, "huge_preview_model.stl");
+    generateLargeBinaryStl(largeModelPath);
+
+    await window.evaluate((dir) => window.polytray.scanFolder(dir), perfFixtureDir);
+    await window.waitForTimeout(3500);
+
+    await window.evaluate(() => {
+      window.__polytrayFreezeStats = {
+        phase: "baseline",
+        last: performance.now(),
+        baselineSamples: [],
+        loadSamples: [],
+        baselineMaxGap: 0,
+        loadMaxGap: 0,
+      };
+
+      const tick = () => {
+        const now = performance.now();
+        const gap = now - window.__polytrayFreezeStats.last;
+        window.__polytrayFreezeStats.last = now;
+
+        if (window.__polytrayFreezeStats.phase === "baseline") {
+          window.__polytrayFreezeStats.baselineMaxGap = Math.max(window.__polytrayFreezeStats.baselineMaxGap, gap);
+          if (window.__polytrayFreezeStats.baselineSamples.length < 1500) {
+            window.__polytrayFreezeStats.baselineSamples.push(gap);
+          }
+        } else {
+          window.__polytrayFreezeStats.loadMaxGap = Math.max(window.__polytrayFreezeStats.loadMaxGap, gap);
+          if (window.__polytrayFreezeStats.loadSamples.length < 3000) {
+            window.__polytrayFreezeStats.loadSamples.push(gap);
+          }
+        }
+
+        window.__polytrayFreezeRaf = requestAnimationFrame(tick);
+      };
+
+      window.__polytrayFreezeRaf = requestAnimationFrame(tick);
+    });
+
+    // Capture machine baseline before heavy preview load starts.
+    await window.waitForTimeout(1200);
+
+    await window.evaluate(() => {
+      window.__polytrayFreezeStats.phase = "load";
+      window.__polytrayFreezeStats.last = performance.now();
+    });
+
+    const largeCard = window.locator(".file-card").filter({ hasText: "huge_preview_model" }).first();
+    await expect(largeCard).toBeVisible();
+    await largeCard.click();
+
+    await expect(window.locator("#viewer-loading")).toHaveClass(/hidden/, { timeout: 120000 });
+    await window.waitForTimeout(200);
+
+    const freeze = await window.evaluate(() => {
+      cancelAnimationFrame(window.__polytrayFreezeRaf);
+
+      const percentile = (samples, p) => {
+        if (!samples.length) return 0;
+        const sorted = [...samples].sort((a, b) => a - b);
+        return sorted[Math.floor(sorted.length * p)] || 0;
+      };
+
+      return {
+        baseline: {
+          sampleCount: window.__polytrayFreezeStats.baselineSamples.length,
+          maxGap: window.__polytrayFreezeStats.baselineMaxGap,
+          p95: percentile(window.__polytrayFreezeStats.baselineSamples, 0.95),
+        },
+        load: {
+          sampleCount: window.__polytrayFreezeStats.loadSamples.length,
+          maxGap: window.__polytrayFreezeStats.loadMaxGap,
+          p95: percentile(window.__polytrayFreezeStats.loadSamples, 0.95),
+        },
+      };
+    });
+
+    expect(freeze.baseline.sampleCount).toBeGreaterThan(10);
+    expect(freeze.load.sampleCount).toBeGreaterThan(10);
+    expect(freeze.load.maxGap).toBeLessThan(Math.max(1600, freeze.baseline.maxGap * 3.5));
+    expect(freeze.load.p95).toBeLessThan(Math.max(160, freeze.baseline.p95 * 4));
+  } finally {
+    fs.rmSync(perfFixtureDir, { recursive: true, force: true });
+  }
+});
+
+test("base.3mf preview does not freeze the UI for multiple seconds", async () => {
+  test.skip(!fs.existsSync(REAL_BASE_3MF_PATH), "requires local base.3mf fixture");
+  test.setTimeout(180000);
+
+  await window.evaluate(() => window.polytray.scanFolder("/Volumes/exssd/3D Models"));
+  await window.waitForTimeout(7000);
+
+  await window.locator("#search-input").fill("base");
+  await window.waitForTimeout(800);
+
+  const target = window.locator(".file-card")
+    .filter({ has: window.locator(".card-name", { hasText: /^base$/i }) })
+    .filter({ has: window.locator(".card-ext-badge", { hasText: "3MF" }) })
+    .first();
+
+  await expect(target).toBeVisible({ timeout: 30000 });
+
+  await window.evaluate(() => {
+    window.__polytrayFreezeStats = {
+      phase: "baseline",
+      last: performance.now(),
+      baselineSamples: [],
+      loadSamples: [],
+      baselineMaxGap: 0,
+      loadMaxGap: 0,
+    };
+
+    const tick = () => {
+      const now = performance.now();
+      const gap = now - window.__polytrayFreezeStats.last;
+      window.__polytrayFreezeStats.last = now;
+
+      if (window.__polytrayFreezeStats.phase === "baseline") {
+        window.__polytrayFreezeStats.baselineMaxGap = Math.max(window.__polytrayFreezeStats.baselineMaxGap, gap);
+        if (window.__polytrayFreezeStats.baselineSamples.length < 1500) {
+          window.__polytrayFreezeStats.baselineSamples.push(gap);
+        }
+      } else {
+        window.__polytrayFreezeStats.loadMaxGap = Math.max(window.__polytrayFreezeStats.loadMaxGap, gap);
+        if (window.__polytrayFreezeStats.loadSamples.length < 5000) {
+          window.__polytrayFreezeStats.loadSamples.push(gap);
+        }
+      }
+
+      window.__polytrayFreezeRaf = requestAnimationFrame(tick);
+    };
+
+    window.__polytrayFreezeRaf = requestAnimationFrame(tick);
+  });
+
+  await window.waitForTimeout(1200);
+
+  await window.evaluate(() => {
+    window.__polytrayFreezeStats.phase = "load";
+    window.__polytrayFreezeStats.last = performance.now();
+  });
+
+  await target.click();
+  await expect(window.locator("#viewer-loading")).toHaveClass(/hidden/, { timeout: 120000 });
+
+  const freeze = await window.evaluate(() => {
+    cancelAnimationFrame(window.__polytrayFreezeRaf);
+
+    const percentile = (samples, p) => {
+      if (!samples.length) return 0;
+      const sorted = [...samples].sort((a, b) => a - b);
+      return sorted[Math.floor(sorted.length * p)] || 0;
+    };
+
+    return {
+      filename: document.querySelector("#viewer-filename")?.textContent,
+      path: document.querySelector("#viewer-path span")?.textContent,
+      baseline: {
+        sampleCount: window.__polytrayFreezeStats.baselineSamples.length,
+        maxGap: window.__polytrayFreezeStats.baselineMaxGap,
+        p95: percentile(window.__polytrayFreezeStats.baselineSamples, 0.95),
+      },
+      load: {
+        sampleCount: window.__polytrayFreezeStats.loadSamples.length,
+        maxGap: window.__polytrayFreezeStats.loadMaxGap,
+        p95: percentile(window.__polytrayFreezeStats.loadSamples, 0.95),
+      },
+    };
+  });
+
+  expect(freeze.filename).toBe("base.3mf");
+  expect(freeze.path).toBe(REAL_BASE_3MF_PATH);
+  expect(freeze.load.maxGap).toBeLessThan(Math.max(5000, freeze.baseline.maxGap * 8));
+  expect(freeze.load.p95).toBeLessThan(Math.max(200, freeze.baseline.p95 * 5));
 });
 
 // ── Test 7: Search filters file cards ──────────────────────────────
