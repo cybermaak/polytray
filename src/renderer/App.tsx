@@ -87,6 +87,9 @@ export const App: React.FC = () => {
     count: "",
   });
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
+  const activeFolderLabel = activeFolder
+    ? activeFolder.split(/[\\/]/).filter(Boolean).pop() || activeFolder
+    : null;
 
   // Refs to get latest state in IPC callbacks
   const foldersRef = useRef(folders);
@@ -109,11 +112,21 @@ export const App: React.FC = () => {
 
   const applySettingsToDocument = useCallback((nextSettings: AppSettings) => {
     document.body.classList.toggle("light", nextSettings.lightMode);
-    document.body.style.setProperty("--accent-primary", nextSettings.accentColor);
-    document.body.style.setProperty("--stl-color", nextSettings.accentColor);
+    document.body.style.setProperty(
+      "--accent-primary",
+      nextSettings.accentColor,
+    );
+    document.body.style.setProperty(
+      "--preview-model-color",
+      nextSettings.previewColor,
+    );
+    document.body.style.setProperty(
+      "--thumbnail-model-color",
+      nextSettings.accentColor,
+    );
     window.dispatchEvent(
-      new CustomEvent("polytray-accent-color", {
-        detail: nextSettings.accentColor,
+      new CustomEvent("polytray-preview-color", {
+        detail: nextSettings.previewColor,
       }),
     );
   }, []);
@@ -194,10 +207,7 @@ export const App: React.FC = () => {
 
         await fetchFiles();
 
-        window.polytray.startWatching(
-          foldersRef.current,
-          getRuntimeSettings(),
-        );
+        window.polytray.startWatching(foldersRef.current, getRuntimeSettings());
 
         setTimeout(() => {
           setProgress((p) => {
@@ -302,12 +312,16 @@ export const App: React.FC = () => {
       persistSettings(loadedSettings);
       applySettingsToDocument(loadedSettings);
 
-      const savedLibraryStateRaw = localStorage.getItem(LIBRARY_STATE_STORAGE_KEY);
+      const savedLibraryStateRaw = localStorage.getItem(
+        LIBRARY_STATE_STORAGE_KEY,
+      );
       let loadedLibraryState = DEFAULT_LIBRARY_STATE;
 
       if (savedLibraryStateRaw) {
         try {
-          loadedLibraryState = normalizeLibraryState(JSON.parse(savedLibraryStateRaw));
+          loadedLibraryState = normalizeLibraryState(
+            JSON.parse(savedLibraryStateRaw),
+          );
         } catch (error) {
           console.error("Failed to parse library state", error);
         }
@@ -349,7 +363,12 @@ export const App: React.FC = () => {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyLibraryState, applySettingsToDocument, persistLibraryState, persistSettings]);
+  }, [
+    applyLibraryState,
+    applySettingsToDocument,
+    persistLibraryState,
+    persistSettings,
+  ]);
 
   // ── Handlers ────────────────────────────────────────────────────
   const handleAddFolder = useCallback(async () => {
@@ -375,44 +394,57 @@ export const App: React.FC = () => {
       count: "",
     });
     await window.polytray.scanFolder(folder, getRuntimeSettings());
-  }, [applyLibraryState, getRuntimeSettings, persistLibraryState, settings.watch]);
+  }, [
+    applyLibraryState,
+    getRuntimeSettings,
+    persistLibraryState,
+    settings.watch,
+  ]);
 
-  const handleRemoveFolder = useCallback(async (folderPath: string) => {
-    await window.polytray.removeLibraryFolder(folderPath);
-    const nextLibraryState = withRemovedLibraryFolder(
-      libraryStateRef.current,
-      folderPath,
-    );
-    applyLibraryState(nextLibraryState);
-    persistLibraryState(nextLibraryState);
-    // If watching is enabled, update watching with the new set of folders
-    if (settings.watch) {
-      window.polytray.startWatching(
-        nextLibraryState.libraryFolders,
-        getRuntimeSettings(),
+  const handleRemoveFolder = useCallback(
+    async (folderPath: string) => {
+      await window.polytray.removeLibraryFolder(folderPath);
+      const nextLibraryState = withRemovedLibraryFolder(
+        libraryStateRef.current,
+        folderPath,
       );
-    } else {
-      window.polytray.stopWatching();
-    }
-    if (activeFolderRef.current === folderPath) {
-      setActiveFolder(null);
-      activeFolderRef.current = null;
-    }
-    const result = await window.polytray.getFiles({
-          sort: sortRef.current,
-          order: orderRef.current,
-          extension: extensionRef.current,
-          folder: activeFolderRef.current,
-          search: searchRef.current,
-          limit: settingsRef.current.page_size,
-          offset: 0,
-        });
-    setFiles(result.files);
-    const s = await window.polytray.getStats();
-        setStats(s);
-        const d = await window.polytray.getDirectories();
-        setDirectories(d);
-  }, [applyLibraryState, getRuntimeSettings, persistLibraryState, settings.watch]);
+      applyLibraryState(nextLibraryState);
+      persistLibraryState(nextLibraryState);
+      // If watching is enabled, update watching with the new set of folders
+      if (settings.watch) {
+        window.polytray.startWatching(
+          nextLibraryState.libraryFolders,
+          getRuntimeSettings(),
+        );
+      } else {
+        window.polytray.stopWatching();
+      }
+      if (activeFolderRef.current === folderPath) {
+        setActiveFolder(null);
+        activeFolderRef.current = null;
+      }
+      const result = await window.polytray.getFiles({
+        sort: sortRef.current,
+        order: orderRef.current,
+        extension: extensionRef.current,
+        folder: activeFolderRef.current,
+        search: searchRef.current,
+        limit: settingsRef.current.page_size,
+        offset: 0,
+      });
+      setFiles(result.files);
+      const s = await window.polytray.getStats();
+      setStats(s);
+      const d = await window.polytray.getDirectories();
+      setDirectories(d);
+    },
+    [
+      applyLibraryState,
+      getRuntimeSettings,
+      persistLibraryState,
+      settings.watch,
+    ],
+  );
 
   const handleRescan = useCallback(async () => {
     for (const folder of foldersRef.current) {
@@ -442,11 +474,14 @@ export const App: React.FC = () => {
     }
   }, [fetchFiles, getRuntimeSettings]);
 
-  const handleSortChange = useCallback(async (newSort: string) => {
-    setSort(newSort);
-    sortRef.current = newSort;
-    fetchFiles();
-  }, [fetchFiles]);
+  const handleSortChange = useCallback(
+    async (newSort: string) => {
+      setSort(newSort);
+      sortRef.current = newSort;
+      fetchFiles();
+    },
+    [fetchFiles],
+  );
 
   const handleOrderToggle = useCallback(async () => {
     const newOrder = orderRef.current === "ASC" ? "DESC" : "ASC";
@@ -455,56 +490,75 @@ export const App: React.FC = () => {
     fetchFiles();
   }, [fetchFiles]);
 
-  const handleExtensionFilter = useCallback(async (ext: string | null) => {
-    setExtension(ext);
-    extensionRef.current = ext;
-    fetchFiles();
-  }, [fetchFiles]);
+  const handleExtensionFilter = useCallback(
+    async (ext: string | null) => {
+      setExtension(ext);
+      extensionRef.current = ext;
+      fetchFiles();
+    },
+    [fetchFiles],
+  );
 
-  const handleSearch = useCallback(async (query: string) => {
-    setSearch(query);
-    searchRef.current = query;
-    fetchFiles();
-  }, [fetchFiles]);
+  const handleSearch = useCallback(
+    async (query: string) => {
+      setSearch(query);
+      searchRef.current = query;
+      fetchFiles();
+    },
+    [fetchFiles],
+  );
 
+  const handleFolderSelect = useCallback(
+    async (folderPath: string | null) => {
+      setActiveFolder(folderPath);
+      activeFolderRef.current = folderPath;
+      fetchFiles();
+    },
+    [fetchFiles],
+  );
 
+  const handleRescanFolder = useCallback(
+    async (folderPath: string) => {
+      setProgress({
+        visible: true,
+        percent: 0,
+        text: "Scanning folder...",
+        count: "",
+      });
+      await window.polytray.scanFolder(folderPath, getRuntimeSettings());
+    },
+    [getRuntimeSettings],
+  );
 
-  const handleFolderSelect = useCallback(async (folderPath: string | null) => {
-    setActiveFolder(folderPath);
-    activeFolderRef.current = folderPath;
-    fetchFiles();
-  }, [fetchFiles]);
+  const handleRefreshFolderThumbnails = useCallback(
+    async (folderPath: string) => {
+      setProgress({
+        visible: true,
+        percent: 0,
+        text: "Refreshing thumbnails...",
+        count: "",
+      });
+      await window.polytray.refreshFolderThumbnails(
+        folderPath,
+        getRuntimeSettings(),
+      );
+      fetchFiles(); // Update UI to show loading pulses
+    },
+    [fetchFiles, getRuntimeSettings],
+  );
 
-  const handleRescanFolder = useCallback(async (folderPath: string) => {
-    setProgress({
-      visible: true,
-      percent: 0,
-      text: "Scanning folder...",
-      count: "",
-    });
-    await window.polytray.scanFolder(folderPath, getRuntimeSettings());
-  }, [getRuntimeSettings]);
-
-  const handleRefreshFolderThumbnails = useCallback(async (folderPath: string) => {
-    setProgress({
-      visible: true,
-      percent: 0,
-      text: "Refreshing thumbnails...",
-      count: "",
-    });
-    await window.polytray.refreshFolderThumbnails(folderPath, getRuntimeSettings());
-    fetchFiles(); // Update UI to show loading pulses
-  }, [fetchFiles, getRuntimeSettings]);
-
-  const handleSettingsChange = useCallback((newSettings: Partial<AppSettings>) => {
-    setSettings((prev) => {
-      const merged = normalizeAppSettings({ ...prev, ...newSettings });
-      settingsRef.current = merged;
-      persistSettings(merged);
-      applySettingsToDocument(merged);
-      return merged;
-    });
-  }, [applySettingsToDocument, persistSettings]);
+  const handleSettingsChange = useCallback(
+    (newSettings: Partial<AppSettings>) => {
+      setSettings((prev) => {
+        const merged = normalizeAppSettings({ ...prev, ...newSettings });
+        settingsRef.current = merged;
+        persistSettings(merged);
+        applySettingsToDocument(merged);
+        return merged;
+      });
+    },
+    [applySettingsToDocument, persistSettings],
+  );
 
   // ── Reactive watch toggle ──────────────────────────────────────
   useEffect(() => {
@@ -515,7 +569,15 @@ export const App: React.FC = () => {
     } else {
       window.polytray.stopWatching();
     }
-  }, [getRuntimeSettings, settings.watch]);
+  }, [
+    getRuntimeSettings,
+    settings.watch,
+    settings.thumbnail_timeout,
+    settings.scanning_batch_size,
+    settings.watcher_stability,
+    settings.page_size,
+    settings.thumbnailColor,
+  ]);
 
   // Context Menu Callbacks
   useEffect(() => {
@@ -578,6 +640,9 @@ export const App: React.FC = () => {
             sort={sort}
             order={order}
             search={search}
+            activeFolderLabel={activeFolderLabel}
+            activeFilter={extension}
+            resultCount={files.length}
             onSortChange={handleSortChange}
             onOrderToggle={handleOrderToggle}
             onSearch={handleSearch}
@@ -626,8 +691,11 @@ export const App: React.FC = () => {
                 />
               </svg>
             </div>
-            <h2>No 3D files found</h2>
-            <p>Select a folder to scan for .obj, .stl, and .3mf files</p>
+            <h2>No models in view</h2>
+            <p>
+              Add a library folder or adjust your search and filters to browse
+              `.stl`, `.obj`, and `.3mf` files.
+            </p>
           </div>
 
           {/* Progress bar */}
@@ -651,6 +719,7 @@ export const App: React.FC = () => {
         <PreviewPanel
           file={previewFile}
           showGrid={settings.showGrid}
+          thumbnailColor={settings.thumbnailColor}
           onClose={() => setPreviewFile(null)}
         />
       </div>

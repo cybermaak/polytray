@@ -40,6 +40,7 @@ interface PolytrayAPI {
   requestThumbnailGeneration: (
     filePath: string,
     ext: string,
+    settings?: RuntimeSettingsData,
   ) => Promise<string | null>;
   requestPreviewParse: (
     filePath: string,

@@ -11,6 +11,8 @@ export interface AppSettings {
   showGrid: boolean;
   thumbQuality: ThumbnailQuality;
   accentColor: string;
+  previewColor: string;
+  thumbnailColor: string;
   thumbnail_timeout: number;
   scanning_batch_size: number;
   watcher_stability: number;
@@ -22,6 +24,7 @@ export interface RuntimeSettings {
   scanning_batch_size: number;
   watcher_stability: number;
   page_size: number;
+  thumbnailColor: string;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -32,6 +35,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showGrid: true,
   thumbQuality: "256",
   accentColor: "#6d9fff",
+  previewColor: "#8888aa",
+  thumbnailColor: "#8888aa",
   thumbnail_timeout: 20000,
   scanning_batch_size: 50,
   watcher_stability: 1000,
@@ -86,24 +91,15 @@ export function normalizeAppSettings(input: unknown): AppSettings {
       : {};
 
   return {
-    lightMode: normalizeBoolean(
-      raw.lightMode,
-      DEFAULT_APP_SETTINGS.lightMode,
-    ),
+    lightMode: normalizeBoolean(raw.lightMode, DEFAULT_APP_SETTINGS.lightMode),
     gridSize: normalizeChoice(
       raw.gridSize,
       GRID_SIZES,
       DEFAULT_APP_SETTINGS.gridSize,
     ),
-    autoScan: normalizeBoolean(
-      raw.autoScan,
-      DEFAULT_APP_SETTINGS.autoScan,
-    ),
+    autoScan: normalizeBoolean(raw.autoScan, DEFAULT_APP_SETTINGS.autoScan),
     watch: normalizeBoolean(raw.watch, DEFAULT_APP_SETTINGS.watch),
-    showGrid: normalizeBoolean(
-      raw.showGrid,
-      DEFAULT_APP_SETTINGS.showGrid,
-    ),
+    showGrid: normalizeBoolean(raw.showGrid, DEFAULT_APP_SETTINGS.showGrid),
     thumbQuality: normalizeChoice(
       raw.thumbQuality,
       THUMB_QUALITIES,
@@ -112,6 +108,14 @@ export function normalizeAppSettings(input: unknown): AppSettings {
     accentColor: normalizeHexColor(
       raw.accentColor,
       DEFAULT_APP_SETTINGS.accentColor,
+    ),
+    previewColor: normalizeHexColor(
+      raw.previewColor,
+      DEFAULT_APP_SETTINGS.previewColor,
+    ),
+    thumbnailColor: normalizeHexColor(
+      raw.thumbnailColor,
+      DEFAULT_APP_SETTINGS.thumbnailColor,
     ),
     thumbnail_timeout: clampInteger(
       raw.thumbnail_timeout,
@@ -155,6 +159,7 @@ export function normalizeRuntimeSettings(input: unknown): RuntimeSettings {
     scanning_batch_size: normalized.scanning_batch_size,
     watcher_stability: normalized.watcher_stability,
     page_size: normalized.page_size,
+    thumbnailColor: normalized.thumbnailColor,
   };
 }
 

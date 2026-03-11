@@ -1,9 +1,13 @@
 import React, { useState, useRef } from "react";
+import { AppIcon } from "./AppIcon";
 
 interface Props {
   sort: string;
   order: "ASC" | "DESC";
   search: string;
+  activeFolderLabel: string | null;
+  activeFilter: string | null;
+  resultCount: number;
   onSortChange: (sort: string) => void;
   onOrderToggle: () => void;
   onSearch: (query: string) => void;
@@ -15,6 +19,9 @@ export const Toolbar: React.FC<Props> = ({
   sort,
   order,
   search,
+  activeFolderLabel,
+  activeFilter,
+  resultCount,
   onSortChange,
   onOrderToggle,
   onSearch,
@@ -35,127 +42,133 @@ export const Toolbar: React.FC<Props> = ({
     onSearch("");
   };
 
+  const contextChips = [
+    {
+      key: "scope",
+      label: activeFolderLabel ? `Folder: ${activeFolderLabel}` : "All Models",
+      tone: "neutral",
+    },
+    ...(activeFilter
+      ? [
+          {
+            key: "filter",
+            label: activeFilter.toUpperCase(),
+            tone:
+              activeFilter.toLowerCase() === "3mf"
+                ? "threemf"
+                : activeFilter.toLowerCase(),
+          },
+        ]
+      : []),
+    ...(search
+      ? [
+          {
+            key: "search",
+            label: `Search: "${search}"`,
+            tone: "neutral",
+          },
+        ]
+      : []),
+    {
+      key: "results",
+      label: `${resultCount} results`,
+      tone: "muted",
+    },
+  ];
+
   return (
     <div id="toolbar">
-      <div className="search-wrapper">
+      <div className="toolbar-main">
+        <div className="search-wrapper">
         <svg
           className="search-icon"
           width="16"
-          height="16"
-          viewBox="0 0 16 16"
-          fill="none"
-        >
-          <circle
-            cx="6.5"
-            cy="6.5"
-            r="5"
-            stroke="currentColor"
-            strokeWidth="1.5"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+          >
+            <circle
+              cx="6.5"
+              cy="6.5"
+              r="5"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            />
+            <path
+              d="M10.5 10.5L15 15"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+          </svg>
+          <input
+            type="text"
+            id="search-input"
+            placeholder="Search files..."
+            autoComplete="off"
+            value={searchValue}
+            onChange={(e) => handleInput(e.target.value)}
           />
-          <path
-            d="M10.5 10.5L15 15"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          />
-        </svg>
-        <input
-          type="text"
-          id="search-input"
-          placeholder="Search files..."
-          autoComplete="off"
-          value={searchValue}
-          onChange={(e) => handleInput(e.target.value)}
-        />
-        <button
-          id="search-clear"
-          className={`search-clear${searchValue ? "" : " hidden"}`}
-          onClick={clearSearch}
-        >
-          ×
-        </button>
-      </div>
+          <button
+            id="search-clear"
+            className={`search-clear${searchValue ? "" : " hidden"}`}
+            onClick={clearSearch}
+          >
+            ×
+          </button>
+        </div>
 
-      <div className="toolbar-controls">
-        <select
-          id="sort-select"
-          value={sort}
-          onChange={(e) => onSortChange(e.target.value)}
-        >
-          <option value="name">Name</option>
-          <option value="size">Size</option>
-          <option value="date">Date</option>
-          <option value="vertices">Vertices</option>
-          <option value="faces">Faces</option>
-        </select>
+        <div className="toolbar-controls">
+          <select
+            id="sort-select"
+            value={sort}
+            onChange={(e) => onSortChange(e.target.value)}
+          >
+            <option value="name">Name</option>
+            <option value="size">Size</option>
+            <option value="date">Date</option>
+            <option value="vertices">Vertices</option>
+            <option value="faces">Faces</option>
+          </select>
 
         <button
           id="sort-order"
-          className={`btn-icon${order === "DESC" ? " desc" : ""}`}
-          title="Toggle sort order"
-          onClick={onOrderToggle}
+            className={`btn-icon${order === "DESC" ? " desc" : ""}`}
+            title="Toggle sort order"
+            onClick={onOrderToggle}
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M4 6l4-4 4 4M4 10l4 4 4-4"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <AppIcon name="sortOrder" />
         </button>
 
-        <button
-          id="btn-rescan"
-          className="btn-icon"
-          title="Rescan folders"
-          onClick={onRescan}
+          <button
+            id="btn-rescan"
+            className="btn-icon"
+            title="Rescan folders"
+            onClick={onRescan}
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M13.5 8a5.5 5.5 0 01-9.23 4.05M2.5 8a5.5 5.5 0 019.23-4.05"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-            />
-            <path
-              d="M13.5 3v5h-5M2.5 13V8h5"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <AppIcon name="rescan" />
         </button>
 
-        <button
-          id="btn-clear-thumbnails"
-          className="btn-icon"
-          title="Regenerate Thumbnails"
-          onClick={onClearThumbnails}
+          <button
+            id="btn-clear-thumbnails"
+            className="btn-icon"
+            title="Regenerate Thumbnails"
+            onClick={onClearThumbnails}
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <rect
-              x="2"
-              y="3"
-              width="12"
-              height="10"
-              rx="1.5"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              fill="none"
-            />
-            <circle cx="5.5" cy="6.5" r="1" fill="currentColor" />
-            <path
-              d="M2 11l3.5-3 2.5 2 2.5-3L14 11"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <AppIcon name="thumbnailRefresh" />
         </button>
+        </div>
+      </div>
+
+      <div id="toolbar-context">
+        {contextChips.map((chip) => (
+          <span
+            key={chip.key}
+            className={`context-chip ${chip.tone}`}
+          >
+            {chip.label}
+          </span>
+        ))}
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import React from "react";
 import { formatSize } from "../lib/formatters";
 import type { AppSettings } from "../../shared/settings";
+import { AppIcon } from "./AppIcon";
 
 interface Props {
   folders: string[];
@@ -255,6 +256,22 @@ export const Sidebar: React.FC<Props> = ({
           </div>
         </div>
 
+        <div className="sidebar-section" style={{ flexShrink: 0 }}>
+          <h3>Format Filter</h3>
+          <div className="filter-buttons">
+            {filters.map((f) => (
+              <button
+                key={f.label}
+                className={`filter-btn${activeFilter === f.ext ? " active" : ""}`}
+                data-ext={f.dataExt}
+                onClick={() => onFilterChange(f.ext)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="sidebar-section sidebar-stats" style={{ flexShrink: 0 }}>
           <h3>Library</h3>
           <div className="stat-grid">
@@ -287,22 +304,6 @@ export const Sidebar: React.FC<Props> = ({
             <span id="stat-size">{formatSize(stats.totalSize)}</span> total
           </div>
         </div>
-
-        <div className="sidebar-section" style={{ flexShrink: 0 }}>
-          <h3>Format Filter</h3>
-          <div className="filter-buttons">
-            {filters.map((f) => (
-              <button
-                key={f.label}
-                className={`filter-btn${activeFilter === f.ext ? " active" : ""}`}
-                data-ext={f.dataExt}
-                onClick={() => onFilterChange(f.ext)}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
 
       <div
@@ -326,21 +327,7 @@ export const Sidebar: React.FC<Props> = ({
           title="Toggle Light/Dark Mode"
           onClick={() => onSettingsChange({ lightMode: !lightMode })}
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 16 16"
-            fill="none"
-            style={{ marginRight: "8px" }}
-          >
-            <path
-              d="M8 12a4 4 0 100-8 4 4 0 000 8zM8 2V1M8 15v-1M2 8H1M15 8h-1M3.75 3.75L3 3M13 13l-.75-.75M3.75 12.25L3 13M13 3l-.75.75"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <AppIcon name="theme" />
           {lightMode ? "Dark Mode" : "Light Mode"}
         </button>
 
@@ -355,27 +342,7 @@ export const Sidebar: React.FC<Props> = ({
           title="Settings"
           onClick={onOpenSettings}
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 16 16"
-            fill="none"
-            style={{ marginRight: "8px" }}
-          >
-            <path
-              d="M6.86 2h2.28l.32 1.6a5.5 5.5 0 011.32.77l1.55-.52.94 1.62-1.24 1.08a5.5 5.5 0 010 1.54l1.24 1.08-.94 1.62-1.55-.52a5.5 5.5 0 01-1.32.77L9.14 14H6.86l-.32-1.6a5.5 5.5 0 01-1.32-.77l-1.55.52-.94-1.62 1.24-1.08a5.5 5.5 0 010-1.54L2.73 6.83l.94-1.62 1.55.52a5.5 5.5 0 011.32-.77L6.86 2z"
-              stroke="currentColor"
-              strokeWidth="1.3"
-              strokeLinejoin="round"
-            />
-            <circle
-              cx="8"
-              cy="8"
-              r="2"
-              stroke="currentColor"
-              strokeWidth="1.3"
-            />
-          </svg>
+          <AppIcon name="settings" />
           Settings
         </button>
       </div>

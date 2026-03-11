@@ -15,6 +15,7 @@ import {
   parseExtension,
   parseFilePath,
   parseThumbnailPath,
+  parseRuntimeSettings,
 } from "./runtimeValidation";
 
 export function registerThumbnailHandlers(
@@ -48,13 +49,15 @@ export function registerThumbnailHandlers(
 
   ipcMain.handle(
     IPC.REQUEST_THUMBNAIL_GENERATION,
-    async (event, filePath, ext) => {
+    async (event, filePath, ext, settings) => {
       const mainWindow = getMainWindow();
       if (!mainWindow) return null;
       const thumbnailPath = await scheduleSingleThumbnailGeneration(
         parseFilePath(filePath),
         parseExtension(ext),
-        toRuntimeSettings(DEFAULT_APP_SETTINGS),
+        settings
+          ? parseRuntimeSettings(settings)
+          : toRuntimeSettings(DEFAULT_APP_SETTINGS),
         "manual",
       );
       const db = getDb();

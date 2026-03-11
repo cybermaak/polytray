@@ -1,5 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { formatSize, formatNumber } from "../lib/formatters";
+import { DEFAULT_APP_SETTINGS } from "../../shared/settings";
+import { AppIcon } from "./AppIcon";
 import {
   initViewer,
   loadModelWithWorker,
@@ -24,10 +26,16 @@ interface FileRecord {
 interface Props {
   file: FileRecord | null;
   showGrid: boolean;
+  thumbnailColor: string;
   onClose: () => void;
 }
 
-export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
+export const PreviewPanel: React.FC<Props> = ({
+  file,
+  showGrid,
+  thumbnailColor,
+  onClose,
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(false);
   const [loadProgress, setLoadProgress] = useState<number>(-1);
@@ -70,7 +78,13 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
 
         // Thumbnail robustness: attempt one last generation if missing
         if (!file.thumbnail) {
-          window.polytray.requestThumbnailGeneration(file.path, file.extension);
+          window.polytray.requestThumbnailGeneration(file.path, file.extension, {
+            thumbnail_timeout: DEFAULT_APP_SETTINGS.thumbnail_timeout,
+            scanning_batch_size: DEFAULT_APP_SETTINGS.scanning_batch_size,
+            watcher_stability: DEFAULT_APP_SETTINGS.watcher_stability,
+            page_size: DEFAULT_APP_SETTINGS.page_size,
+            thumbnailColor,
+          });
         }
       } catch (e) {
         if (signal.aborted || (e instanceof Error && e.name === "AbortError")) return;
@@ -146,20 +160,7 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
             title="Toggle wireframe"
             onClick={handleWireframe}
           >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="2" y1="12" x2="22" y2="12"></line>
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-            </svg>
+            <AppIcon name="wireframe" />
           </button>
           <button
             id="btn-reset-camera"
@@ -167,56 +168,7 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
             title="Reset camera"
             onClick={resetCamera}
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle
-                cx="8"
-                cy="8"
-                r="6"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                fill="none"
-              />
-              <circle
-                cx="8"
-                cy="8"
-                r="2"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                fill="none"
-              />
-              <line
-                x1="8"
-                y1="0.5"
-                x2="8"
-                y2="3"
-                stroke="currentColor"
-                strokeWidth="1.2"
-              />
-              <line
-                x1="8"
-                y1="13"
-                x2="8"
-                y2="15.5"
-                stroke="currentColor"
-                strokeWidth="1.2"
-              />
-              <line
-                x1="0.5"
-                y1="8"
-                x2="3"
-                y2="8"
-                stroke="currentColor"
-                strokeWidth="1.2"
-              />
-              <line
-                x1="13"
-                y1="8"
-                x2="15.5"
-                y2="8"
-                stroke="currentColor"
-                strokeWidth="1.2"
-              />
-            </svg>
+            <AppIcon name="preview" />
           </button>
           <button
             id="btn-expand-viewer"
@@ -224,42 +176,7 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
             title="Expand/Collapse"
             onClick={() => setExpanded((e) => !e)}
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <polyline
-                points="10,2 14,2 14,6"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-              />
-              <line
-                x1="14"
-                y1="2"
-                x2="9.5"
-                y2="6.5"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-              />
-              <polyline
-                points="6,14 2,14 2,10"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-              />
-              <line
-                x1="2"
-                y1="14"
-                x2="6.5"
-                y2="9.5"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-              />
-            </svg>
+            <AppIcon name="expand" />
           </button>
           <button
             id="btn-close-viewer"
@@ -267,14 +184,7 @@ export const PreviewPanel: React.FC<Props> = ({ file, showGrid, onClose }) => {
             title="Close viewer"
             onClick={handleClose}
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path
-                d="M4 4l8 8M12 4L4 12"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-              />
-            </svg>
+            <AppIcon name="close" />
           </button>
         </div>
       </div>

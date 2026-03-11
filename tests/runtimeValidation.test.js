@@ -50,12 +50,14 @@ test("parseRuntimeSettings normalizes valid runtime settings", () => {
       scanning_batch_size: 10,
       watcher_stability: 500,
       page_size: 250,
+      thumbnailColor: "#224466",
     }),
     {
       thumbnail_timeout: 2500,
       scanning_batch_size: 10,
       watcher_stability: 500,
       page_size: 250,
+      thumbnailColor: "#224466",
     },
   );
 });

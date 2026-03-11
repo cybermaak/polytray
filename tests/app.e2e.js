@@ -755,6 +755,80 @@ test("settings modal opens and closes", async () => {
   expect(closedClasses).toContain("hidden");
 });
 
+test("separate color settings persist and thumbnail color can reset to default", async () => {
+  await window.locator("#btn-settings").click();
+  await expect(window.locator("#settings-overlay")).not.toHaveClass(/hidden/);
+
+  const accent = window.locator("#setting-accent-color");
+  const preview = window.locator("#setting-preview-color");
+  const thumbnail = window.locator("#setting-thumbnail-color");
+  const resetThumbnail = window.locator("#reset-thumbnail-color");
+
+  await expect(accent).toHaveCount(1);
+  await expect(preview).toHaveCount(1);
+  await expect(thumbnail).toHaveCount(1);
+  await expect(resetThumbnail).toHaveCount(1);
+
+  await accent.fill("#ff6633");
+  await preview.fill("#33aa88");
+  await thumbnail.fill("#cc8844");
+
+  await expect(thumbnail).toHaveValue("#cc8844");
+
+  const storedCustom = await window.evaluate(() =>
+    JSON.parse(localStorage.getItem("polytray-settings") || "{}"),
+  );
+  expect(storedCustom.accentColor).toBe("#ff6633");
+  expect(storedCustom.previewColor).toBe("#33aa88");
+  expect(storedCustom.thumbnailColor).toBe("#cc8844");
+
+  await resetThumbnail.click();
+  await expect(thumbnail).toHaveValue("#6d9fff");
+
+  const storedReset = await window.evaluate(() =>
+    JSON.parse(localStorage.getItem("polytray-settings") || "{}"),
+  );
+  expect(storedReset.thumbnailColor).toBe("#6d9fff");
+  expect(storedReset.previewColor).toBe("#33aa88");
+  expect(storedReset.accentColor).toBe("#ff6633");
+
+  await window.locator("#settings-close").click();
+  await expect(window.locator("#settings-overlay")).toHaveClass(/hidden/);
+});
+
+test("toolbar context strip reflects active scope and sidebar keeps filter before stats", async () => {
+  await window.evaluate((fixturePath) => window.polytray.scanFolder(fixturePath), FIXTURE_DIR);
+  await window.waitForFunction(() => document.querySelectorAll(".file-card").length > 0);
+  await window.locator('.filter-btn[data-ext=""]').click();
+  await window.locator("#search-input").fill("");
+  await window.waitForTimeout(300);
+
+  const toolbarContext = window.locator("#toolbar-context");
+  await expect(toolbarContext).toBeVisible();
+  await expect(toolbarContext.locator(".context-chip")).toHaveCount(2);
+  await expect(toolbarContext).toContainText("All Models");
+  await expect(toolbarContext).toContainText("results");
+
+  await window.locator('.filter-btn[data-ext="stl"]').click();
+  await expect(toolbarContext).toContainText("STL");
+
+  await window.locator("#search-input").fill("cube");
+  await window.waitForTimeout(300);
+  await expect(toolbarContext).toContainText('Search: "cube"');
+
+  const order = await window.evaluate(() => {
+    const sidebar = document.querySelector("#sidebar");
+    if (!sidebar) return [];
+    return Array.from(sidebar.querySelectorAll(".sidebar-section h3")).map((el) =>
+      (el.textContent || "").trim(),
+    );
+  });
+
+  expect(order.indexOf("Format Filter")).toBeGreaterThan(-1);
+  expect(order.indexOf("Library")).toBeGreaterThan(-1);
+  expect(order.indexOf("Format Filter")).toBeLessThan(order.indexOf("Library"));
+});
+
 // ── Test 10: Format filter buttons work ────────────────────────────
 
 test("format filter buttons filter by extension", async () => {

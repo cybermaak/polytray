@@ -32,6 +32,7 @@ export function registerScanningHandlers(
       scanning_batch_size: DEFAULT_APP_SETTINGS.scanning_batch_size,
       watcher_stability: DEFAULT_APP_SETTINGS.watcher_stability,
       page_size: DEFAULT_APP_SETTINGS.page_size,
+      thumbnailColor: DEFAULT_APP_SETTINGS.thumbnailColor,
     },
   ) {
     const db = getDb();
@@ -197,6 +198,7 @@ export function registerScanningHandlers(
       scanning_batch_size: DEFAULT_APP_SETTINGS.scanning_batch_size,
       watcher_stability: DEFAULT_APP_SETTINGS.watcher_stability,
       page_size: DEFAULT_APP_SETTINGS.page_size,
+      thumbnailColor: DEFAULT_APP_SETTINGS.thumbnailColor,
     });
   });
 
@@ -219,6 +221,7 @@ export function registerScanningHandlers(
       scanning_batch_size: DEFAULT_APP_SETTINGS.scanning_batch_size,
       watcher_stability: DEFAULT_APP_SETTINGS.watcher_stability,
       page_size: DEFAULT_APP_SETTINGS.page_size,
+      thumbnailColor: DEFAULT_APP_SETTINGS.thumbnailColor,
     };
     cancelPendingThumbnailJobs();
     const db = getDb();

@@ -149,6 +149,7 @@ export interface ThumbnailRequestData {
   filePath: string;
   ext: string;
   thumbPath: string;
+  color: string;
 }
 
 /** THUMBNAIL_GENERATED result sent back from renderer */
@@ -195,4 +196,5 @@ export interface RuntimeSettingsData {
   scanning_batch_size: number;
   watcher_stability: number;
   page_size: number;
+  thumbnailColor: string;
 }

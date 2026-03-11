@@ -61,7 +61,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **T4:** Global IPC Signatures — Strongly typed IPC channels in `shared/types.ts`.
 - **F1:** Enriched Filtering — Grid virtualization, sort by vertices/faces, filter by formats.
 - **F2:** Sidebar Folder Hierarchy — Nested folder tree in sidebar, click-to-filter by directory.
-- **F3:** Custom Accent Colors — User-configurable UI accent color + 3D preview material color via Settings.
+- **F3:** Custom Colors — User-configurable accent, preview-material, and thumbnail-material colors via Settings, with per-color reset controls.
 - **F5:** Target Folder Rescanning — Rescan individual folders from the sidebar.
 - **TD1:** Render-on-Demand — Battery optimization (stops 60FPS loop when idle).
 - **TD4:** Automated Schema Migrations — Formalized `user_version` pragma migrations in `database.ts` (expanded to v4 for Tags/Notes).
@@ -98,6 +98,8 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Moved library folder persistence to renderer `localStorage` with a one-time migration fallback from legacy SQLite keys.
   - Added a runtime IPC validation layer for scan, watcher, thumbnail, file-read, sort, and preview-parse entry points.
   - Added a shared thumbnail job scheduler covering scan, watcher, and manual thumbnail generation with queue stats logging and pending-job cancellation hooks.
+  - Implemented the v1.1 low-risk polish pass: toolbar context chips, stronger file-card states, sidebar cleanup/reorder, calmer empty/progress states, and a cleaner preview/settings presentation.
+  - Split the former single accent color into separate accent, preview, and thumbnail material colors; thumbnail generation now consumes the renderer-owned thumbnail color setting through runtime settings snapshots.
   - Added startup thumbnail cache reconciliation with versioned metadata plus orphaned-cache pruning.
   - Added explicit startup and scan performance budget tests in Playwright so regressions fail CI instead of relying on ad-hoc timing checks.
   - Added a schema migration test matrix covering upgrades from database versions 0 through 4 to the current schema.

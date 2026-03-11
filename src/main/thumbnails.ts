@@ -153,6 +153,7 @@ export async function generateThumbnail(
         filePath,
         ext,
         thumbPath,
+        color: settings.thumbnailColor,
       });
 
       // Safety timeout

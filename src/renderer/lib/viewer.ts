@@ -7,7 +7,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { VIEWER_CONFIG } from "./viewerConfig";
-import { parseModelToGroup, setModelAccentColor, createMaterial } from "./modelParsers";
+import { parseModelToGroup, setModelColor, createMaterial } from "./modelParsers";
 import { applySmartOrientation } from "./orientation";
 import { computeCameraFit } from "./cameraUtils";
 import type { SerializedMesh } from "../../shared/types";
@@ -60,9 +60,9 @@ function getMultiModelContainer() {
   return state.multiModelContainer;
 }
 
-window.addEventListener("polytray-accent-color", (e: Event) => {
+window.addEventListener("polytray-preview-color", (e: Event) => {
   const hex = (e as CustomEvent).detail;
-  setModelAccentColor(hex);
+  setModelColor(hex);
   
   const newColor = new THREE.Color(hex);
   const reColor = (child: THREE.Object3D) => {

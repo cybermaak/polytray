@@ -39,6 +39,8 @@ test("normalizeAppSettings falls back to defaults for invalid values", () => {
     showGrid: true,
     thumbQuality: "999",
     accentColor: "blue",
+    previewColor: "orange",
+    thumbnailColor: "#fff",
     thumbnail_timeout: -10,
     scanning_batch_size: 0,
     watcher_stability: 999999,
@@ -52,6 +54,8 @@ test("normalizeAppSettings falls back to defaults for invalid values", () => {
   assert.equal(settings.showGrid, true);
   assert.equal(settings.thumbQuality, DEFAULT_APP_SETTINGS.thumbQuality);
   assert.equal(settings.accentColor, DEFAULT_APP_SETTINGS.accentColor);
+  assert.equal(settings.previewColor, DEFAULT_APP_SETTINGS.previewColor);
+  assert.equal(settings.thumbnailColor, DEFAULT_APP_SETTINGS.thumbnailColor);
   assert.equal(settings.thumbnail_timeout, DEFAULT_APP_SETTINGS.thumbnail_timeout);
   assert.equal(settings.scanning_batch_size, DEFAULT_APP_SETTINGS.scanning_batch_size);
   assert.equal(settings.watcher_stability, DEFAULT_APP_SETTINGS.watcher_stability);
@@ -61,6 +65,7 @@ test("normalizeAppSettings falls back to defaults for invalid values", () => {
 test("serializeAppSettings writes a normalized localStorage payload", () => {
   const payload = serializeAppSettings({
     lightMode: true,
+    previewColor: "#224466",
     page_size: 2000,
   });
 
@@ -68,5 +73,6 @@ test("serializeAppSettings writes a normalized localStorage payload", () => {
   const parsed = JSON.parse(payload);
   assert.deepEqual(Object.keys(parsed).sort(), Object.keys(DEFAULT_APP_SETTINGS).sort());
   assert.equal(parsed.page_size, 2000);
+  assert.equal(parsed.previewColor, "#224466");
   assert.equal(SETTINGS_STORAGE_KEY, "polytray-settings");
 });

@@ -6,7 +6,7 @@
  */
 import * as THREE from "three";
 import { VIEWER_CONFIG } from "./viewerConfig";
-import { parseModelToGroup } from "./modelParsers";
+import { parseModelToGroup, setModelColor } from "./modelParsers";
 import { applySmartOrientation } from "./orientation";
 import { computeCameraFit } from "./cameraUtils";
 import { collectSerializedMeshes } from "./meshSerialization";
@@ -111,8 +111,10 @@ export async function renderThumbnail(
   arrayBuffer: ArrayBuffer,
   extension: string,
   canvas: HTMLCanvasElement,
+  color: string,
 ): Promise<string | null> {
   ensureThumbnailRenderer(canvas);
+  setModelColor(color);
 
   // Yield to let the UI paint before the heavy parsing begins
   await new Promise<void>((r) => requestAnimationFrame(() => r()));
@@ -185,7 +187,7 @@ export async function parsePreviewMeshes(
  */
 export function initThumbnailGenerator(canvas: HTMLCanvasElement) {
   const cleanup = window.polytray.onThumbnailRequest(async (data) => {
-    const { filePath, ext, thumbPath } = data;
+    const { filePath, ext, thumbPath, color } = data;
 
     try {
       // Use the custom polytray:// protocol to stream the file natively into the browser memory
@@ -198,7 +200,7 @@ export function initThumbnailGenerator(canvas: HTMLCanvasElement) {
       }
       
       const buffer = await response.arrayBuffer();
-      const dataUrl = await renderThumbnail(buffer, ext, canvas);
+      const dataUrl = await renderThumbnail(buffer, ext, canvas, color);
 
       if (dataUrl) {
         window.polytray.sendThumbnailResult({

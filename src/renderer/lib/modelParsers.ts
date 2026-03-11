@@ -16,16 +16,16 @@ import {
   prepareStlGeometry,
 } from "./meshPrep";
 
-let currentAccentColor: number | string = VIEWER_CONFIG.material.color;
+let currentModelColor: number | string = VIEWER_CONFIG.material.color;
 
-export function setModelAccentColor(hex: string) {
-  currentAccentColor = parseInt(hex.replace("#", ""), 16);
+export function setModelColor(hex: string) {
+  currentModelColor = parseInt(hex.replace("#", ""), 16);
 }
 
 export function createMaterial(): THREE.MeshStandardMaterial {
   const M = VIEWER_CONFIG.material;
   return new THREE.MeshStandardMaterial({
-    color: currentAccentColor,
+    color: currentModelColor,
     metalness: M.metalness,
     roughness: M.roughness,
     flatShading: false,

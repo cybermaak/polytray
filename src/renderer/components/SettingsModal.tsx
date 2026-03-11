@@ -1,5 +1,5 @@
 import React from "react";
-import type { AppSettings } from "../../shared/settings";
+import { DEFAULT_APP_SETTINGS, type AppSettings } from "../../shared/settings";
 
 interface Props {
   open: boolean;
@@ -15,6 +15,46 @@ export const SettingsModal: React.FC<Props> = ({
   onSettingsChange,
 }) => {
   const [advancedExpanded, setAdvancedExpanded] = React.useState(false);
+  const renderColorSetting = (
+    id: string,
+    label: string,
+    description: string,
+    value: string,
+    settingKey: keyof Pick<
+      AppSettings,
+      "accentColor" | "previewColor" | "thumbnailColor"
+    >,
+    resetId: string,
+  ) => (
+    <div className="settings-row">
+      <div>
+        <div className="settings-row-label">{label}</div>
+        <div className="settings-row-desc">{description}</div>
+      </div>
+      <div className="settings-color-actions">
+        <input
+          type="color"
+          className="color-picker"
+          id={id}
+          value={value}
+          onChange={(e) => onSettingsChange({ [settingKey]: e.target.value })}
+        />
+        <button
+          type="button"
+          id={resetId}
+          className="settings-reset-btn"
+          onClick={() =>
+            onSettingsChange({
+              [settingKey]: DEFAULT_APP_SETTINGS[settingKey],
+            })
+          }
+        >
+          Reset
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div
       id="settings-overlay"
@@ -62,19 +102,30 @@ export const SettingsModal: React.FC<Props> = ({
                 <span className="toggle-slider" />
               </label>
             </div>
-            <div className="settings-row">
-              <div>
-                <div className="settings-row-label">Accent Color</div>
-                <div className="settings-row-desc">UI highlight and default 3D material color</div>
-              </div>
-              <input
-                type="color"
-                className="color-picker"
-                id="setting-accent-color"
-                value={settings.accentColor || "#6d9fff"}
-                onChange={(e) => onSettingsChange({ accentColor: e.target.value })}
-              />
-            </div>
+            {renderColorSetting(
+              "setting-accent-color",
+              "Accent Color",
+              "UI highlight color for selected and interactive states",
+              settings.accentColor || DEFAULT_APP_SETTINGS.accentColor,
+              "accentColor",
+              "reset-accent-color",
+            )}
+            {renderColorSetting(
+              "setting-preview-color",
+              "Preview Color",
+              "Default 3D material color for the interactive viewer",
+              settings.previewColor || DEFAULT_APP_SETTINGS.previewColor,
+              "previewColor",
+              "reset-preview-color",
+            )}
+            {renderColorSetting(
+              "setting-thumbnail-color",
+              "Thumbnail Color",
+              "Default 3D material color used for generated thumbnails",
+              settings.thumbnailColor || DEFAULT_APP_SETTINGS.thumbnailColor,
+              "thumbnailColor",
+              "reset-thumbnail-color",
+            )}
             <div className="settings-row">
               <div>
                 <div className="settings-row-label">Grid Size</div>

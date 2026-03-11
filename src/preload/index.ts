@@ -182,8 +182,11 @@ contextBridge.exposeInMainWorld("polytray", {
   // Thumbnails — served as base64 data URLs
   readThumbnail: (thumbnailPath: string) =>
     ipcRenderer.invoke(IPC.READ_THUMBNAIL, thumbnailPath),
-  requestThumbnailGeneration: (filePath: string, ext: string) =>
-    ipcRenderer.invoke(IPC.REQUEST_THUMBNAIL_GENERATION, filePath, ext),
+  requestThumbnailGeneration: (
+    filePath: string,
+    ext: string,
+    settings?: RuntimeSettingsData,
+  ) => ipcRenderer.invoke(IPC.REQUEST_THUMBNAIL_GENERATION, filePath, ext, settings),
   requestPreviewParse: (filePath: string, ext: string) => {
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 

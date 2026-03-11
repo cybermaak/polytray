@@ -53,10 +53,21 @@ export function parseRuntimeSettings(value: unknown): RuntimeSettingsData {
   const normalized = normalizeRuntimeSettings(value);
   const raw = value as Partial<RuntimeSettingsData>;
 
-  for (const key of Object.keys(normalized) as Array<keyof RuntimeSettingsData>) {
+  const numericKeys: Array<keyof RuntimeSettingsData> = [
+    "thumbnail_timeout",
+    "scanning_batch_size",
+    "watcher_stability",
+    "page_size",
+  ];
+
+  for (const key of numericKeys) {
     if (typeof raw[key] !== "number" || !Number.isFinite(raw[key] as number)) {
       throw new Error("Invalid runtime settings");
     }
+  }
+
+  if (typeof raw.thumbnailColor !== "string") {
+    throw new Error("Invalid runtime settings");
   }
 
   return normalized;
