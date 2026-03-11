@@ -50,8 +50,8 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 ## 🚦 Current State
 
-- **Current Version:** `v1.0.0` was released via GitHub Actions (`electron-builder`).
-- **Working Towards:** `v1.1.0`. Focusing on major Tech Debt cleanup and "Fit & Finish" UX features.
+- **Current Version:** `v1.1.0` is ready for release via GitHub Actions (`electron-builder`).
+- **Next Focus:** `v1.1.x` stabilization follow-up and release verification.
 
 ### Completed Features (v1.1.0)
 
