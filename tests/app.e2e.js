@@ -21,6 +21,7 @@ const { _electron: electron } = require("playwright");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const { buildElectronLaunchEnv } = require("./helpers/electronLaunch");
 
 const FIXTURE_DIR = path.join(__dirname, "fixtures");
 const APP_DIR = path.resolve(__dirname, "..");
@@ -180,11 +181,9 @@ test.beforeAll(async () => {
   const launchStartedAt = Date.now();
   app = await electron.launch({
     args,
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: "",
+    env: buildElectronLaunchEnv(process.env, {
       ELECTRON_USER_DATA: tempUserData,
-    },
+    }),
   });
 
   // Wait for the first window and let it load
