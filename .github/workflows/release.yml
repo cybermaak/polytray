@@ -22,11 +22,8 @@ jobs:
       - name: Setup and Test
         uses: ./.github/actions/setup-and-test
 
-      - name: Build JS sources
-        run: npm run build
-
-      - name: Package Application
-        run: npx electron-builder --publish never
+      - name: Package App
+        uses: ./.github/actions/package-app
 
       - name: Upload Workflow Artifacts
         uses: actions/upload-artifact@v4
@@ -35,9 +32,10 @@ jobs:
           path: |
             dist/*.exe
             dist/*.dmg
-            dist/*.zip
+            dist/*-mac.zip
             dist/*.AppImage
-            dist/*.snap
+            dist/*.blockmap
+            latest*.yml
           retention-days: 7
 
       - name: Upload to GitHub Release
@@ -46,8 +44,7 @@ jobs:
           files: |
             dist/*.exe
             dist/*.dmg
-            dist/*.zip
+            dist/*-mac.zip
             dist/*.AppImage
-            dist/*.snap
             dist/*.blockmap
             latest*.yml

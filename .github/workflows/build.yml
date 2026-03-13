@@ -1,37 +1,13 @@
-name: Daily Build
+name: Build
 
 on:
-  schedule:
-    - cron: "0 0 * * *"
   push:
     branches:
       - main
   workflow_dispatch:
 
 jobs:
-  check-commits:
-    runs-on: ubuntu-latest
-    outputs:
-      has_new_commits: ${{ steps.check.outputs.has_new_commits }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-      - id: check
-        run: |
-          if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            if [ -n "$(git log -1 --since='24 hours ago' --format='%h')" ]; then
-              echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "has_new_commits=false" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
-          fi
-
   build:
-    needs: check-commits
-    if: needs.check-commits.outputs.has_new_commits == 'true'
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
@@ -43,11 +19,8 @@ jobs:
       - name: Setup and Test
         uses: ./.github/actions/setup-and-test
 
-      - name: Build JS sources
-        run: npm run build
-
-      - name: Package Application
-        run: npx electron-builder --publish never
+      - name: Package App
+        uses: ./.github/actions/package-app
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -56,7 +29,8 @@ jobs:
           path: |
             dist/*.exe
             dist/*.dmg
-            dist/*.zip
+            dist/*-mac.zip
             dist/*.AppImage
-            dist/*.snap
+            dist/*.blockmap
+            latest*.yml
           retention-days: 7

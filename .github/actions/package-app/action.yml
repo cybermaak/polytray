@@ -1,0 +1,11 @@
+name: "Package App"
+description: "Builds JS bundles and packages the Electron application"
+runs:
+  using: "composite"
+  steps:
+    - name: Build JS sources
+      shell: bash
+      run: npm run build
+    - name: Package Application
+      shell: bash
+      run: npx electron-builder --publish never
