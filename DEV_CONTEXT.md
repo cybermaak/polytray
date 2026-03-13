@@ -434,11 +434,31 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 ## 💾 Core File Map Reference
 
-- **React Entry:** `src/renderer/App.tsx`
-- **Native DB & File Ops:** `src/main/database.ts` and `src/main/ipc/files.ts`
-- **File System Watcher Runtime:** `src/main/watcher.ts` + `src/main/worker.ts`
-- **Scan IPC Orchestration:** `src/main/ipc/scanning.ts`
-- **Thumbnail Services / IPC:** `src/main/thumbnails.ts` + `src/main/ipc/thumbnails.ts`
-- **Types / IPC Contracts:** `src/shared/types.ts`
-- **3D Viewer Core:** `src/renderer/lib/viewer.ts` (manages lifecycle, imports from parsers/utils)
-- **CSS Styles:** `src/renderer/styles.css`
+- **Renderer App Shell:** `src/renderer/App.tsx`
+- **Renderer UI Components:** `src/renderer/components/` (`Sidebar.tsx`, `Toolbar.tsx`, `PreviewPanel.tsx`, `SettingsModal.tsx`, `AppIcon.tsx`)
+- **Renderer Viewer Pipeline:** `src/renderer/lib/viewer.ts`, `src/renderer/lib/previewStrategies.ts`, `src/renderer/lib/modelParsers.ts`, `src/renderer/lib/meshPrep.ts`, `src/renderer/lib/meshSerialization.ts`, `src/renderer/lib/orientation.ts`, `src/renderer/lib/cameraUtils.ts`
+- **Renderer Styling / HTML Entrypoints:** `src/renderer/styles.css`, `src/renderer/index.html`, `src/renderer/thumbnail.html`, `src/renderer/main.tsx`, `src/renderer/thumbnail.ts`
+- **Preload Bridge:** `src/preload/index.ts`
+- **Shared Contracts / Local Persistence Models:** `src/shared/types.ts`, `src/shared/settings.ts`, `src/shared/libraryState.ts`
+- **Database / Schema / Metadata:** `src/main/database.ts`, `src/main/metadata.ts`
+- **Main IPC Surface:** `src/main/ipc/`
+  - `files.ts` for file queries and sort/filter fetches
+  - `library.ts` for folder selection/removal and library-scoped actions
+  - `scanning.ts` for scan orchestration and stale cleanup
+  - `thumbnails.ts` for thumbnail-related IPC entry points
+  - `runtimeValidation.ts` for high-risk payload parsing/normalization
+  - `system.ts` for app/system operations
+- **Thumbnail Runtime:** `src/main/thumbnails.ts`, `src/main/thumbnailJobScheduler.ts`, `src/main/thumbnailCacheLifecycle.ts`, `src/renderer/lib/thumbnailRenderer.ts`
+- **Watcher Runtime:** `src/main/watcher.ts`, `src/main/worker.ts`
+- **Filesystem / Path Safety Helpers:** `src/main/pathContainment.ts`, `src/main/scanner.ts`
+- **Electron Main Entrypoint / Protocols:** `src/main/index.ts`
+- **GitHub Actions / Release Automation:** `.github/workflows/build.yml`, `.github/workflows/release.yml`, `.github/actions/setup-and-test/action.yml`, `.github/actions/package-app/action.yml`
+- **Product Test Suite:** `tests/product/`
+  - `e2e/app.e2e.ts`
+  - `unit/main/`
+  - `unit/shared/`
+  - `unit/renderer/`
+- **Repo Verification Tests:** `tests/repo/`
+- **Shared Test Support:** `tests/support/helpers/`, `tests/support/fixtures/`
+- **One-off Engineering Test Utilities:** `tests/dev/`
+- **Docs / Design Notes / Capture Scripts:** `docs/plans/`, `docs/mockups/`, `scripts/capture-readme-media.mjs`, `scripts/run-node-tests.mjs`
