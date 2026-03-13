@@ -57,6 +57,15 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - `.github/workflows/release.yml` remains tag-driven for `v*` releases and reuses the same setup/test and packaging logic.
   - Shared packaging logic lives in `.github/actions/package-app/action.yml`.
   - Artifact patterns were tightened to preserve Electron auto-update compatibility (`*.dmg`, `*-mac.zip`, `*.blockmap`, `latest*.yml`) while dropping unused `snap` artifacts.
+  - Default CI now runs product tests only via `npm run test:product`.
+- **Test Architecture:**
+  - Product tests live under `tests/product/`:
+    - Playwright E2E: `tests/product/e2e/`
+    - Node unit/integration tests: `tests/product/unit/{main,shared,renderer}/`
+  - Repo verification tests live under `tests/repo/` and run separately via `npm run test:repo`.
+  - Shared helpers/fixtures live under `tests/support/`.
+  - One-off engineering helpers live under `tests/dev/`.
+  - Node-side tests are now written in TypeScript and executed through `scripts/run-node-tests.mjs` with `tsx`.
 - **Docs State:** `README.md` was refreshed into a landing-page style product overview, and the demo media under `docs/assets/` is now generated from the live app via `scripts/capture-readme-media.mjs`.
 - **Next Focus:** Post-`v1.1.0` release follow-up, backlog reprioritization, and any remaining `v1.1.x` stabilization work.
 
@@ -121,6 +130,11 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Simplified CI by removing the old scheduled "Daily Build" concept; the repo now has a normal `Build` workflow for pushes to `main` and a separate `Release` workflow for tags.
   - Extracted shared package/build logic into `.github/actions/package-app/action.yml` so `build.yml` and `release.yml` no longer duplicate `npm run build` + `electron-builder`.
   - Tightened workflow artifact patterns to keep updater-compatible release files (`*.exe`, `*.dmg`, `*-mac.zip`, `*.AppImage`, `*.blockmap`, `latest*.yml`) and drop unused `snap` patterns.
+  - Reorganized the test suite into explicit `product`, `repo`, `support`, and `dev` buckets.
+  - Converted the active test code to TypeScript and replaced the old ad-hoc TS transpile helpers with direct TS execution via `tsx`.
+  - Moved fixture generation and Electron launch helpers into `tests/support/`, moved one-off verification utilities into `tests/dev/`, and removed stale task residue (`test2.js`, old preview screenshot artifact).
+  - Reduced default CI over-testing by keeping README/workflow/iconography/harness checks in `tests/repo/` instead of the product gate.
+  - Updated packaging config to exclude the entire `tests/` tree from shipped artifacts.
 
 ---
 
@@ -218,7 +232,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
 10. **P2 Quality: Remove timing-based E2E waits and add event-driven assertions**
     - **Impact:** Medium. Lowers flake rate and makes perf regressions easier to reason about.
     - **Effort:** ~1-2 days.
-    - **Primary Files:** `tests/app.e2e.js`.
+    - **Primary Files:** `tests/product/e2e/app.e2e.ts`.
     - **Why later:** Testing quality matters, but product correctness/security still comes first.
     - **Done when:** Major workflows wait on observable app state instead of fixed sleeps.
 
@@ -372,9 +386,9 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **S2:** Background Job Queue Control — central dedupe/priority/cancel/retry policy shared by scan/watch/thumb flows.
   - **Status:** Completed on 2026-03-10 via `src/main/thumbnailJobScheduler.ts` and integration in `src/main/thumbnails.ts`, `src/main/watcher.ts`, and `src/main/ipc/thumbnails.ts`.
 - **S3:** Startup + Scan Performance Budgets — codify measurable thresholds and fail CI/alerts on regression.
-  - **Status:** Completed on 2026-03-10 via Playwright startup/scan budget tests in `tests/app.e2e.js`.
+  - **Status:** Completed on 2026-03-10 via Playwright startup/scan budget tests in `tests/product/e2e/app.e2e.ts`.
 - **S4:** Schema Migration Test Matrix — verify upgrades from older `user_version` states to current schema.
-  - **Status:** Completed on 2026-03-10 via `tests/databaseMigrations.test.js`.
+  - **Status:** Completed on 2026-03-10 via `tests/product/unit/main/databaseMigrations.test.ts`.
 - **S5:** Thumbnail Cache Lifecycle Plan — define cleanup, stale detection, and optional migration strategy if cache growth becomes problematic.
   - **Status:** Completed on 2026-03-10 via `src/main/thumbnailCacheLifecycle.ts` plus startup reconciliation and versioned cache metadata.
 
