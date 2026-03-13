@@ -1,46 +1,24 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const Module = require("node:module");
-const ts = require("typescript");
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-function loadTsModule(filePath) {
-  const source = fs.readFileSync(filePath, "utf8");
-  const compiled = ts.transpileModule(source, {
-    compilerOptions: {
-      module: ts.ModuleKind.CommonJS,
-      target: ts.ScriptTarget.ES2020,
-      esModuleInterop: true,
-    },
-    fileName: filePath,
-  });
-
-  const mod = new Module.Module(filePath, module);
-  mod.filename = filePath;
-  mod.paths = Module._nodeModulePaths(path.dirname(filePath));
-  mod._compile(compiled.outputText, filePath);
-  return mod.exports;
-}
-
-const {
+import {
   DEFAULT_APP_SETTINGS,
   SETTINGS_STORAGE_KEY,
   normalizeAppSettings,
   serializeAppSettings,
-} = loadTsModule(path.join(__dirname, "../src/shared/settings.ts"));
+} from '../../../../src/shared/settings';
 
-test("normalizeAppSettings falls back to defaults for invalid values", () => {
+test('normalizeAppSettings falls back to defaults for invalid values', () => {
   const settings = normalizeAppSettings({
     lightMode: true,
-    gridSize: "huge",
+    gridSize: 'huge',
     autoScan: false,
-    watch: "yes",
+    watch: 'yes',
     showGrid: true,
-    thumbQuality: "999",
-    accentColor: "blue",
-    previewColor: "orange",
-    thumbnailColor: "#fff",
+    thumbQuality: '999',
+    accentColor: 'blue',
+    previewColor: 'orange',
+    thumbnailColor: '#fff',
     thumbnail_timeout: -10,
     scanning_batch_size: 0,
     watcher_stability: 999999,
@@ -62,17 +40,17 @@ test("normalizeAppSettings falls back to defaults for invalid values", () => {
   assert.equal(settings.page_size, DEFAULT_APP_SETTINGS.page_size);
 });
 
-test("serializeAppSettings writes a normalized localStorage payload", () => {
+test('serializeAppSettings writes a normalized localStorage payload', () => {
   const payload = serializeAppSettings({
     lightMode: true,
-    previewColor: "#224466",
+    previewColor: '#224466',
     page_size: 2000,
   });
 
-  assert.equal(typeof payload, "string");
-  const parsed = JSON.parse(payload);
+  assert.equal(typeof payload, 'string');
+  const parsed = JSON.parse(payload) as Record<string, unknown>;
   assert.deepEqual(Object.keys(parsed).sort(), Object.keys(DEFAULT_APP_SETTINGS).sort());
   assert.equal(parsed.page_size, 2000);
-  assert.equal(parsed.previewColor, "#224466");
-  assert.equal(SETTINGS_STORAGE_KEY, "polytray-settings");
+  assert.equal(parsed.previewColor, '#224466');
+  assert.equal(SETTINGS_STORAGE_KEY, 'polytray-settings');
 });

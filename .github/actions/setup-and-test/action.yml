@@ -1,5 +1,5 @@
 name: "Setup and Test"
-description: "Sets up Node, installs dependencies, and runs E2E tests"
+description: "Sets up Node, installs dependencies, and runs product tests"
 runs:
   using: "composite"
   steps:
@@ -13,11 +13,11 @@ runs:
     - name: Install Playwright Browsers
       shell: bash
       run: npx playwright install --with-deps
-    - name: Run E2E Tests
+    - name: Run Product Tests
       shell: bash
       run: |
         if [ "$RUNNER_OS" == "Linux" ]; then
-          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" npm run test:e2e
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" npm run test:product
         else
-          npm run test:e2e
+          npm run test:product
         fi

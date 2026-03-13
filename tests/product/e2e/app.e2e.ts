@@ -21,10 +21,10 @@ const { _electron: electron } = require("playwright");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
-const { buildElectronLaunchEnv } = require("./helpers/electronLaunch");
+const { buildElectronLaunchEnv } = require("../../support/helpers/electronLaunch");
 
-const FIXTURE_DIR = path.join(__dirname, "fixtures");
-const APP_DIR = path.resolve(__dirname, "..");
+const FIXTURE_DIR = path.join(__dirname, "../../support/fixtures");
+const APP_DIR = path.resolve(__dirname, "../../..");
 const REAL_BASE_3MF_PATH = process.env.POLYTRAY_REAL_BASE_3MF_PATH || "";
 const DEFAULT_RUNTIME_SETTINGS = {
   thumbnail_timeout: 20000,

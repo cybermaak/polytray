@@ -21,12 +21,17 @@
     "start": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps",
     "clean": "rm -rf out dist dist-electron",
-    "test:e2e": "node tests/generate-fixtures.js && npx playwright test",
+    "test:e2e": "npm run test:product:e2e",
     "release": "electron-builder --publish always",
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
     "build:linux": "electron-builder --linux",
-    "build:all": "electron-builder -mwl"
+    "build:all": "electron-builder -mwl",
+    "test:product:unit": "node scripts/run-node-tests.mjs tests/product/unit",
+    "test:product:e2e": "tsx tests/support/fixtures/generateFixtures.ts && playwright test",
+    "test:product": "npm run test:product:unit && npm run test:product:e2e",
+    "test:repo": "node scripts/run-node-tests.mjs tests/repo",
+    "test:dev:ui": "tsx tests/dev/verify-ui.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
@@ -56,6 +61,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "globals": "^17.4.0",
     "playwright": "^1.58.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",
     "vite": "^6.0.0"
@@ -69,7 +75,7 @@
     },
     "files": [
       "**/*",
-      "!tests/fixtures/**"
+      "!tests/**"
     ],
     "mac": {
       "target": [

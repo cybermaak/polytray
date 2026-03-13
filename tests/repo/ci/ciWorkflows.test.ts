@@ -1,19 +1,19 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
-const repoRoot = path.resolve(__dirname, '..');
-const read = (relPath) => fs.readFileSync(path.join(repoRoot, relPath), 'utf8');
+const repoRoot = path.resolve(__dirname, '../../..');
+const read = (relPath: string) => fs.readFileSync(path.join(repoRoot, relPath), 'utf8');
 
 const buildWorkflow = read('.github/workflows/build.yml');
 const releaseWorkflow = read('.github/workflows/release.yml');
 
-function expectMatch(content, pattern, message) {
+function expectMatch(content: string, pattern: RegExp, message?: string) {
   assert.match(content, pattern, message);
 }
 
-function expectNoMatch(content, pattern, message) {
+function expectNoMatch(content: string, pattern: RegExp, message?: string) {
   assert.doesNotMatch(content, pattern, message);
 }
 
