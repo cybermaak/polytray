@@ -193,13 +193,8 @@ If you are an AI assistant reading this file at the start of a session, use it t
    - **Why now:** Current queue entrypoints can start overlapping runs.
    - **Done when:** Queue requests dedupe by path, only one orchestrator runs at a time, and repeated full refreshes coalesce predictably.
 
-5. **P1 Correctness: Replace path-prefix folder matching with containment-aware filtering**
-  - **Impact:** Medium-high. Prevents sibling-path false positives like `/foo/bar` matching `/foo/bar2`.
-  - **Effort:** ~1 day.
-  - **Primary Files:** `src/main/ipc/files.ts`, `src/main/ipc/scanning.ts`, `src/main/ipc/library.ts`.
-  - **Why now:** The current `LIKE '${folder}%'` strategy is logically incorrect for folder boundaries.
-  - **Done when:** Folder filtering, stale deletion, and folder removal only affect the intended subtree.
-  - **Status:** Completed on 2026-03-10 via canonical containment helper (`src/main/pathContainment.ts`) plus regression coverage.
+5. ~~**P1 Correctness: Replace path-prefix folder matching with containment-aware filtering**~~ ✅ Completed 2026-03-10
+  - Implemented via canonical containment helper (`src/main/pathContainment.ts`) plus regression coverage.
 
 6. **P1 Data Layer: Reduce scan-time DB roundtrips**
    - **Impact:** Medium-high on large libraries. Lowers scan latency and main-process pressure.
@@ -435,8 +430,10 @@ If you are an AI assistant reading this file at the start of a session, use it t
 ## 💾 Core File Map Reference
 
 - **Renderer App Shell:** `src/renderer/App.tsx`
-- **Renderer UI Components:** `src/renderer/components/` (`Sidebar.tsx`, `Toolbar.tsx`, `PreviewPanel.tsx`, `SettingsModal.tsx`, `AppIcon.tsx`)
-- **Renderer Viewer Pipeline:** `src/renderer/lib/viewer.ts`, `src/renderer/lib/previewStrategies.ts`, `src/renderer/lib/modelParsers.ts`, `src/renderer/lib/meshPrep.ts`, `src/renderer/lib/meshSerialization.ts`, `src/renderer/lib/orientation.ts`, `src/renderer/lib/cameraUtils.ts`
+- **Renderer UI Components:** `src/renderer/components/` (`Sidebar.tsx`, `Toolbar.tsx`, `PreviewPanel.tsx`, `SettingsModal.tsx`, `AppIcon.tsx`, `ErrorBoundary.tsx`, `iconPaths.ts`)
+- **Renderer Viewer Pipeline:** `src/renderer/lib/viewer.ts`, `src/renderer/lib/previewStrategies.ts`, `src/renderer/lib/modelParsers.ts`, `src/renderer/lib/meshPrep.ts`, `src/renderer/lib/meshSerialization.ts`, `src/renderer/lib/orientation.ts`, `src/renderer/lib/cameraUtils.ts`, `src/renderer/lib/viewerConfig.ts`
+- **Renderer 3D Helpers:** `src/renderer/lib/formatters.ts`, `src/renderer/lib/threemf-repair.ts`
+- **Renderer Workers:** `src/renderer/lib/workers/parser.worker.ts`
 - **Renderer Styling / HTML Entrypoints:** `src/renderer/styles.css`, `src/renderer/index.html`, `src/renderer/thumbnail.html`, `src/renderer/main.tsx`, `src/renderer/thumbnail.ts`
 - **Preload Bridge:** `src/preload/index.ts`
 - **Shared Contracts / Local Persistence Models:** `src/shared/types.ts`, `src/shared/settings.ts`, `src/shared/libraryState.ts`
@@ -452,13 +449,14 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **Watcher Runtime:** `src/main/watcher.ts`, `src/main/worker.ts`
 - **Filesystem / Path Safety Helpers:** `src/main/pathContainment.ts`, `src/main/scanner.ts`
 - **Electron Main Entrypoint / Protocols:** `src/main/index.ts`
+- **Build Assets / Packaging:** `build/icon.png`, `build/scripts/afterPack.js`
 - **GitHub Actions / Release Automation:** `.github/workflows/build.yml`, `.github/workflows/release.yml`, `.github/actions/setup-and-test/action.yml`, `.github/actions/package-app/action.yml`
 - **Product Test Suite:** `tests/product/`
   - `e2e/app.e2e.ts`
   - `unit/main/`
   - `unit/shared/`
   - `unit/renderer/`
-- **Repo Verification Tests:** `tests/repo/`
+- **Repo Verification Tests:** `tests/repo/` (`ci/`, `docs/`, `structure/`, `ui/`)
 - **Shared Test Support:** `tests/support/helpers/`, `tests/support/fixtures/`
 - **One-off Engineering Test Utilities:** `tests/dev/`
-- **Docs / Design Notes / Capture Scripts:** `docs/plans/`, `docs/mockups/`, `scripts/capture-readme-media.mjs`, `scripts/run-node-tests.mjs`
+- **Docs / Design Notes / Capture Scripts:** `docs/plans/`, `docs/mockups/`, `docs/assets/`, `scripts/capture-readme-media.mjs`, `scripts/run-node-tests.mjs`

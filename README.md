@@ -4,57 +4,63 @@
 
 # Polytray
 
-<p>
-  Local-first desktop organizer for large <code>.stl</code>, <code>.obj</code>, and <code>.3mf</code> libraries. Scan folders, generate thumbnails, search fast, and inspect models in a responsive Three.js preview without sending your files to the cloud.
-</p>
+> Local-first desktop organizer for large `.stl`, `.obj`, and `.3mf` libraries.
+> Scan folders, generate thumbnails, search fast, and inspect models — without sending your files to the cloud.
 
-<p>
-  <a href="https://github.com/cybermaak/polytray/releases/tag/v1.1.0"><strong>Download v1.1.0</strong></a>
-  ·
-  <a href="https://github.com/cybermaak/polytray/releases/tag/v1.1.0">Release Notes</a>
-  ·
+<p align="center">
+  <a href="https://github.com/cybermaak/polytray/releases/latest"><strong>⬇ Download Latest</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/cybermaak/polytray/releases">Release Notes</a>
+  &nbsp;·&nbsp;
   <a href="#development">Development</a>
 </p>
 
 [![GitHub Release](https://img.shields.io/github/v/release/cybermaak/polytray?style=flat-square)](https://github.com/cybermaak/polytray/releases)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/cybermaak/polytray/build.yml?branch=main&style=flat-square)](https://github.com/cybermaak/polytray/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 
-## Visual Tour
+---
 
 <p align="center">
   <img src="docs/assets/polytray_demo.webp" alt="Animated demo of Polytray browsing, previewing, and opening settings" width="960" />
 </p>
 
-![Polytray v1.1.0 screenshot](docs/assets/screenshot.png)
+---
 
-## Why Polytray
+## Features
 
-- Fast local indexing for dense model folders, with background thumbnail generation and no cloud dependency.
-- Responsive preview pipeline for `STL`, `OBJ`, and `3MF`, including large-model handling and multi-model `3MF` support.
-- Practical browsing workflow: folder tree, search, sort, format filters, context strip, and preview-on-select.
-- Desktop-native integration for drag-out, reveal-in-Finder/Explorer, and context menus.
-- User-tunable appearance controls for accent color, preview material color, and thumbnail material color.
+- 🗂 **Fast local indexing** — background thumbnail generation over dense model folders, zero cloud dependency
+- 🔍 **Search, sort & filter** — by name, vertex/face count, format, and folder scope
+- 👁 **Interactive 3D preview** — responsive Three.js viewer for STL, OBJ, and 3MF including large multi-model files
+- 🎨 **Customizable appearance** — separate accent, preview material, and thumbnail material colors with per-color reset
+- 💻 **Desktop-native** — drag-out, reveal-in-Finder/Explorer, native context menus, light & dark themes
+- 🔒 **Privacy-first** — fully local; no accounts, no telemetry, no cloud processing
 
-## What's New in v1.1.0
+![Polytray screenshot](docs/assets/screenshot.png)
 
-- Reduced UI stalls during large preview loads, including the heavy `3MF` path.
-- Unified the preview architecture so format-specific parsing stays in the background while the interactive viewer remains consistent.
-- Polished the shell with cleaner preview framing, stronger card states, revised toolbar context, and improved iconography.
-- Split appearance settings into separate accent, preview, and thumbnail colors, each with reset support.
-- Hardened runtime behavior with queue control, IPC validation, migration coverage, and cache lifecycle work.
+## Getting Started
 
-## Core Workflow
+Download the latest release for your platform:
 
-1. Add one or more library folders from the sidebar.
-2. Let Polytray scan, index, and generate thumbnails in the background.
-3. Narrow the library with folder scope, search, sort, and format filters.
-4. Click a card to open the preview, inspect the mesh, toggle wireframe, and reset the camera.
-5. Drag the source file into your slicer or use the context menu to reveal it in the OS.
+| Platform | Download |
+|----------|----------|
+| **macOS** | [`.dmg`](https://github.com/cybermaak/polytray/releases/latest) |
+| **Windows** | [`.exe` installer](https://github.com/cybermaak/polytray/releases/latest) |
+| **Linux** | [`.AppImage`](https://github.com/cybermaak/polytray/releases/latest) |
+
+See the [release notes](https://github.com/cybermaak/polytray/releases) for version history and changelogs.
+
+## How It Works
+
+1. **Add folders** — point Polytray at one or more directories from the sidebar.
+2. **Index** — models are scanned, indexed, and thumbnails generate in the background.
+3. **Browse** — narrow the library with folder scope, search, sort, and format filters.
+4. **Preview** — click any card to inspect the mesh, toggle wireframe, and orbit the camera.
+5. **Use** — drag the source file into your slicer or reveal it in the OS file manager.
 
 ## Development
 
-Polytray is built with Electron, React, Vite, Better-SQLite3, and Three.js.
+Built with **Electron 34**, **React 19**, **Vite**, **Better-SQLite3**, and **Three.js**.
 
 ### Setup
 
@@ -64,28 +70,32 @@ cd polytray
 npm install
 ```
 
-### Common Commands
+### Commands
 
 ```bash
-npm run dev       # Electron + Vite development mode
-npm run build     # Typecheck and build production bundles
-npm run test:e2e  # Generate fixtures and run Playwright coverage
-npm run build:mac
-npm run build:win
-npm run build:linux
+npm run dev            # Electron + Vite dev mode
+npm run build          # typecheck + production build
+npm run test:product   # unit tests + Playwright E2E
+npm run build:mac      # package for macOS
+npm run build:win      # package for Windows
+npm run build:linux    # package for Linux
 ```
 
-### Release Media
-
-The README screenshot and animated demo can be regenerated from the live app with:
+### README media
 
 ```bash
-node scripts/capture-readme-media.mjs
+node scripts/capture-readme-media.mjs   # regenerate screenshot + demo from live app
 ```
 
 ## Status
 
-- Supported formats: `STL`, `OBJ`, `3MF`
-- Storage model: local SQLite index, local thumbnail cache, renderer-owned app settings and library state
-- Privacy model: local-first; Polytray does not require cloud storage or remote processing
-- Release flow: GitHub Actions builds and publishes platform artifacts from tagged releases
+| | |
+|-|-|
+| **Formats** | STL · OBJ · 3MF |
+| **Storage** | local SQLite index, local thumbnail cache, renderer-owned settings |
+| **Privacy** | local-first — no cloud, no telemetry |
+| **Release** | GitHub Actions builds platform artifacts from tagged releases |
+
+## License
+
+[MIT](LICENSE)
