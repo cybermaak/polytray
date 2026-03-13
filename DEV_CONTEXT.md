@@ -50,8 +50,15 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 ## 🚦 Current State
 
-- **Current Version:** `v1.1.0` is ready for release via GitHub Actions (`electron-builder`).
-- **Next Focus:** `v1.1.x` stabilization follow-up and release verification.
+- **Current Version:** `v1.1.0` is released and the GitHub Release pipeline is green across Ubuntu, macOS, and Windows.
+- **Release State:** Tag `v1.1.0` now points at the post-release CI hardening fixes, and the GitHub Release entry is populated directly via Actions.
+- **CI/CD State:**
+  - `.github/workflows/build.yml` is now a straightforward `Build` workflow that runs on every push to `main` plus manual dispatch.
+  - `.github/workflows/release.yml` remains tag-driven for `v*` releases and reuses the same setup/test and packaging logic.
+  - Shared packaging logic lives in `.github/actions/package-app/action.yml`.
+  - Artifact patterns were tightened to preserve Electron auto-update compatibility (`*.dmg`, `*-mac.zip`, `*.blockmap`, `latest*.yml`) while dropping unused `snap` artifacts.
+- **Docs State:** `README.md` was refreshed into a landing-page style product overview, and the demo media under `docs/assets/` is now generated from the live app via `scripts/capture-readme-media.mjs`.
+- **Next Focus:** Post-`v1.1.0` release follow-up, backlog reprioritization, and any remaining `v1.1.x` stabilization work.
 
 ### Completed Features (v1.1.0)
 
@@ -103,6 +110,17 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Added startup thumbnail cache reconciliation with versioned metadata plus orphaned-cache pruning.
   - Added explicit startup and scan performance budget tests in Playwright so regressions fail CI instead of relying on ad-hoc timing checks.
   - Added a schema migration test matrix covering upgrades from database versions 0 through 4 to the current schema.
+- **2026-03-11:**
+  - Refreshed `README.md` into a richer landing-page style repo front page with a stronger hero, `v1.1.0` highlights, workflow summary, and updated development/release guidance.
+  - Replaced `docs/assets/screenshot.png` and `docs/assets/polytray_demo.webp` with current `v1.1.0` captures generated from the live Electron app.
+  - Added `scripts/capture-readme-media.mjs` so README media can be regenerated reproducibly instead of hand-curated.
+  - Committed the v1.1 low-risk polish mockups/design notes under `docs/mockups/v11-polish/` and `docs/plans/`.
+- **2026-03-12:**
+  - Fixed a Windows-specific E2E launch regression by sanitizing `ELECTRON_RUN_AS_NODE` out of the inherited environment before Playwright launches Electron.
+  - Stabilized the tagged `v1.1.0` release pipeline so the release workflow now completes successfully on Windows as well as macOS/Linux.
+  - Simplified CI by removing the old scheduled "Daily Build" concept; the repo now has a normal `Build` workflow for pushes to `main` and a separate `Release` workflow for tags.
+  - Extracted shared package/build logic into `.github/actions/package-app/action.yml` so `build.yml` and `release.yml` no longer duplicate `npm run build` + `electron-builder`.
+  - Tightened workflow artifact patterns to keep updater-compatible release files (`*.exe`, `*.dmg`, `*-mac.zip`, `*.AppImage`, `*.blockmap`, `latest*.yml`) and drop unused `snap` patterns.
 
 ---
 
