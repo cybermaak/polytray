@@ -20,6 +20,7 @@ import {
 } from "../../shared/types";
 import { filterContainedPaths } from "../pathContainment";
 import { DEFAULT_APP_SETTINGS } from "../../shared/settings";
+import { applyScannedFileRecord } from "../fileIndexing";
 import { parseFolderPath, parseRuntimeSettings } from "./runtimeValidation";
 
 export function registerScanningHandlers(
@@ -103,31 +104,17 @@ export function registerScanningHandlers(
         );
       }
 
-      db.prepare(
-        `INSERT INTO files (path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, thumbnail, thumbnail_failed, indexed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(path) DO UPDATE SET
-           name = excluded.name,
-           size_bytes = excluded.size_bytes,
-           modified_at = excluded.modified_at,
-           vertex_count = excluded.vertex_count,
-           face_count = excluded.face_count,
-           thumbnail = CASE WHEN excluded.modified_at > files.modified_at THEN NULL ELSE files.thumbnail END,
-           thumbnail_failed = CASE WHEN excluded.modified_at > files.modified_at THEN 0 ELSE files.thumbnail_failed END,
-           indexed_at = excluded.indexed_at`,
-      ).run(
-        file.path,
-        file.name,
-        file.ext,
-        file.dir,
-        file.size,
-        file.mtime,
-        meta.vertexCount,
-        meta.faceCount,
-        null, // Base values if inserting new
-        0,
-        Date.now(),
-      );
+      applyScannedFileRecord(db, {
+        path: file.path,
+        name: file.name,
+        ext: file.ext,
+        dir: file.dir,
+        size: file.size,
+        mtime: file.mtime,
+        vertexCount: meta.vertexCount,
+        faceCount: meta.faceCount,
+        indexedAt: Date.now(),
+      });
 
       filesToThumbnail.push(file);
 

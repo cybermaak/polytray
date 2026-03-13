@@ -42,6 +42,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **File Watching Architecture:**
   - Chokidar runs in a dedicated Electron `utilityProcess` (`src/main/worker.ts`) to avoid Main process event-loop starvation.
   - Main process orchestration/lifecycle lives in `src/main/watcher.ts` (start/stop + event bridge back into DB/UI updates).
+  - Watcher lifecycle policy is centralized in `src/main/watcherLifecycle.ts`, including graceful stop, timeout-based forced kill fallback, and restart-safe listener ownership.
 - **Scanning Architecture:**
   - IPC scan handlers live in `src/main/ipc/scanning.ts` and handle folder scan/index flow, progress events, stale deletion, and thumbnail queue triggering.
 - **Viewer Architecture:** Modular approach in `src/renderer/lib/`. The monolithic `viewer.ts` was refactored into focused chunks (`modelParsers.ts`, `orientation.ts`, `cameraUtils.ts`, `viewerConfig.ts`).
@@ -67,7 +68,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - One-off engineering helpers live under `tests/dev/`.
   - Node-side tests are now written in TypeScript and executed through `scripts/run-node-tests.mjs` with `tsx`.
 - **Docs State:** `README.md` was refreshed into a landing-page style product overview, and the demo media under `docs/assets/` is now generated from the live app via `scripts/capture-readme-media.mjs`.
-- **Next Focus:** Post-`v1.1.0` release follow-up, backlog reprioritization, and any remaining `v1.1.x` stabilization work.
+- **Next Focus:** Post-`v1.1.0` release follow-up, remaining correctness/security hardening, and selective renderer/data-layer cleanup.
 
 ### Completed Features (v1.1.0)
 
@@ -135,28 +136,36 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Moved fixture generation and Electron launch helpers into `tests/support/`, moved one-off verification utilities into `tests/dev/`, and removed stale task residue (`test2.js`, old preview screenshot artifact).
   - Reduced default CI over-testing by keeping README/workflow/iconography/harness checks in `tests/repo/` instead of the product gate.
   - Updated packaging config to exclude the entire `tests/` tree from shipped artifacts.
+- **2026-03-13:**
+  - Hardened watcher lifecycle semantics by introducing `src/main/watcherLifecycle.ts` and routing watcher start/stop/restart through one restart-safe lifecycle manager.
+  - Updated `src/main/worker.ts` to await watcher shutdown before restart/exit so rapid reconfigure/stop cycles do not leave stale chokidar instances behind.
+  - Centralized scan/watch file conflict policy in `src/main/fileIndexing.ts`, with pure merge helpers plus DB wrappers so scan and watcher writes now share one deterministic "newer modified_at wins" rule.
+  - Refactored `src/main/watcher.ts` and `src/main/ipc/scanning.ts` to consume the shared indexing policy instead of maintaining duplicated upsert logic.
+  - Restricted `polytray://local/` protocol reads through `src/main/localFileProtocol.ts` so only indexed model files and contained thumbnail-cache paths are served.
+  - Added product unit coverage for watcher lifecycle, file indexing conflict policy, and local protocol allowlisting.
 
 ---
 
 ## 🗺 Next Features Roadmap (Prioritized)
 
-### Immediate Execution Plan (For Any New Agent Session)
+### Immediate Execution Plan (Completed 2026-03-13)
 
 > Objective: reduce ambiguity and make next engineering steps deterministic if conversation history is lost.
 
-1. **TD5 Watcher Lifecycle Hardening (Do First)**
-   - Implement `stopWatcher(): Promise<void>` semantics in `src/main/watcher.ts`.
-   - On stop: send stop message, wait for `exit` with timeout, force kill on timeout fallback.
-   - Ensure no duplicate `message` listeners accumulate after restart/reconfigure.
-   - Add stress test scenario: rapid start/stop/restart cycles.
+1. **TD5 Watcher Lifecycle Hardening**
+   - Completed via `src/main/watcherLifecycle.ts`, `src/main/watcher.ts`, and `src/main/worker.ts`.
+   - `stopWatcher()` now has explicit graceful-stop semantics with timeout + forced kill fallback.
+   - Restart flow is tokenized so stale worker exits/listeners cannot clear newer watcher instances.
 
-2. **TD7 Scan/Watch Write Conflict Mitigation (Do Second)**
-   - Audit `INSERT OR REPLACE` usage in `src/main/ipc/scanning.ts` and `src/main/watcher.ts`.
-   - Replace clobber-prone writes with conflict-safe upserts/updates that preserve newer state.
-   - Define deterministic conflict policy (e.g., compare `modified_at` / `indexed_at` / thumbnail presence).
-   - Add regression tests for concurrent scan + watcher updates.
+2. **TD7 Scan/Watch Write Conflict Mitigation**
+   - Completed via `src/main/fileIndexing.ts` plus integration in scan/watcher flows.
+   - Scan and watcher writes now share one deterministic conflict rule based on `modified_at`, with scan invalidating stale thumbnails only when the scanned file is newer.
 
-3. **Preview Transfer Cost Reduction (Current Follow-up)**
+3. **TD8/P0 Filesystem Access Hardening**
+   - Completed for canonical thumbnail-path containment and `polytray://local/` allowlisting.
+   - Remaining follow-up, if revisited, is symlink-escape regression coverage rather than the base containment rule itself.
+
+4. **Preview Transfer Cost Reduction (Current Follow-up)**
    - The main freeze regression is fixed and the `3MF` transport no longer uses the slow invoke/result IPC path.
    - Remaining work, if revisited, should be driven by profiling `base.3mf` end-to-end timings across: hidden-renderer parse time, mesh serialization time, buffer transfer time, and viewer rebuild time.
    - Preserve orientation parity between cached thumbnails and interactive preview if any further `3MF` serialization or transport changes are made.
@@ -165,19 +174,13 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 > Objective: convert the current code/design/performance review into a concrete execution queue with expected payoff and scope.
 
-1. **P0 Security: Canonicalize all thumbnail path reads**
-   - **Impact:** High. Closes an obvious filesystem escape risk at the IPC boundary.
-   - **Effort:** ~0.5-1 day.
-   - **Primary Files:** `src/main/ipc/thumbnails.ts`, tests for path traversal/symlink cases.
-   - **Why first:** Current `startsWith()` path checks are not a sufficient containment guard.
-   - **Done when:** Thumbnail reads reject `..`, symlink escapes, and unrelated absolute paths with regression coverage.
+1. ~~**P0 Security: Canonicalize all thumbnail path reads**~~ ✅ Completed 2026-03-13
+   - Implemented via `src/main/ipc/thumbnails.ts` + `src/main/pathContainment.ts`.
+   - Remaining follow-up is explicit symlink-escape regression coverage.
 
-2. **P0 Security: Restrict `polytray://local/` protocol reads to indexed/library files**
-   - **Impact:** High. Prevents arbitrary local file access via the custom protocol.
-   - **Effort:** ~1 day.
-   - **Primary Files:** `src/main/index.ts`, potentially `src/main/ipc/files.ts`, protocol tests.
-   - **Why second:** The protocol currently trusts decoded file paths too broadly.
-   - **Done when:** Only canonicalized, allowed library paths are served and rejected paths fail closed.
+2. ~~**P0 Security: Restrict `polytray://local/` protocol reads to indexed/library files**~~ ✅ Completed 2026-03-13
+   - Implemented via `src/main/localFileProtocol.ts` and `src/main/index.ts`.
+   - The protocol now serves only indexed model files plus contained thumbnail-cache paths, and rejects everything else with a closed 403 response.
 
 3. **P1 Stability/Perf: Debounce renderer refreshes from watcher churn**
    - **Impact:** High for large libraries. Reduces repeated DB queries and UI reload storms during bursty file events.
@@ -186,12 +189,8 @@ If you are an AI assistant reading this file at the start of a session, use it t
    - **Why now:** `FILES_UPDATED` currently triggers immediate `fetchFiles()` on every event.
    - **Done when:** Bursty add/change/remove events coalesce into bounded UI refresh work without stale UI regressions.
 
-4. **P1 Stability/Perf: Enforce single-flight thumbnail queue orchestration**
-   - **Impact:** High. Prevents overlapping background loops, duplicate heavy parsing, and racey progress reporting.
-   - **Effort:** ~1-2 days.
-   - **Primary Files:** `src/main/thumbnails.ts`, `src/main/ipc/scanning.ts`.
-   - **Why now:** Current queue entrypoints can start overlapping runs.
-   - **Done when:** Queue requests dedupe by path, only one orchestrator runs at a time, and repeated full refreshes coalesce predictably.
+4. ~~**P1 Stability/Perf: Enforce single-flight thumbnail queue orchestration**~~ ✅ Completed 2026-03-10
+   - Implemented via `src/main/thumbnailJobScheduler.ts`.
 
 5. ~~**P1 Correctness: Replace path-prefix folder matching with containment-aware filtering**~~ ✅ Completed 2026-03-10
   - Implemented via canonical containment helper (`src/main/pathContainment.ts`) plus regression coverage.
@@ -247,17 +246,16 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 ### Delivery Buckets
 
-- **1-day bucket:** Protocol allowlisting, watcher/UI refresh debouncing, PreviewPanel lint cleanup.
-- **3-day bucket:** Scan/write conflict mitigation, scan-time DB roundtrip reduction, thumbnail symlink-containment regression coverage.
-- **1-week bucket:** App renderer decomposition, thumbnail transport profiling, watcher lifecycle hardening, E2E flake reduction.
+- **1-day bucket:** Watcher/UI refresh debouncing, PreviewPanel lint cleanup.
+- **3-day bucket:** Scan-time DB roundtrip reduction, thumbnail symlink-containment regression coverage, scan+watch race coverage.
+- **1-week bucket:** App renderer decomposition, thumbnail transport profiling, E2E flake reduction.
 
 ### Recommended Sequence After TD5-TD9
 
-1. Finish remaining filesystem hardening work: `polytray://local/` allowlisting, then thumbnail symlink-containment regression coverage.
-2. Stabilize event/lifecycle behavior next: watcher refresh coalescing and watcher stop/restart hardening.
-3. Resolve scan/write conflict semantics before deeper throughput work.
-4. Optimize throughput once semantics are stable: reduce scan DB roundtrips and separate list refreshes from stats/directory refreshes.
-5. Refactor renderer architecture and thumbnail transport only after the background/runtime contracts stop shifting.
+1. Add missing stress/regression coverage around watcher churn, scan+watch overlap, and thumbnail symlink escapes.
+2. Stabilize event/lifecycle behavior next: debounce watcher-driven renderer refreshes.
+3. Optimize throughput once semantics are stable: reduce scan DB roundtrips and separate list refreshes from stats/directory refreshes.
+4. Refactor renderer architecture and thumbnail transport only after the background/runtime contracts stop shifting.
 5. Finish with test hardening and runtime validation so future regressions fail earlier in CI.
 
 ### Code Improvement Suggestions (Actionable)
@@ -366,11 +364,13 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 - **TD3b:** Background Runtime Consolidation (watching is in utilityProcess; evaluate whether thumbnail orchestration should also move to utilityProcess and define one unified background-runtime model).
 - **TD5:** Watcher Lifecycle Hardening — graceful stop with timeout + forced kill fallback, prevent duplicate listeners during rapid restart/reconfigure.
+  - **Status:** Completed on 2026-03-13 via `src/main/watcherLifecycle.ts`, `src/main/watcher.ts`, `src/main/worker.ts`, and `tests/product/unit/main/watcherLifecycle.test.ts`.
 - **TD6:** Thumbnail Job Scheduler — single-flight queue, dedupe by path, cancellation/coalescing to avoid overlapping full-library loops.
   - **Status:** Completed on 2026-03-10 via `src/main/thumbnailJobScheduler.ts` and integration in `src/main/thumbnails.ts`, `src/main/watcher.ts`, and `src/main/ipc/thumbnails.ts`.
 - **TD7:** Scan/Watch Write Conflict Mitigation — avoid destructive `INSERT OR REPLACE` clobbers; preserve newer thumbnail/metadata state under races.
+  - **Status:** Completed on 2026-03-13 via `src/main/fileIndexing.ts`, `src/main/ipc/scanning.ts`, `src/main/watcher.ts`, and `tests/product/unit/main/fileIndexing.test.ts`.
 - **TD8:** IPC Path Security Hardening — canonical path containment checks (`resolve` + `relative`) for thumbnail reads.
-  - **Status:** Partially completed on 2026-03-10 via canonical containment checks in thumbnail IPC; symlink-escape regression coverage remains open.
+  - **Status:** Mostly completed on 2026-03-13 via canonical containment checks in thumbnail IPC plus indexed-path allowlisting for `polytray://local/`; symlink-escape regression coverage remains open.
 - **TD9:** Background Observability — queue depth, avg thumbnail latency, failure counters, worker restart metrics.
   - **Status:** Partially completed on 2026-03-10 via queue stats/timing logs and explicit startup/scan performance budgets; worker restart metrics and structured logging remain open.
 
@@ -420,7 +420,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 - **F2 (Sidebar Folders):** Need tests for nested DOM structure, expand/collapse chevron interactions, and top-level "All Models" filter reset.
 - **F5 (Folder Rescanning):** Need tests verifying targeted scope (ignoring other folders) and behavior when targeted folder is physically deleted from disk.
-- **Watcher Lifecycle:** Need stress tests for rapid start/stop/restart and validation that no orphan utility process or duplicate message listeners remain.
+- **Watcher Lifecycle:** Need higher-level stress coverage for rapid start/stop/restart against the real utility process, not just the lifecycle manager contract.
 - **Scan+Watch Race Regression:** Need tests ensuring thumbnail/metadata consistency when watcher events arrive during active scan/index pass.
 - **Thumbnail IPC Security:** Need tests for traversal/symlink edge-cases to verify reads are contained to thumbnail cache root.
 - **Thumbnail Queue Dedupe:** Need tests proving repeated queue requests for the same file/path generate once and fan out updates safely.
@@ -447,7 +447,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - `system.ts` for app/system operations
 - **Thumbnail Runtime:** `src/main/thumbnails.ts`, `src/main/thumbnailJobScheduler.ts`, `src/main/thumbnailCacheLifecycle.ts`, `src/renderer/lib/thumbnailRenderer.ts`
 - **Watcher Runtime:** `src/main/watcher.ts`, `src/main/worker.ts`
-- **Filesystem / Path Safety Helpers:** `src/main/pathContainment.ts`, `src/main/scanner.ts`
+- **Filesystem / Path Safety Helpers:** `src/main/pathContainment.ts`, `src/main/localFileProtocol.ts`, `src/main/scanner.ts`
 - **Electron Main Entrypoint / Protocols:** `src/main/index.ts`
 - **Build Assets / Packaging:** `build/icon.png`, `build/scripts/afterPack.js`
 - **GitHub Actions / Release Automation:** `.github/workflows/build.yml`, `.github/workflows/release.yml`, `.github/actions/setup-and-test/action.yml`, `.github/actions/package-app/action.yml`

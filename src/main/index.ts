@@ -1,9 +1,11 @@
 import { app, BrowserWindow, protocol, net } from "electron";
 import { join } from "path";
-import { initDatabase } from "./database";
+import { getDb, initDatabase } from "./database";
 import { stopWatcher } from "./watcher";
 import { initThumbnailService } from "./thumbnails";
 import fs from "fs";
+import { getThumbnailDir } from "./thumbnails";
+import { toAllowedLocalFileUrl } from "./localFileProtocol";
 
 // IPC handler modules
 import { registerLibraryHandlers } from "./ipc/library";
@@ -208,9 +210,21 @@ function registerIpcHandlers() {
 
 app.whenReady().then(() => {
   protocol.handle("polytray", (request) => {
-    const urlStr = request.url.slice("polytray://local/".length);
-    const filePath = decodeURIComponent(urlStr.split("?")[0]);
-    return net.fetch("file://" + filePath);
+    const fileUrl = toAllowedLocalFileUrl(request.url, {
+      thumbnailDir: getThumbnailDir(),
+      isIndexedFilePath: (filePath) => {
+        const row = getDb()
+          .prepare("SELECT 1 FROM files WHERE path = ? LIMIT 1")
+          .get(filePath) as { 1: number } | undefined;
+        return Boolean(row);
+      },
+    });
+
+    if (!fileUrl) {
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    return net.fetch(fileUrl);
   });
 
   initDatabase();
