@@ -6,6 +6,9 @@ runs:
     - name: Build JS sources
       shell: bash
       run: npm run build
+    - name: Rebuild native dependencies for Electron
+      shell: bash
+      run: npx electron-builder install-app-deps
     - name: Package Application
       shell: bash
       run: npx electron-builder --publish never

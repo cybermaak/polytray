@@ -14,10 +14,9 @@ test('README includes v1.1 landing-page sections and stable media references', (
   const readme = fs.readFileSync(readmePath, 'utf8');
 
   assert.match(readme, /^# Polytray/m);
-  assert.match(readme, /^## Visual Tour$/m);
-  assert.match(readme, /^## Why Polytray$/m);
-  assert.match(readme, /^## What's New in v1\.1\.0$/m);
-  assert.match(readme, /^## Core Workflow$/m);
+  assert.match(readme, /^## Features$/m);
+  assert.match(readme, /^## Getting Started$/m);
+  assert.match(readme, /^## How It Works$/m);
   assert.match(readme, /^## Development$/m);
   assert.match(readme, /^## Status$/m);
   assert.match(readme, /docs\/assets\/polytray_demo\.webp/);
