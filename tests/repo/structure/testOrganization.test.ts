@@ -7,6 +7,8 @@ const repoRoot = path.resolve(__dirname, '../../..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')) as {
   scripts: Record<string, string>;
 };
+const agentsGuide = fs.readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8');
+const gitignore = fs.readFileSync(path.join(repoRoot, '.gitignore'), 'utf8');
 
 function exists(relPath: string) {
   return fs.existsSync(path.join(repoRoot, relPath));
@@ -30,7 +32,16 @@ test('test tree uses product, repo, support, and dev boundaries', () => {
   assert.equal(exists('tests/dev/verify-ui.ts'), true);
 });
 
-test('legacy ad-hoc test files no longer sit in the main tests root', () => {
+test('maintenance scripts and temp-work conventions stay intentional', () => {
+  assert.equal(exists('scripts/capture-readme-media.ts'), true);
+  assert.equal(exists('scripts/capture-readme-media.mjs'), false);
+  assert.equal(exists('rewrite_sidebar.js'), false);
+  assert.equal(exists('.agent-tmp'), false);
+  assert.match(agentsGuide, /\.agent-tmp\//);
+  assert.match(gitignore, /^\.agent-tmp\/$/m);
+});
+
+test('legacy ad-hoc and accidental filesystem artifacts are absent', () => {
   for (const relPath of [
     'tests/app.e2e.js',
     'tests/readmeAssets.test.js',
@@ -40,6 +51,9 @@ test('legacy ad-hoc test files no longer sit in the main tests root', () => {
     'tests/preview-screenshot.png',
     'tests/generate-fixtures.js',
     'tests/generate-many.js',
+    '.DS_Store',
+    'build/.DS_Store',
+    'docs/.DS_Store',
   ]) {
     assert.equal(exists(relPath), false, relPath);
   }

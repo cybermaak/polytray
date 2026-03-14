@@ -84,7 +84,7 @@ npm run build:linux    # package for Linux
 ### README media
 
 ```bash
-node scripts/capture-readme-media.mjs   # regenerate screenshot + demo from live app
+npx tsx scripts/capture-readme-media.ts   # regenerate screenshot + demo from live app
 ```
 
 ## Status

@@ -1,3 +1,20 @@
+/**
+ * Regenerates the README screenshot and animated demo from a live local app session.
+ *
+ * What it does:
+ * - builds a small synthetic demo library in a temp folder
+ * - launches the packaged Electron app with isolated user data
+ * - scans the demo library and waits for the grid + thumbnails
+ * - captures a static screenshot for README hero/supporting media
+ * - records a short interaction flow and converts it to animated WebP via ffmpeg
+ *
+ * Notes:
+ * - This is a maintenance script, not a product runtime path.
+ * - Run it with `npx tsx scripts/capture-readme-media.ts`.
+ * - The generated assets overwrite `docs/assets/screenshot.png` and
+ *   `docs/assets/polytray_demo.webp`.
+ */
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -43,10 +60,12 @@ class HelixCurve extends THREE.Curve {
 }
 
 function ensureDir(dirPath) {
+  // Temp capture directories are created on demand and cleaned up at the end.
   fs.mkdirSync(dirPath, { recursive: true });
 }
 
 function cloneForExport(object3d) {
+  // Exporters mutate traversal state, so the source meshes stay untouched.
   const clone = object3d.clone(true);
   clone.updateMatrixWorld(true);
   return clone;
@@ -201,6 +220,7 @@ function makeBlockStack() {
 }
 
 function buildDemoLibrary(libraryDir) {
+  // Use a deterministic synthetic library so README media stays reproducible.
   ensureDir(libraryDir);
 
   const entries = [
@@ -229,6 +249,7 @@ function buildDemoLibrary(libraryDir) {
 }
 
 async function waitForMainWindow(app) {
+  // The app may open helper windows first; keep probing for the real main UI.
   for (let attempt = 0; attempt < 20; attempt++) {
     for (const page of app.windows()) {
       try {
@@ -255,6 +276,7 @@ async function waitForGrid(page) {
 }
 
 async function waitForThumbnails(page, minimumLoaded = 8) {
+  // README media looks broken if cards are still in skeleton state.
   await page.waitForFunction(
     (count) => document.querySelectorAll(".file-card img").length >= count,
     minimumLoaded,

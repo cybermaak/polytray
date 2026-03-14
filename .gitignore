@@ -333,3 +333,4 @@ playwright/.cache/
 tests/fixtures/
 /profiles
 .codex/
+.agent-tmp/

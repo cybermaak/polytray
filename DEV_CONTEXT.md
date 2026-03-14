@@ -71,7 +71,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Shared helpers/fixtures live under `tests/support/`.
   - One-off engineering helpers live under `tests/dev/`.
   - Node-side tests are now written in TypeScript and executed through `scripts/run-node-tests.mjs` with `tsx`.
-- **Docs State:** `README.md` was refreshed into a landing-page style product overview, and the demo media under `docs/assets/` is now generated from the live app via `scripts/capture-readme-media.mjs`.
+- **Docs State:** `README.md` was refreshed into a landing-page style product overview, and the demo media under `docs/assets/` is now generated from the live app via `scripts/capture-readme-media.ts`.
 - **Agent Docs State:** Root `AGENTS.md` now captures repo-specific working agreements, architecture gotchas, and a verification matrix for future contributors/agents.
 - **Next Focus:** Post-`v1.1.0` release follow-up, remaining correctness/security hardening, and selective renderer/data-layer cleanup.
 
@@ -128,7 +128,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **2026-03-11:**
   - Refreshed `README.md` into a richer landing-page style repo front page with a stronger hero, `v1.1.0` highlights, workflow summary, and updated development/release guidance.
   - Replaced `docs/assets/screenshot.png` and `docs/assets/polytray_demo.webp` with current `v1.1.0` captures generated from the live Electron app.
-  - Added `scripts/capture-readme-media.mjs` so README media can be regenerated reproducibly instead of hand-curated.
+  - Added `scripts/capture-readme-media.ts` so README media can be regenerated reproducibly instead of hand-curated.
   - Committed the v1.1 low-risk polish mockups/design notes under `docs/mockups/v11-polish/` and `docs/plans/`.
 - **2026-03-12:**
   - Fixed a Windows-specific E2E launch regression by sanitizing `ELECTRON_RUN_AS_NODE` out of the inherited environment before Playwright launches Electron.
@@ -471,4 +471,4 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **Repo Verification Tests:** `tests/repo/` (`ci/`, `docs/`, `structure/`, `ui/`)
 - **Shared Test Support:** `tests/support/helpers/`, `tests/support/fixtures/`
 - **One-off Engineering Test Utilities:** `tests/dev/`
-- **Docs / Design Notes / Capture Scripts:** `docs/plans/`, `docs/mockups/`, `docs/assets/`, `scripts/capture-readme-media.mjs`, `scripts/run-node-tests.mjs`
+- **Docs / Design Notes / Capture Scripts:** `docs/plans/`, `docs/mockups/`, `docs/assets/`, `scripts/capture-readme-media.ts`, `scripts/run-node-tests.mjs`

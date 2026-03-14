@@ -35,6 +35,7 @@ This file captures the repo-specific rules of engagement for AI/code agents work
 - Use existing helpers and shared modules before adding new ones.
 - Keep preview-specific optimizations behind the unified strategy/serialization layer rather than branching UI behavior.
 - Do not reintroduce external `sqlite3` CLI dependencies in tests; use in-process `better-sqlite3` fixtures/helpers.
+- Use `.agent-tmp/` for throwaway scripts, captures, or task-specific scratch files that should not ship with the repo.
 
 ## Test Layout
 
