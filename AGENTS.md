@@ -54,6 +54,13 @@ This file captures the repo-specific rules of engagement for AI/code agents work
 
 Choose the smallest verification set that proves the change, but include all affected layers.
 
+## Pre-Push Requirement
+
+- Before pushing changes to `main`, always run both:
+  - `npm run build`
+  - `npm run test:product`
+- Treat these as the minimum pre-push gate even if a smaller targeted check was enough during development.
+
 ### Always consider
 
 - `npm run typecheck`
