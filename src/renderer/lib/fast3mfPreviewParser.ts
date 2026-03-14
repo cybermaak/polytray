@@ -39,15 +39,21 @@ const COMPONENT_RE = /<(?:[\w-]+:)?component\b([^>]*)\/>/g;
 const BUILD_RE = /<(?:[\w-]+:)?build\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?build>/;
 const ITEM_RE = /<(?:[\w-]+:)?item\b([^>]*)\/>/g;
 
+export interface Fast3mfPreviewSupport {
+  supported: boolean;
+  reason?: string;
+}
+
 export async function parseFast3mfPreviewGroup(
   arrayBuffer: ArrayBuffer,
 ): Promise<THREE.Group> {
   const zip = await JSZip.loadAsync(arrayBuffer);
-  const modelFile = Object.keys(zip.files).find((filename) =>
-    filename.toLowerCase() === "3d/3dmodel.model" ||
-    filename.toLowerCase() === "/3d/3dmodel.model" ||
-    filename.toLowerCase().endsWith(".model"),
-  );
+  const support = await inspectFast3mfPreviewSupportFromZip(zip);
+  if (!support.supported) {
+    throw new Error(support.reason ?? "3MF preview fast path unsupported");
+  }
+
+  const modelFile = getPrimaryModelFile(zip);
 
   if (!modelFile) {
     throw new Error("3MF preview parser could not find a model file");
@@ -55,6 +61,13 @@ export async function parseFast3mfPreviewGroup(
 
   const xml = await zip.file(modelFile)!.async("string");
   return buildGroupFromModelXml(xml);
+}
+
+export async function inspectFast3mfPreviewSupport(
+  arrayBuffer: ArrayBuffer,
+): Promise<Fast3mfPreviewSupport> {
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  return inspectFast3mfPreviewSupportFromZip(zip);
 }
 
 export function buildGroupFromModelXml(xml: string): THREE.Group {
@@ -245,9 +258,9 @@ function parseTransform(raw: string | null): THREE.Matrix4 | null {
 
   const [a, b, c, d, e, f, g, h, i, j, k, l] = values;
   return new THREE.Matrix4().set(
-    a, b, c, j,
-    d, e, f, k,
-    g, h, i, l,
+    a, d, g, j,
+    b, e, h, k,
+    c, f, i, l,
     0, 0, 0, 1,
   );
 }
@@ -257,4 +270,70 @@ function getAttr(attrs: string, name: string): string | null {
     new RegExp(`(?:^|\\s)${name}="([^"]*)"`, "i"),
   );
   return match?.[1] ?? null;
+}
+
+async function inspectFast3mfPreviewSupportFromZip(
+  zip: JSZip,
+): Promise<Fast3mfPreviewSupport> {
+  const modelFiles = Object.keys(zip.files).filter((filename) =>
+    filename.toLowerCase().endsWith(".model"),
+  );
+
+  if (modelFiles.length !== 1) {
+    return {
+      supported: false,
+      reason: "3MF preview fast path only supports single-model archives",
+    };
+  }
+
+  const primaryModelFile = getPrimaryModelFile(zip);
+  if (!primaryModelFile) {
+    return {
+      supported: false,
+      reason: "3MF preview fast path could not identify the primary model file",
+    };
+  }
+
+  const raw = zip.file(primaryModelFile);
+  if (!raw) {
+    return {
+      supported: false,
+      reason: "3MF preview fast path could not open the primary model file",
+    };
+  }
+
+  const xmlString = await raw.async("string");
+
+  if (/\b(?:path|p:path|slic3rpe:path)=/i.test(xmlString)) {
+    return {
+      supported: false,
+      reason: "3MF preview fast path does not support external component paths",
+    };
+  }
+
+  if (
+    /<(?:[\w-]+:)?(?:colorgroup|texture2d|texture2dgroup|pbmetallicdisplayproperties)\b/i.test(
+      xmlString,
+    )
+  ) {
+    return {
+      supported: false,
+      reason: "3MF preview fast path does not support color or material resource groups",
+    };
+  }
+
+  return { supported: true };
+}
+
+function getPrimaryModelFile(zip: JSZip): string | null {
+  return (
+    Object.keys(zip.files).find((filename) =>
+      filename.toLowerCase() === "3d/3dmodel.model" ||
+      filename.toLowerCase() === "/3d/3dmodel.model",
+    ) ??
+    Object.keys(zip.files).find((filename) =>
+      filename.toLowerCase().endsWith(".model"),
+    ) ??
+    null
+  );
 }
