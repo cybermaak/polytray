@@ -61,6 +61,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Shared packaging logic lives in `.github/actions/package-app/action.yml`.
   - Artifact patterns were tightened to preserve Electron auto-update compatibility (`*.dmg`, `*-mac.zip`, `*.blockmap`, `latest*.yml`) while dropping unused `snap` artifacts.
   - Default CI now runs product tests only via `npm run test:product`.
+  - Windows build stability was further hardened by removing the migration test suite's dependency on the external `sqlite3` CLI; migration fixtures are now created in-process with `better-sqlite3`, so product-unit tests are cross-platform.
 - **Test Architecture:**
   - Product tests live under `tests/product/`:
     - Playwright E2E: `tests/product/e2e/`
@@ -154,6 +155,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Implemented `src/renderer/lib/fast3mfPreviewParser.ts`, a lightweight preview-only 3MF parser that reads core mesh geometry, component references, and build transforms while deliberately ignoring material/metadata features that are irrelevant to the current preview goal.
   - Wired the fast parser into `src/renderer/lib/modelParsers.ts` as the primary `3MF` preview path, with fallback to `ThreeMFLoader` for unsupported files.
   - Measured `/Volumes/exssd/3D Models/base.3mf` after the parser change: total preview load dropped from about `49.8s` to about `6.9s`, while logged hidden-renderer parse time dropped from about `46.0s` to about `4.7s`.
+  - Fixed the remaining Windows GitHub Actions build failure by rewriting the schema-migration test fixtures to use in-process `better-sqlite3` databases instead of shelling out to a missing `sqlite3` executable.
 
 ---
 
