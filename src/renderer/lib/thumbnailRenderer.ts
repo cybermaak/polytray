@@ -164,15 +164,35 @@ export async function renderThumbnail(
 export async function parsePreviewMeshes(
   arrayBuffer: ArrayBuffer,
   extension: string,
-): Promise<ReturnType<typeof collectSerializedPreviewMeshes>> {
+): Promise<
+  ReturnType<typeof collectSerializedPreviewMeshes> & {
+    parseDurationMs: number;
+    serializeDurationMs: number;
+  }
+> {
+  const parseStartedAt = performance.now();
   const group = await parseModelToGroup(arrayBuffer, extension);
+  const parseDurationMs = performance.now() - parseStartedAt;
 
   try {
     if (group.children.length === 0) {
-      return { meshes: [], transferables: [] };
+      return {
+        meshes: [],
+        transferables: [],
+        parseDurationMs,
+        serializeDurationMs: 0,
+      };
     }
 
-    return collectSerializedPreviewMeshes(group);
+    const serializeStartedAt = performance.now();
+    const serialized = collectSerializedPreviewMeshes(group);
+    const serializeDurationMs = performance.now() - serializeStartedAt;
+
+    return {
+      ...serialized,
+      parseDurationMs,
+      serializeDurationMs,
+    };
   } finally {
     disposeObject(group);
   }
@@ -228,8 +248,10 @@ export function initThumbnailGenerator(canvas: HTMLCanvasElement) {
 
   const previewCleanup = window.polytray.onPreviewParseRequest(async (data) => {
     const { filePath, ext } = data;
+    const totalStartedAt = performance.now();
 
     try {
+      const fetchStartedAt = performance.now();
       const url = `polytray://local/${encodeURIComponent(filePath)}`;
       const response = await fetch(url);
 
@@ -238,7 +260,54 @@ export function initThumbnailGenerator(canvas: HTMLCanvasElement) {
       }
 
       const buffer = await response.arrayBuffer();
-      const { meshes, transferables } = await parsePreviewMeshes(buffer, ext);
+      const fetchDurationMs = performance.now() - fetchStartedAt;
+
+      const {
+        meshes,
+        transferables,
+        parseDurationMs,
+        serializeDurationMs,
+      } = await parsePreviewMeshes(buffer, ext);
+      const payloadBytes = transferables.reduce(
+        (total, transferable) => total + transferable.byteLength,
+        0,
+      );
+      const totalDurationMs = performance.now() - totalStartedAt;
+
+      window.polytray.emitPreviewMetric({
+        source: "hidden-renderer",
+        phase: "fetch",
+        filePath,
+        ext,
+        durationMs: fetchDurationMs,
+      });
+      window.polytray.emitPreviewMetric({
+        source: "hidden-renderer",
+        phase: "parse",
+        filePath,
+        ext,
+        durationMs: parseDurationMs,
+        meshCount: meshes.length,
+      });
+      window.polytray.emitPreviewMetric({
+        source: "hidden-renderer",
+        phase: "serialize",
+        filePath,
+        ext,
+        durationMs: serializeDurationMs,
+        meshCount: meshes.length,
+        payloadBytes,
+      });
+      window.polytray.emitPreviewMetric({
+        source: "hidden-renderer",
+        phase: "background-total",
+        filePath,
+        ext,
+        durationMs: totalDurationMs,
+        meshCount: meshes.length,
+        payloadBytes,
+      });
+
       window.postMessage(
         {
           type: "__polytray-preview-parse-result",

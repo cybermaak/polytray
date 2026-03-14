@@ -12,6 +12,7 @@ import {
   SortOptions,
   PreviewParseRequestData,
   PreviewParsePortData,
+  PreviewMetricData,
   RuntimeSettingsData,
   SerializedMesh,
 } from "../shared/types";
@@ -214,6 +215,9 @@ contextBridge.exposeInMainWorld("polytray", {
           reject(error instanceof Error ? error : new Error(String(error)));
         });
     });
+  },
+  emitPreviewMetric: (metric: PreviewMetricData) => {
+    ipcRenderer.send(IPC.PREVIEW_METRIC, metric);
   },
 
   // File watching

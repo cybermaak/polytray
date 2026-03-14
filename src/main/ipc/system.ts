@@ -12,11 +12,12 @@ import {
 import { join } from "path";
 import { getDb } from "../database";
 import { startWatcher, stopWatcher } from "../watcher";
-import { IPC, RuntimeSettingsData } from "../../shared/types";
+import { IPC, PreviewMetricData, RuntimeSettingsData } from "../../shared/types";
 import {
   parseFilePath,
   parseFolderPath,
   parseFolderPathList,
+  parsePreviewMetric,
   parseRuntimeSettings,
 } from "./runtimeValidation";
 
@@ -102,6 +103,10 @@ export function registerSystemHandlers(
     ];
     const menu = Menu.buildFromTemplate(template);
     menu.popup({ window: BrowserWindow.fromWebContents(event.sender)! });
+  });
+
+  ipcMain.on(IPC.PREVIEW_METRIC, (_event, metric: PreviewMetricData) => {
+    console.info("[PreviewMetrics]", parsePreviewMetric(metric));
   });
 
   ipcMain.handle(

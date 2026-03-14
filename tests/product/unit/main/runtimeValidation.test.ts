@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   parseFolderPath,
+  parsePreviewMetric,
   parsePreviewParseRequest,
   parseRuntimeSettings,
   parseThumbnailPath,
@@ -49,11 +50,35 @@ test('path and preview validators reject malformed IPC payloads', () => {
       ext: '3mf',
     },
   );
+  assert.deepEqual(
+    parsePreviewMetric({
+      source: 'hidden-renderer',
+      phase: 'parse',
+      filePath: '/tmp/model.3mf',
+      ext: '3MF',
+      durationMs: 123.4,
+      meshCount: 5,
+      payloadBytes: 2048,
+    }),
+    {
+      source: 'hidden-renderer',
+      phase: 'parse',
+      filePath: '/tmp/model.3mf',
+      ext: '3mf',
+      durationMs: 123.4,
+      meshCount: 5,
+      payloadBytes: 2048,
+    },
+  );
 
   assert.throws(() => parseFolderPath(''), /Invalid folder path/);
   assert.throws(() => parseThumbnailPath(42), /Invalid thumbnail path/);
   assert.throws(
     () => parsePreviewParseRequest({ requestId: 'abc' }),
     /Invalid preview parse request/,
+  );
+  assert.throws(
+    () => parsePreviewMetric({ source: 'worker', phase: 'parse' }),
+    /Invalid preview metric/,
   );
 });

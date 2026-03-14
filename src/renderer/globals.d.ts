@@ -11,6 +11,7 @@ import type {
   ThumbnailRequestData,
   ThumbnailResultData,
   PreviewParseRequestData,
+  PreviewMetricData,
   SerializedMesh,
   RuntimeSettingsData,
 } from "../shared/types";
@@ -46,6 +47,7 @@ interface PolytrayAPI {
     filePath: string,
     ext: string,
   ) => Promise<SerializedMesh[]>;
+  emitPreviewMetric: (metric: PreviewMetricData) => void;
   startDrag: (filePath: string) => void;
   showContextMenu: (filePath: string) => void;
   showFolderContextMenu: (path: string) => void;

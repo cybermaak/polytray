@@ -69,6 +69,7 @@ export const IPC = {
   SHOW_CONTEXT_MENU: "show-context-menu",
   SHOW_FOLDER_CONTEXT_MENU: "show-folder-context-menu",
   THUMBNAIL_GENERATED: "thumbnail-generated",
+  PREVIEW_METRIC: "preview-metric",
 
   // send channels (main → renderer)
   SCAN_PROGRESS: "scan-progress",
@@ -189,6 +190,23 @@ export interface PreviewParseRequestData {
 
 export interface PreviewParsePortData {
   requestId: string;
+}
+
+export interface PreviewMetricData {
+  source: "hidden-renderer" | "viewer";
+  phase:
+    | "fetch"
+    | "parse"
+    | "serialize"
+    | "background-total"
+    | "background-wait"
+    | "build"
+    | "preview-total";
+  filePath: string;
+  ext: string;
+  durationMs: number;
+  meshCount?: number;
+  payloadBytes?: number;
 }
 
 export interface RuntimeSettingsData {

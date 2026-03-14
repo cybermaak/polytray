@@ -253,13 +253,44 @@ export async function loadModelWithWorker(
   signal: AbortSignal,
   onProgress?: (percent: number) => void,
 ) {
+  const backgroundStartedAt = performance.now();
   const meshes = await loadPreviewMeshes({
     fileUrl,
     extension,
     signal,
     onProgress,
   });
+  const backgroundWaitMs = performance.now() - backgroundStartedAt;
+
+  window.polytray.emitPreviewMetric({
+    source: "viewer",
+    phase: "background-wait",
+    filePath: fileUrl,
+    ext: extension,
+    durationMs: backgroundWaitMs,
+    meshCount: meshes.length,
+  });
+
+  const buildStartedAt = performance.now();
   await buildModelFromMeshes(meshes, fileName);
+  const buildDurationMs = performance.now() - buildStartedAt;
+
+  window.polytray.emitPreviewMetric({
+    source: "viewer",
+    phase: "build",
+    filePath: fileUrl,
+    ext: extension,
+    durationMs: buildDurationMs,
+    meshCount: meshes.length,
+  });
+  window.polytray.emitPreviewMetric({
+    source: "viewer",
+    phase: "preview-total",
+    filePath: fileUrl,
+    ext: extension,
+    durationMs: backgroundWaitMs + buildDurationMs,
+    meshCount: meshes.length,
+  });
 }
 
 export async function loadModel(

@@ -1,5 +1,6 @@
 import path from "path";
 import {
+  PreviewMetricData,
   PreviewParseRequestData,
   RuntimeSettingsData,
   SortOptions,
@@ -91,6 +92,59 @@ export function parsePreviewParseRequest(value: unknown): PreviewParseRequestDat
     requestId: request.requestId,
     filePath: request.filePath,
     ext: request.ext,
+  };
+}
+
+export function parsePreviewMetric(value: unknown): PreviewMetricData {
+  if (!value || typeof value !== "object") {
+    throw new Error("Invalid preview metric");
+  }
+
+  const metric = value as Partial<PreviewMetricData>;
+  const validSources = new Set<PreviewMetricData["source"]>([
+    "hidden-renderer",
+    "viewer",
+  ]);
+  const validPhases = new Set<PreviewMetricData["phase"]>([
+    "fetch",
+    "parse",
+    "serialize",
+    "background-total",
+    "background-wait",
+    "build",
+    "preview-total",
+  ]);
+
+  if (
+    !isNonEmptyString(metric.filePath) ||
+    !isNonEmptyString(metric.ext) ||
+    typeof metric.durationMs !== "number" ||
+    !Number.isFinite(metric.durationMs) ||
+    !metric.source ||
+    !validSources.has(metric.source) ||
+    !metric.phase ||
+    !validPhases.has(metric.phase)
+  ) {
+    throw new Error("Invalid preview metric");
+  }
+
+  if (
+    (metric.meshCount !== undefined &&
+      (typeof metric.meshCount !== "number" || !Number.isFinite(metric.meshCount))) ||
+    (metric.payloadBytes !== undefined &&
+      (typeof metric.payloadBytes !== "number" || !Number.isFinite(metric.payloadBytes)))
+  ) {
+    throw new Error("Invalid preview metric");
+  }
+
+  return {
+    source: metric.source,
+    phase: metric.phase,
+    filePath: metric.filePath,
+    ext: metric.ext.toLowerCase(),
+    durationMs: metric.durationMs,
+    meshCount: metric.meshCount,
+    payloadBytes: metric.payloadBytes,
   };
 }
 
