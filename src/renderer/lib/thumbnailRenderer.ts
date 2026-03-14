@@ -9,7 +9,7 @@ import { VIEWER_CONFIG } from "./viewerConfig";
 import { parseModelToGroup, setModelColor } from "./modelParsers";
 import { applySmartOrientation } from "./orientation";
 import { computeCameraFit } from "./cameraUtils";
-import { collectSerializedMeshes } from "./meshSerialization";
+import { collectSerializedPreviewMeshes } from "./meshSerialization";
 
 // ── Thumbnail Rendering State ─────────────────────────────────────
 
@@ -164,7 +164,7 @@ export async function renderThumbnail(
 export async function parsePreviewMeshes(
   arrayBuffer: ArrayBuffer,
   extension: string,
-): Promise<ReturnType<typeof collectSerializedMeshes>> {
+): Promise<ReturnType<typeof collectSerializedPreviewMeshes>> {
   const group = await parseModelToGroup(arrayBuffer, extension);
 
   try {
@@ -172,7 +172,7 @@ export async function parsePreviewMeshes(
       return { meshes: [], transferables: [] };
     }
 
-    return collectSerializedMeshes(group);
+    return collectSerializedPreviewMeshes(group);
   } finally {
     disposeObject(group);
   }

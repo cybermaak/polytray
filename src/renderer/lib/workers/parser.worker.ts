@@ -5,7 +5,7 @@ import {
   prepareObjGeometry,
   prepareStlGeometry,
 } from "../meshPrep";
-import { collectSerializedMeshes, serializeGeometry } from "../meshSerialization";
+import { serializePreviewGeometry } from "../meshSerialization";
 import type { SerializedMesh } from "../../../shared/types";
 
 const ctx: Worker = self as unknown as Worker;
@@ -20,7 +20,7 @@ ctx.onmessage = async (e) => {
     if (extension.toLowerCase() === "stl") {
       const loader = new STLLoader();
       const geometry = prepareStlGeometry(loader.parse(buffer));
-      const { data, transferables } = serializeGeometry(geometry);
+      const { data, transferables } = serializePreviewGeometry(geometry);
       meshes.push({
         geometry: data,
         name: "model",
@@ -34,7 +34,7 @@ ctx.onmessage = async (e) => {
       group.traverse((child) => {
         if (child instanceof THREE.Mesh) {
           child.geometry = prepareObjGeometry(child.geometry);
-          const { data, transferables } = serializeGeometry(child.geometry);
+          const { data, transferables } = serializePreviewGeometry(child.geometry);
           meshes.push({
             geometry: data,
             name: child.name,

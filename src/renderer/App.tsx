@@ -11,6 +11,7 @@ import { Toolbar } from "./components/Toolbar";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { SettingsModal } from "./components/SettingsModal";
 import { formatSize, formatVertices, formatTimestamp } from "./lib/formatters";
+import { createRefreshDebouncer } from "./lib/refreshDebouncer";
 import { VirtuosoGrid } from "react-virtuoso";
 import {
   AppSettings,
@@ -109,6 +110,9 @@ export const App: React.FC = () => {
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const libraryStateRef = useRef<LibraryState>(DEFAULT_LIBRARY_STATE);
+  const fileRefreshDebouncerRef = useRef<ReturnType<
+    typeof createRefreshDebouncer
+  > | null>(null);
 
   const applySettingsToDocument = useCallback((nextSettings: AppSettings) => {
     document.body.classList.toggle("light", nextSettings.lightMode);
@@ -173,6 +177,20 @@ export const App: React.FC = () => {
     const d = await window.polytray.getDirectories();
     setDirectories(d);
   }, [settings.page_size]);
+
+  useEffect(() => {
+    const debouncer = createRefreshDebouncer(() => {
+      void fetchFiles();
+    }, 150);
+    fileRefreshDebouncerRef.current = debouncer;
+
+    return () => {
+      debouncer.cancel();
+      if (fileRefreshDebouncerRef.current === debouncer) {
+        fileRefreshDebouncerRef.current = null;
+      }
+    };
+  }, [fetchFiles]);
 
   // ── IPC Listeners (once) ────────────────────────────────────────
   useEffect(() => {
@@ -282,7 +300,7 @@ export const App: React.FC = () => {
 
     cleanups.push(
       window.polytray.onFilesUpdated(async () => {
-        fetchFiles();
+        fileRefreshDebouncerRef.current?.trigger();
       }),
     );
 

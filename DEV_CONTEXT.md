@@ -143,6 +143,10 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Refactored `src/main/watcher.ts` and `src/main/ipc/scanning.ts` to consume the shared indexing policy instead of maintaining duplicated upsert logic.
   - Restricted `polytray://local/` protocol reads through `src/main/localFileProtocol.ts` so only indexed model files and contained thumbnail-cache paths are served.
   - Added product unit coverage for watcher lifecycle, file indexing conflict policy, and local protocol allowlisting.
+  - Reduced preview transfer cost by introducing compact preview-only mesh serialization in `src/renderer/lib/meshSerialization.ts`, dropping unused geometry attributes while preserving normals, indices, and baked world transforms.
+  - Switched both preview strategies (`parser.worker.ts` and `thumbnailRenderer.ts`) to the compact preview serializer so the optimization applies uniformly across `STL`, `OBJ`, and `3MF`.
+  - Added `src/renderer/lib/refreshDebouncer.ts` and used it in `src/renderer/App.tsx` so bursty watcher `FILES_UPDATED` events coalesce into bounded file-list refresh work instead of triggering immediate repeated fetches.
+  - Added renderer unit coverage for compact preview serialization and refresh-debounce behavior.
 
 ---
 
@@ -183,11 +187,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
    - The protocol now serves only indexed model files plus contained thumbnail-cache paths, and rejects everything else with a closed 403 response.
 
 3. **P1 Stability/Perf: Debounce renderer refreshes from watcher churn**
-   - **Impact:** High for large libraries. Reduces repeated DB queries and UI reload storms during bursty file events.
-   - **Effort:** ~0.5-1 day.
-   - **Primary Files:** `src/renderer/App.tsx`.
-   - **Why now:** `FILES_UPDATED` currently triggers immediate `fetchFiles()` on every event.
-   - **Done when:** Bursty add/change/remove events coalesce into bounded UI refresh work without stale UI regressions.
+   - **Status:** Completed on 2026-03-13 via `src/renderer/lib/refreshDebouncer.ts` and `src/renderer/App.tsx`.
 
 4. ~~**P1 Stability/Perf: Enforce single-flight thumbnail queue orchestration**~~ ✅ Completed 2026-03-10
    - Implemented via `src/main/thumbnailJobScheduler.ts`.
@@ -246,16 +246,15 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 ### Delivery Buckets
 
-- **1-day bucket:** Watcher/UI refresh debouncing, PreviewPanel lint cleanup.
+- **1-day bucket:** PreviewPanel lint cleanup.
 - **3-day bucket:** Scan-time DB roundtrip reduction, thumbnail symlink-containment regression coverage, scan+watch race coverage.
 - **1-week bucket:** App renderer decomposition, thumbnail transport profiling, E2E flake reduction.
 
 ### Recommended Sequence After TD5-TD9
 
 1. Add missing stress/regression coverage around watcher churn, scan+watch overlap, and thumbnail symlink escapes.
-2. Stabilize event/lifecycle behavior next: debounce watcher-driven renderer refreshes.
-3. Optimize throughput once semantics are stable: reduce scan DB roundtrips and separate list refreshes from stats/directory refreshes.
-4. Refactor renderer architecture and thumbnail transport only after the background/runtime contracts stop shifting.
+2. Optimize throughput once semantics are stable: reduce scan DB roundtrips and separate list refreshes from stats/directory refreshes.
+3. Refactor renderer architecture and thumbnail transport only after the background/runtime contracts stop shifting.
 5. Finish with test hardening and runtime validation so future regressions fail earlier in CI.
 
 ### Code Improvement Suggestions (Actionable)
@@ -446,7 +445,8 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - `runtimeValidation.ts` for high-risk payload parsing/normalization
   - `system.ts` for app/system operations
 - **Thumbnail Runtime:** `src/main/thumbnails.ts`, `src/main/thumbnailJobScheduler.ts`, `src/main/thumbnailCacheLifecycle.ts`, `src/renderer/lib/thumbnailRenderer.ts`
-- **Watcher Runtime:** `src/main/watcher.ts`, `src/main/worker.ts`
+- **Watcher Runtime:** `src/main/watcher.ts`, `src/main/watcherLifecycle.ts`, `src/main/worker.ts`
+- **Renderer Refresh Utilities:** `src/renderer/lib/refreshDebouncer.ts`
 - **Filesystem / Path Safety Helpers:** `src/main/pathContainment.ts`, `src/main/localFileProtocol.ts`, `src/main/scanner.ts`
 - **Electron Main Entrypoint / Protocols:** `src/main/index.ts`
 - **Build Assets / Packaging:** `build/icon.png`, `build/scripts/afterPack.js`

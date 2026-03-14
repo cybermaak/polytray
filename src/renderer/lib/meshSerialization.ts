@@ -1,13 +1,31 @@
 import * as THREE from "three";
 import type { SerializedAttribute, SerializedGeometry, SerializedIndex, SerializedMesh } from "../../shared/types";
 
+const PREVIEW_ATTRIBUTE_NAMES = new Set(["position", "normal"]);
+
 export function serializeGeometry(
   geometry: THREE.BufferGeometry,
+): { data: SerializedGeometry; transferables: ArrayBuffer[] } {
+  return serializeGeometryAttributes(geometry);
+}
+
+export function serializePreviewGeometry(
+  geometry: THREE.BufferGeometry,
+): { data: SerializedGeometry; transferables: ArrayBuffer[] } {
+  return serializeGeometryAttributes(geometry, PREVIEW_ATTRIBUTE_NAMES);
+}
+
+function serializeGeometryAttributes(
+  geometry: THREE.BufferGeometry,
+  allowedAttributes?: Set<string>,
 ): { data: SerializedGeometry; transferables: ArrayBuffer[] } {
   const attributes: Record<string, SerializedAttribute> = {};
   const transferables: ArrayBuffer[] = [];
 
   for (const name of Object.keys(geometry.attributes)) {
+    if (allowedAttributes && !allowedAttributes.has(name)) {
+      continue;
+    }
     const attr = geometry.getAttribute(name);
     if (attr instanceof THREE.BufferAttribute) {
       attributes[name] = {
@@ -40,6 +58,19 @@ export function serializeGeometry(
 }
 
 export function collectSerializedMeshes(root: THREE.Object3D) {
+  return collectSerializedMeshesInternal(root, serializeGeometry);
+}
+
+export function collectSerializedPreviewMeshes(root: THREE.Object3D) {
+  return collectSerializedMeshesInternal(root, serializePreviewGeometry);
+}
+
+function collectSerializedMeshesInternal(
+  root: THREE.Object3D,
+  serialize: (
+    geometry: THREE.BufferGeometry,
+  ) => { data: SerializedGeometry; transferables: ArrayBuffer[] },
+) {
   const meshes: SerializedMesh[] = [];
   const transferables: ArrayBuffer[] = [];
   const geometryUseCounts = new Map<THREE.BufferGeometry, number>();
@@ -67,7 +98,7 @@ export function collectSerializedMeshes(root: THREE.Object3D) {
         geometry.applyMatrix4(child.matrixWorld);
       }
 
-      const { data, transferables: meshTransfers } = serializeGeometry(geometry);
+      const { data, transferables: meshTransfers } = serialize(geometry);
       meshes.push({
         geometry: data,
         name: child.name,
