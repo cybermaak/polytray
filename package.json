@@ -19,7 +19,7 @@
     "profile": "POLYTRAY_PROFILE=50 electron-vite preview",
     "build": "npm run typecheck && electron-vite build",
     "start": "electron-vite preview",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "node build/scripts/postinstall.js",
     "clean": "rm -rf out dist dist-electron",
     "test:e2e": "npm run test:product:e2e",
     "release": "electron-builder --publish always",

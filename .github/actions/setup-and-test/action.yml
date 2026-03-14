@@ -9,7 +9,9 @@ runs:
         node-version: 20
     - name: Install dependencies
       shell: bash
-      run: npm ci --ignore-scripts
+      env:
+        POLYTRAY_SKIP_INSTALL_APP_DEPS: "1"
+      run: npm ci
     - name: Install Playwright Browsers
       shell: bash
       run: npx playwright install --with-deps

@@ -38,9 +38,15 @@ test('build and release workflows share setup and packaging actions', () => {
   expectNoMatch(releaseWorkflow, /electron-builder --publish never/);
 });
 
-test('setup-and-test installs node test dependencies without running electron rebuild', () => {
-  expectMatch(setupAndTestAction, /npm ci --ignore-scripts/);
-  expectNoMatch(setupAndTestAction, /electron-builder install-app-deps/);
+test('setup-and-test installs dependencies normally but skips only the repo postinstall rebuild', () => {
+  expectMatch(setupAndTestAction, /POLYTRAY_SKIP_INSTALL_APP_DEPS:\s*["']?1["']?/);
+  expectMatch(setupAndTestAction, /run: npm ci/);
+  expectNoMatch(setupAndTestAction, /ignore-scripts/);
+});
+
+test('package postinstall honors the skip flag and otherwise rebuilds native deps', () => {
+  const script = packageJson.scripts?.postinstall ?? '';
+  expectMatch(script, /build\/scripts\/postinstall/);
 });
 
 test('product test script rebuilds native deps for electron between unit and e2e phases', () => {

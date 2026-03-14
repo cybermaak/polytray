@@ -62,7 +62,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Artifact patterns were tightened to preserve Electron auto-update compatibility (`*.dmg`, `*-mac.zip`, `*.blockmap`, `latest*.yml`) while dropping unused `snap` artifacts.
   - Default CI now runs product tests only via `npm run test:product`.
   - Windows build stability was further hardened by removing the migration test suite's dependency on the external `sqlite3` CLI; migration fixtures are now created in-process with `better-sqlite3`, so product-unit tests are cross-platform.
-  - The shared setup/test flow now installs dependencies with `npm ci --ignore-scripts`, runs product units first, then rebuilds native deps for Electron before Playwright E2E so both Node-side and Electron-side `better-sqlite3` usage stay healthy on macOS arm64.
+  - The shared setup/test flow now installs dependencies with normal `npm ci` while setting `POLYTRAY_SKIP_INSTALL_APP_DEPS=1`, so package postinstall downloads Electron normally but skips the repo's Electron-native rebuild until after Node-side unit tests. Product tests then rebuild native deps for Electron immediately before Playwright E2E.
 - **Test Architecture:**
   - Product tests live under `tests/product/`:
     - Playwright E2E: `tests/product/e2e/`
@@ -158,7 +158,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Wired the fast parser into `src/renderer/lib/modelParsers.ts` as the primary `3MF` preview path, with fallback to `ThreeMFLoader` for unsupported files.
   - Measured `/Volumes/exssd/3D Models/base.3mf` after the parser change: total preview load dropped from about `49.8s` to about `6.9s`, while logged hidden-renderer parse time dropped from about `46.0s` to about `4.7s`.
   - Fixed the remaining Windows GitHub Actions build failure by rewriting the schema-migration test fixtures to use in-process `better-sqlite3` databases instead of shelling out to a missing `sqlite3` executable.
-  - Fixed the follow-on macOS arm64 GitHub Actions failure by separating Node-side test dependency installation from Electron-native rebuilds: CI now installs with `--ignore-scripts`, product tests rebuild native deps before E2E, and packaging still rebuilds before `electron-builder`.
+  - Fixed the follow-on macOS arm64 GitHub Actions failure by making the repo postinstall skippable via `POLYTRAY_SKIP_INSTALL_APP_DEPS=1`: CI now installs dependencies normally so Electron itself is present, skips only the repo's `electron-builder install-app-deps` during setup, and still rebuilds native deps before E2E and packaging.
 
 ---
 
