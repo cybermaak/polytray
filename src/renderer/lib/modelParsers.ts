@@ -10,6 +10,7 @@ import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
 import { fix3MF } from "./threemf-repair";
 import { VIEWER_CONFIG } from "./viewerConfig";
+import { parseFast3mfPreviewGroup } from "./fast3mfPreviewParser";
 import {
   prepare3mfGeometry,
   prepareObjGeometry,
@@ -68,9 +69,24 @@ async function load3MF(
   arrayBuffer: ArrayBuffer,
   group: THREE.Group,
 ): Promise<void> {
-  const loader = new ThreeMFLoader();
-  const fixedBuffer = await fix3MF(arrayBuffer);
-  const obj = loader.parse(fixedBuffer);
+  let obj: THREE.Group;
+  try {
+    obj = await parseFast3mfPreviewGroup(arrayBuffer);
+  } catch (fastPathError) {
+    console.info("[PreviewMetrics]", {
+      source: "hidden-renderer",
+      phase: "fast-3mf-fallback",
+      ext: "3mf",
+      error:
+        fastPathError instanceof Error
+          ? fastPathError.message
+          : String(fastPathError),
+    });
+
+    const loader = new ThreeMFLoader();
+    const fixedBuffer = await fix3MF(arrayBuffer);
+    obj = loader.parse(fixedBuffer);
+  }
 
   obj.traverse((child: THREE.Object3D) => {
     if (child instanceof THREE.Mesh) {

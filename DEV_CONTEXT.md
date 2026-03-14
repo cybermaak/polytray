@@ -33,8 +33,10 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Format-specific parse execution is selected through `src/renderer/lib/previewStrategies.ts` so the UI/viewer path stays unified while the heavy background step can vary by format.
   - `STL` and `OBJ` parse in a dedicated renderer `Worker` and rebuild meshes on the main viewer thread.
   - `3MF` preview parsing is routed through the existing hidden thumbnail `BrowserWindow` instead of the worker because `ThreeMFLoader` and local 3MF repair rely on DOM APIs such as `DOMParser` that are unavailable in a plain worker context.
+  - `3MF` preview loading now prefers a lightweight preview-only parser (`src/renderer/lib/fast3mfPreviewParser.ts`) that extracts only core mesh/component geometry and build transforms while ignoring materials and non-preview metadata; it falls back to `ThreeMFLoader` only for unsupported structures.
   - Large `3MF` preview payloads now travel through a preload-brokered `MessagePort` path so geometry buffers can be transferred renderer-to-renderer without bouncing the full mesh payload back through normal main-process IPC cloning.
   - Shared mesh preparation/serialization logic lives in `src/renderer/lib/meshPrep.ts` and `src/renderer/lib/meshSerialization.ts` to keep thumbnail and preview behavior aligned.
+  - Preview phase timings are now emitted through structured main-process logs under `[PreviewMetrics]` so fetch/parse/serialize/build phases can be compared on real files.
 - **Renderer Persistence Architecture:**
   - User-configurable settings are normalized and persisted in renderer `localStorage` via `src/shared/settings.ts`.
   - Library folder state (`libraryFolders`, `lastFolder`) is also renderer-owned in `localStorage` via `src/shared/libraryState.ts`.
@@ -147,6 +149,11 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Switched both preview strategies (`parser.worker.ts` and `thumbnailRenderer.ts`) to the compact preview serializer so the optimization applies uniformly across `STL`, `OBJ`, and `3MF`.
   - Added `src/renderer/lib/refreshDebouncer.ts` and used it in `src/renderer/App.tsx` so bursty watcher `FILES_UPDATED` events coalesce into bounded file-list refresh work instead of triggering immediate repeated fetches.
   - Added renderer unit coverage for compact preview serialization and refresh-debounce behavior.
+- **2026-03-14:**
+  - Added preview-phase metrics plumbing (`PREVIEW_METRIC`) so hidden-renderer fetch/parse/serialize timings and visible-renderer wait/build timings are logged centrally under `[PreviewMetrics]`.
+  - Implemented `src/renderer/lib/fast3mfPreviewParser.ts`, a lightweight preview-only 3MF parser that reads core mesh geometry, component references, and build transforms while deliberately ignoring material/metadata features that are irrelevant to the current preview goal.
+  - Wired the fast parser into `src/renderer/lib/modelParsers.ts` as the primary `3MF` preview path, with fallback to `ThreeMFLoader` for unsupported files.
+  - Measured `/Volumes/exssd/3D Models/base.3mf` after the parser change: total preview load dropped from about `49.8s` to about `6.9s`, while logged hidden-renderer parse time dropped from about `46.0s` to about `4.7s`.
 
 ---
 
@@ -169,9 +176,9 @@ If you are an AI assistant reading this file at the start of a session, use it t
    - Completed for canonical thumbnail-path containment and `polytray://local/` allowlisting.
    - Remaining follow-up, if revisited, is symlink-escape regression coverage rather than the base containment rule itself.
 
-4. **Preview Transfer Cost Reduction (Current Follow-up)**
-   - The main freeze regression is fixed and the `3MF` transport no longer uses the slow invoke/result IPC path.
-   - Remaining work, if revisited, should be driven by profiling `base.3mf` end-to-end timings across: hidden-renderer parse time, mesh serialization time, buffer transfer time, and viewer rebuild time.
+4. **Preview Follow-up**
+   - The main freeze regression is fixed and the largest parse bottleneck for preview-oriented `3MF` files is materially reduced by the lightweight parser path.
+   - Remaining preview work, if revisited, should focus on reducing payload size further or expanding lightweight-parser coverage before falling back to `ThreeMFLoader`.
    - Preserve orientation parity between cached thumbnails and interactive preview if any further `3MF` serialization or transport changes are made.
 
 ### Engineering Improvement Backlog (Priority + Impact + Effort)
