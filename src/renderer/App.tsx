@@ -11,9 +11,11 @@ import { Toolbar } from "./components/Toolbar";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { ComparePanel } from "./components/ComparePanel";
 import { SettingsModal } from "./components/SettingsModal";
-import { formatSize, formatVertices, formatTimestamp } from "./lib/formatters";
+import { BatchActionsBar } from "./components/BatchActionsBar";
+import { EmptyState } from "./components/EmptyState";
+import { FileGrid } from "./components/FileGrid";
+import { ScanProgress } from "./components/ScanProgress";
 import { createRefreshDebouncer } from "./lib/refreshDebouncer";
-import { VirtuosoGrid } from "react-virtuoso";
 import {
   AppSettings,
   DEFAULT_APP_SETTINGS,
@@ -42,26 +44,7 @@ import {
   addFilesToCollection,
 } from "../shared/libraryCollections";
 import { normalizeFileTags, parseStoredFileTags } from "../shared/fileTags";
-import { isArchiveEntryPath } from "../shared/archivePaths";
-
-// Types for file records from the database
-interface FileRecord {
-  id: number;
-  path: string;
-  name: string;
-  extension: string;
-  directory: string;
-  size_bytes: number;
-  modified_at: number;
-  vertex_count: number;
-  face_count: number;
-  tags?: string | null;
-  notes?: string | null;
-  dimensions?: string | null;
-  thumbnail: string | null;
-  thumbnail_failed: number;
-  indexed_at: number;
-}
+import type { FileRecord } from "../shared/types";
 
 interface LibraryStats {
   total: number;
@@ -848,139 +831,44 @@ export const App: React.FC = () => {
             onRescan={handleRescan}
             onClearThumbnails={handleClearThumbnails}
           />
-          {selectedFileIds.length > 0 && (
-            <div id="batch-actions" className="batch-actions">
-              <span id="batch-selection-count" className="context-chip neutral">
-                {selectedFileIds.length} selected
-              </span>
-              <input
-                id="batch-tags-input"
-                type="text"
-                value={batchTagsInput}
-                placeholder="Add tags to selection"
-                onChange={(e) => setBatchTagsInput(e.target.value)}
-              />
-              <button
-                id="apply-batch-tags"
-                className="btn-icon"
-                onClick={() => void handleApplyBatchTags()}
-              >
-                Apply Tags
-              </button>
-              <select
-                id="batch-collection-select"
-                value={batchCollectionId}
-                onChange={(e) => setBatchCollectionId(e.target.value)}
-              >
-                <option value="">Add to collection…</option>
-                {collectionsState.collections.map((collection) => (
-                  <option key={collection.id} value={collection.id}>
-                    {collection.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                id="batch-add-to-collection"
-                className="btn-icon"
-                onClick={handleBatchAddToCollection}
-              >
-                Add to Collection
-              </button>
-              {selectedFileIds.length === 2 && (
-                <button
-                  id="compare-selected"
-                  className="btn-icon"
-                  onClick={() => {
-                    setPreviewFile(null);
-                    setComparisonFiles(selectedFiles.slice(0, 2));
-                  }}
-                >
-                  Compare
-                </button>
-              )}
-              <button
-                id="clear-batch-selection"
-                className="btn-icon"
-                onClick={() => {
-                  setSelectedFileIds([]);
-                  setComparisonFiles([]);
-                }}
-              >
-                Clear
-              </button>
-            </div>
-          )}
-          {/* VirtuosoGrid virtualizes the DOM elements for massive efficiency. */}
-          {hasFiles && (
-            <VirtuosoGrid
-              style={{ flex: 1, minHeight: 0 }}
-              data={files}
-              context={{ gridSize: settings.gridSize }}
-              components={{
-                List: GridList,
-                Item: GridItem,
-              }}
-              itemContent={(index, file) => (
-                <FileCardMemo
-                  key={file.id}
-                  file={file}
-                  index={index}
-                  selected={previewFile?.id === file.id || comparisonFiles.some((entry) => entry.id === file.id)}
-                  selectedForBatch={selectedFileIds.includes(file.id)}
-                  onToggleSelect={() => handleToggleFileSelection(file.id)}
-                  onClick={() => {
-                    setComparisonFiles([]);
-                    setPreviewFile(file);
-                  }}
-                />
-              )}
-            />
-          )}
-          <div
-            id="empty-state"
-            className={`empty-state${hasFiles ? " hidden" : ""}`}
-          >
-            <div className="empty-icon">
-              <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
-                <path
-                  d="M8 16a8 8 0 018-8h11.51a8 8 0 015.657 2.343l2.49 2.49A8 8 0 0041.314 15H48a8 8 0 018 8v25a8 8 0 01-8 8H16a8 8 0 01-8-8V16z"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  opacity="0.3"
-                />
-                <path
-                  d="M24 36h16M32 28v16"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  opacity="0.3"
-                />
-              </svg>
-            </div>
-            <h2>No models in view</h2>
-            <p>
-              Add a library folder or adjust your search and filters to browse
-              `.stl`, `.obj`, and `.3mf` files.
-            </p>
-          </div>
-
-          {/* Progress bar */}
-          <div
-            id="scan-progress"
-            className={`scan-progress${progress.visible ? "" : " hidden"}`}
-          >
-            <div className="progress-bar">
-              <div
-                className="progress-fill"
-                id="progress-fill"
-                style={{ width: `${progress.percent}%` }}
-              />
-            </div>
-            <div className="progress-text">
-              <span id="progress-text">{progress.text}</span>
-              <span id="progress-count">{progress.count}</span>
-            </div>
-          </div>
+          <BatchActionsBar
+            selectedCount={selectedFileIds.length}
+            batchTagsInput={batchTagsInput}
+            batchCollectionId={batchCollectionId}
+            collections={collectionsState.collections}
+            canCompare={selectedFileIds.length === 2}
+            onBatchTagsInputChange={setBatchTagsInput}
+            onBatchCollectionChange={setBatchCollectionId}
+            onApplyBatchTags={() => void handleApplyBatchTags()}
+            onAddToCollection={handleBatchAddToCollection}
+            onCompare={() => {
+              setPreviewFile(null);
+              setComparisonFiles(selectedFiles.slice(0, 2));
+            }}
+            onClear={() => {
+              setSelectedFileIds([]);
+              setComparisonFiles([]);
+            }}
+          />
+          <FileGrid
+            files={files}
+            gridSize={settings.gridSize}
+            activeFileId={previewFile?.id ?? null}
+            comparisonFileIds={comparisonFiles.map((file) => file.id)}
+            selectedFileIds={selectedFileIds}
+            onToggleFileSelection={handleToggleFileSelection}
+            onSelectFile={(file) => {
+              setComparisonFiles([]);
+              setPreviewFile(file);
+            }}
+          />
+          <EmptyState hidden={hasFiles} />
+          <ScanProgress
+            visible={progress.visible}
+            percent={progress.percent}
+            text={progress.text}
+            count={progress.count}
+          />
         </main>
         <ComparePanel
           files={comparisonFiles}
@@ -1011,238 +899,3 @@ export const App: React.FC = () => {
   );
 };
 
-// ── Helpers for VirtuosoGrid ────────────────────────────────────
-
-const GridList = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement> & { context?: { gridSize?: string } }
->(({ style, children, context, ...props }, ref) => {
-  return (
-    <div
-      ref={ref}
-      {...props}
-      id="file-grid"
-      className={`file-grid size-${context?.gridSize || "medium"}`}
-      style={{
-        ...style,
-        display: "grid",
-        padding: "var(--space-4)",
-        gap: "var(--space-3)",
-        alignContent: "start",
-      }}
-    >
-      {children}
-    </div>
-  );
-});
-
-const GridItem = ({
-  children,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
-  <div {...props} style={{ display: "flex", flexDirection: "column" }}>
-    {children}
-  </div>
-);
-
-// ── FileCard (memoized to prevent unnecessary re-renders) ─────────
-
-interface FileCardProps {
-  file: FileRecord;
-  index: number;
-  selected?: boolean;
-  selectedForBatch?: boolean;
-  onToggleSelect: () => void;
-  onClick: () => void;
-}
-
-const FileCard: React.FC<FileCardProps> = ({
-  file,
-  index: _index,
-  selected,
-  selectedForBatch,
-  onToggleSelect,
-  onClick,
-}) => {
-  const extClass = file.extension === "3mf" ? "threemf" : file.extension;
-  const isArchiveEntry = isArchiveEntryPath(file.path);
-
-  return (
-    <div
-      className={`file-card${selected ? " selected" : ""}`}
-      data-file-id={file.id}
-      onClick={onClick}
-      draggable={!isArchiveEntry}
-      onDragStart={(e) => {
-        if (isArchiveEntry) return;
-        e.preventDefault();
-        window.polytray.startDrag(file.path);
-      }}
-      onContextMenu={(e) => {
-        if (isArchiveEntry) return;
-        e.preventDefault();
-        window.polytray.showContextMenu(file.path);
-      }}
-    >
-      <button
-        type="button"
-        className={`file-select-toggle${selectedForBatch ? " active" : ""}`}
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggleSelect();
-        }}
-      >
-        {selectedForBatch ? "✓" : ""}
-      </button>
-      <div className="card-thumbnail">
-        {!file.thumbnail && (
-          <>
-            {!file.thumbnail_failed ? (
-              <div className="thumbnail-pulse" />
-            ) : (
-              <div className="thumbnail-error-bg" />
-            )}
-            <svg
-              className={`placeholder-icon ${file.thumbnail_failed ? "error" : ""}`}
-              width="48"
-              height="48"
-              viewBox="0 0 48 48"
-              fill="none"
-            >
-              {!file.thumbnail_failed ? (
-                <>
-                  <path
-                    d="M24 4L42 14v20L24 44 6 34V14L24 4z"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    fill="none"
-                  />
-                  <path
-                    d="M24 4v20m0 20V24m18-10L24 24M6 14l18 10"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    opacity="0.5"
-                  />
-                </>
-              ) : (
-                // A broken/missing file icon
-                <>
-                  <path
-                    d="M12 8C12 5.79086 13.7909 4 16 4H26L36 14V40C36 42.2091 34.2091 44 32 44H16C13.7909 44 12 42.2091 12 40V8Z"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  />
-                  <path
-                    d="M24 18L24 28"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M24 34V34.5"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </>
-              )}
-            </svg>
-          </>
-        )}
-        {file.thumbnail && (
-          <ThumbnailImage thumbnailPath={file.thumbnail} name={file.name} />
-        )}
-        <span className={`card-ext-badge ${extClass}`}>
-          {file.extension.toUpperCase()}
-        </span>
-      </div>
-      <div className="card-info">
-        <div className="card-name" title={file.name}>
-          {file.name}
-        </div>
-        <div className="card-meta">
-          <span>{formatSize(file.size_bytes)}</span>
-          <span>{formatVertices(file.vertex_count)}</span>
-        </div>
-        <div className="card-timestamp">
-          {formatTimestamp(file.modified_at)}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const FileCardMemo = React.memo(FileCard, (prev, next) => {
-  return (
-    prev.file.id === next.file.id &&
-    prev.file.thumbnail === next.file.thumbnail &&
-    prev.index === next.index &&
-    prev.selected === next.selected
-  );
-});
-
-// ── ThumbnailImage (loads via IPC, avoids re-render of parent) ────
-
-const ThumbnailImage: React.FC<{ thumbnailPath: string; name: string }> = ({
-  thumbnailPath,
-  name,
-}) => {
-  const [src, setSrc] = useState<string | null>(null);
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (thumbnailPath.startsWith("data:")) {
-      // Setting initial src synchronously here is intentional: thumbnailPath is already a data URL
-      setSrc(thumbnailPath); // eslint-disable-line react-hooks/set-state-in-effect
-      return;
-    }
-
-    let cancelled = false;
-    window.polytray
-      .readThumbnail(thumbnailPath)
-      .then((dataUrl: string | null) => {
-        if (!cancelled && mountedRef.current && dataUrl) {
-          setSrc(dataUrl);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [thumbnailPath]);
-
-  if (!src) {
-    return (
-      <svg
-        className="placeholder-icon"
-        width="48"
-        height="48"
-        viewBox="0 0 48 48"
-        fill="none"
-      >
-        <path
-          d="M24 4L42 14v20L24 44 6 34V14L24 4z"
-          stroke="currentColor"
-          strokeWidth="2"
-          fill="none"
-        />
-        <path
-          d="M24 4v20m0 20V24m18-10L24 24M6 14l18 10"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          opacity="0.5"
-        />
-      </svg>
-    );
-  }
-
-  return <img alt={name} src={src} loading="lazy" />;
-};
-
-export default App;
