@@ -6,7 +6,7 @@ import { join } from "path";
 import fs from "fs";
 import { getDb, getSetting } from "../database";
 import { scanFolder } from "../scanner";
-import { extractMetadata } from "../metadata";
+import { extractMetadata, type MetadataSummary } from "../metadata";
 import {
   cancelPendingThumbnailJobs,
   getThumbnailDir,
@@ -94,7 +94,11 @@ export function registerScanningHandlers(
         continue;
       }
 
-      let meta = { vertexCount: 0, faceCount: 0 };
+      let meta: MetadataSummary = {
+        vertexCount: 0,
+        faceCount: 0,
+        dimensions: null,
+      };
       try {
         meta = await extractMetadata(file.path, file.ext);
       } catch (e: unknown) {
@@ -113,6 +117,7 @@ export function registerScanningHandlers(
         mtime: file.mtime,
         vertexCount: meta.vertexCount,
         faceCount: meta.faceCount,
+        dimensions: meta.dimensions,
         indexedAt: Date.now(),
       });
 

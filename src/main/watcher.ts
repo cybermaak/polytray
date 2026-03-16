@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { BrowserWindow } from 'electron';
 import { Database } from 'better-sqlite3';
-import { extractMetadata } from './metadata';
+import { extractMetadata, type MetadataSummary } from './metadata';
 import { scheduleSingleThumbnailGeneration } from './thumbnails';
 import { EXT_SET, IPC, RuntimeSettingsData } from '../shared/types';
 import { createWatcherLifecycleManager } from './watcherLifecycle';
@@ -71,7 +71,11 @@ async function handleFileChange(
     const name = path.basename(filePath, '.' + ext);
     const dir = path.dirname(filePath);
 
-    let meta = { vertexCount: 0, faceCount: 0 };
+    let meta: MetadataSummary = {
+      vertexCount: 0,
+      faceCount: 0,
+      dimensions: null,
+    };
     try {
       meta = await extractMetadata(filePath, ext);
     } catch (e: unknown) {
@@ -108,6 +112,7 @@ async function handleFileChange(
       modifiedAt: Math.floor(stat.mtimeMs),
       vertexCount: meta.vertexCount,
       faceCount: meta.faceCount,
+      dimensions: meta.dimensions,
       thumbnailPath,
       thumbnailFailed,
       indexedAt: Date.now(),

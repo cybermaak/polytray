@@ -17,6 +17,7 @@ function makeExistingRecord(overrides: Partial<IndexedFileRecord> = {}): Indexed
     modifiedAt: 200,
     vertexCount: 20,
     faceCount: 10,
+    dimensions: { x: 1, y: 1, z: 1 },
     thumbnailPath: '/thumb.png',
     thumbnailFailed: 0,
     indexedAt: 5000,
@@ -42,6 +43,7 @@ test('scan merge does not downgrade a newer existing file record', () => {
   assert.equal(merged.modifiedAt, 200);
   assert.equal(merged.thumbnailPath, '/thumb.png');
   assert.equal(merged.indexedAt, 5000);
+  assert.deepEqual(merged.dimensions, { x: 1, y: 1, z: 1 });
 });
 
 test('scan merge clears thumbnail state when the scanned file is newer', () => {
@@ -56,6 +58,7 @@ test('scan merge clears thumbnail state when the scanned file is newer', () => {
       mtime: 250,
       vertexCount: 30,
       faceCount: 12,
+      dimensions: { x: 2, y: 2, z: 2 },
       indexedAt: 6000,
     },
   );
@@ -64,6 +67,7 @@ test('scan merge clears thumbnail state when the scanned file is newer', () => {
   assert.equal(merged.thumbnailPath, null);
   assert.equal(merged.thumbnailFailed, 0);
   assert.equal(merged.indexedAt, 6000);
+  assert.deepEqual(merged.dimensions, { x: 2, y: 2, z: 2 });
 });
 
 test('watcher merge does not overwrite a newer scanned record', () => {
@@ -73,6 +77,7 @@ test('watcher merge does not overwrite a newer scanned record', () => {
       modifiedAt: 300,
       vertexCount: 40,
       faceCount: 20,
+      dimensions: { x: 3, y: 3, z: 3 },
       thumbnailPath: null,
       indexedAt: 7000,
     }),
@@ -85,6 +90,7 @@ test('watcher merge does not overwrite a newer scanned record', () => {
       modifiedAt: 250,
       vertexCount: 10,
       faceCount: 5,
+      dimensions: { x: 0.5, y: 0.5, z: 0.5 },
       thumbnailPath: '/watch-thumb.png',
       thumbnailFailed: 0,
       indexedAt: 6500,
@@ -95,6 +101,7 @@ test('watcher merge does not overwrite a newer scanned record', () => {
   assert.equal(merged.modifiedAt, 300);
   assert.equal(merged.thumbnailPath, null);
   assert.equal(merged.indexedAt, 7000);
+  assert.deepEqual(merged.dimensions, { x: 3, y: 3, z: 3 });
 });
 
 test('watcher merge applies thumbnail and metadata for a current file event', () => {
@@ -107,6 +114,7 @@ test('watcher merge applies thumbnail and metadata for a current file event', ()
     modifiedAt: 320,
     vertexCount: 44,
     faceCount: 21,
+    dimensions: { x: 4, y: 4, z: 4 },
     thumbnailPath: '/watch-thumb.png',
     thumbnailFailed: 0,
     indexedAt: 7200,
@@ -116,4 +124,5 @@ test('watcher merge applies thumbnail and metadata for a current file event', ()
   assert.equal(merged.thumbnailPath, '/watch-thumb.png');
   assert.equal(merged.modifiedAt, 320);
   assert.equal(merged.indexedAt, 7200);
+  assert.deepEqual(merged.dimensions, { x: 4, y: 4, z: 4 });
 });

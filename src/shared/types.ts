@@ -8,9 +8,16 @@ export interface FileRecord {
   modified_at: number;
   vertex_count: number;
   face_count: number;
+  dimensions?: string | null;
   thumbnail: string | null;
   thumbnail_failed: number;
   indexed_at: number;
+}
+
+export interface ModelDimensions {
+  x: number;
+  y: number;
+  z: number;
 }
 
 export interface SettingRow {

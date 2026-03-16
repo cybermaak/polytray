@@ -44,3 +44,17 @@ export function formatTimestamp(epochMs: number): string {
     day: "numeric",
   });
 }
+
+export function formatDimensions(dimensions: {
+  x: number;
+  y: number;
+  z: number;
+} | null): string {
+  if (!dimensions) return "—";
+  const formatAxis = (value: number) => {
+    if (!Number.isFinite(value)) return "0";
+    return Number.isInteger(value) ? `${value}` : value.toFixed(2).replace(/\.?0+$/, "");
+  };
+
+  return `${formatAxis(dimensions.x)} × ${formatAxis(dimensions.y)} × ${formatAxis(dimensions.z)}`;
+}

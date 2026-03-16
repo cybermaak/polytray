@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
-import { formatSize, formatNumber } from "../lib/formatters";
+import { formatDimensions, formatSize, formatNumber } from "../lib/formatters";
+import type { ModelDimensions } from "../../shared/types";
 import { DEFAULT_APP_SETTINGS } from "../../shared/settings";
 import { AppIcon } from "./AppIcon";
 import {
@@ -20,6 +21,7 @@ interface FileRecord {
   size_bytes: number;
   vertex_count: number;
   face_count: number;
+  dimensions?: string | null;
   thumbnail?: string | null;
 }
 
@@ -149,6 +151,15 @@ export const PreviewPanel: React.FC<Props> = ({
   ]
     .filter(Boolean)
     .join(" ");
+
+  const parsedDimensions = React.useMemo<ModelDimensions | null>(() => {
+    if (!file?.dimensions) return null;
+    try {
+      return JSON.parse(file.dimensions) as ModelDimensions;
+    } catch {
+      return null;
+    }
+  }, [file?.dimensions]);
 
   return (
     <aside id="preview-panel" className={panelClasses}>
@@ -280,7 +291,7 @@ export const PreviewPanel: React.FC<Props> = ({
           </div>
           <div className="viewer-meta" id="viewer-meta">
             {file
-              ? `Volume: ${formatSize(file.size_bytes)} | ${formatNumber(file.face_count)} Faces | ${formatNumber(file.vertex_count)} Vertices | ${file.extension.toUpperCase()}`
+              ? `Volume: ${formatSize(file.size_bytes)} | ${formatNumber(file.face_count)} Faces | ${formatNumber(file.vertex_count)} Vertices | ${formatDimensions(parsedDimensions)} | ${file.extension.toUpperCase()}`
               : ""}
           </div>
         </div>

@@ -1,4 +1,5 @@
 import type { Database } from 'better-sqlite3';
+import type { ModelDimensions } from '../shared/types';
 
 export interface IndexedFileRecord {
   path: string;
@@ -9,6 +10,7 @@ export interface IndexedFileRecord {
   modifiedAt: number;
   vertexCount: number;
   faceCount: number;
+  dimensions: ModelDimensions | null;
   thumbnailPath: string | null;
   thumbnailFailed: number;
   indexedAt: number;
@@ -22,6 +24,7 @@ interface BaseFileInput {
   size: number;
   vertexCount: number;
   faceCount: number;
+  dimensions: ModelDimensions | null;
   indexedAt: number;
 }
 
@@ -46,6 +49,7 @@ const FILES_TABLE_SQL = `
     modified_at INTEGER NOT NULL,
     vertex_count INTEGER DEFAULT 0,
     face_count INTEGER DEFAULT 0,
+    dimensions TEXT,
     thumbnail TEXT,
     thumbnail_failed INTEGER DEFAULT 0,
     indexed_at INTEGER NOT NULL
@@ -54,9 +58,9 @@ const FILES_TABLE_SQL = `
 
 const SCAN_UPSERT_SQL = `
   INSERT INTO files (
-    path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, thumbnail, thumbnail_failed, indexed_at
+    path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, dimensions, thumbnail, thumbnail_failed, indexed_at
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(path) DO UPDATE SET
     name = excluded.name,
     extension = excluded.extension,
@@ -65,6 +69,7 @@ const SCAN_UPSERT_SQL = `
     modified_at = excluded.modified_at,
     vertex_count = excluded.vertex_count,
     face_count = excluded.face_count,
+    dimensions = excluded.dimensions,
     thumbnail = excluded.thumbnail,
     thumbnail_failed = excluded.thumbnail_failed,
     indexed_at = excluded.indexed_at
@@ -73,9 +78,9 @@ const SCAN_UPSERT_SQL = `
 
 const WATCHER_UPSERT_SQL = `
   INSERT INTO files (
-    path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, thumbnail, thumbnail_failed, indexed_at
+    path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, dimensions, thumbnail, thumbnail_failed, indexed_at
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(path) DO UPDATE SET
     name = excluded.name,
     extension = excluded.extension,
@@ -84,6 +89,7 @@ const WATCHER_UPSERT_SQL = `
     modified_at = excluded.modified_at,
     vertex_count = excluded.vertex_count,
     face_count = excluded.face_count,
+    dimensions = excluded.dimensions,
     thumbnail = excluded.thumbnail,
     thumbnail_failed = excluded.thumbnail_failed,
     indexed_at = excluded.indexed_at
@@ -100,6 +106,7 @@ function toIndexedFileRecord(file: ScannedFileRecord): IndexedFileRecord {
     modifiedAt: file.mtime,
     vertexCount: file.vertexCount,
     faceCount: file.faceCount,
+    dimensions: file.dimensions,
     thumbnailPath: null,
     thumbnailFailed: 0,
     indexedAt: file.indexedAt,
@@ -116,6 +123,7 @@ function toWatchedIndexedFileRecord(file: WatchedFileRecord): IndexedFileRecord 
     modifiedAt: file.modifiedAt,
     vertexCount: file.vertexCount,
     faceCount: file.faceCount,
+    dimensions: file.dimensions,
     thumbnailPath: file.thumbnailPath,
     thumbnailFailed: file.thumbnailFailed,
     indexedAt: file.indexedAt,
@@ -144,6 +152,7 @@ export function mergeScannedFileRecord(
       size: next.size,
       vertexCount: next.vertexCount,
       faceCount: next.faceCount,
+      dimensions: next.dimensions,
       indexedAt: Math.max(existing.indexedAt, next.indexedAt),
     };
   }
@@ -182,6 +191,7 @@ export function applyScannedFileRecord(db: Database, file: ScannedFileRecord) {
     merged.modifiedAt,
     merged.vertexCount,
     merged.faceCount,
+    merged.dimensions ? JSON.stringify(merged.dimensions) : null,
     merged.thumbnailPath,
     merged.thumbnailFailed,
     merged.indexedAt,
@@ -199,6 +209,7 @@ export function applyWatchedFileRecord(db: Database, file: WatchedFileRecord) {
     merged.modifiedAt,
     merged.vertexCount,
     merged.faceCount,
+    merged.dimensions ? JSON.stringify(merged.dimensions) : null,
     merged.thumbnailPath,
     merged.thumbnailFailed,
     merged.indexedAt,
@@ -217,6 +228,7 @@ function readIndexedFileRecord(db: Database, filePath: string): IndexedFileRecor
         modified_at,
         vertex_count,
         face_count,
+        dimensions,
         thumbnail,
         thumbnail_failed,
         indexed_at
@@ -233,6 +245,7 @@ function readIndexedFileRecord(db: Database, filePath: string): IndexedFileRecor
         modified_at: number;
         vertex_count: number;
         face_count: number;
+        dimensions: string | null;
         thumbnail: string | null;
         thumbnail_failed: number;
         indexed_at: number;
@@ -252,6 +265,7 @@ function readIndexedFileRecord(db: Database, filePath: string): IndexedFileRecor
     modifiedAt: row.modified_at,
     vertexCount: row.vertex_count,
     faceCount: row.face_count,
+    dimensions: row.dimensions ? (JSON.parse(row.dimensions) as ModelDimensions) : null,
     thumbnailPath: row.thumbnail,
     thumbnailFailed: row.thumbnail_failed,
     indexedAt: row.indexed_at,
