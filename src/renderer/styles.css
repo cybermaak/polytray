@@ -518,6 +518,23 @@ body {
   min-height: 28px;
 }
 
+.batch-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.batch-actions input,
+.batch-actions select {
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
 .context-chip {
   display: inline-flex;
   align-items: center;
@@ -653,6 +670,7 @@ body {
 
 /* ── File Card ─────────────────────────────────────────────────── */
 .file-card {
+  position: relative;
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--bg-elevated) 92%, white 8%) 0%,
@@ -669,6 +687,26 @@ body {
     background 0.16s ease;
   display: flex;
   flex-direction: column;
+}
+
+.file-select-toggle {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid var(--border-default);
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.file-select-toggle.active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: white;
 }
 
 .file-card:hover,

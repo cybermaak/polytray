@@ -158,6 +158,21 @@ async function resetUiState() {
     await allBtn.click();
     await window.waitForTimeout(300);
   }
+
+  const activeCollection = window.locator(".collection-item.active").first();
+  if (await activeCollection.count()) {
+    await activeCollection.click();
+    await window.waitForTimeout(300);
+  }
+
+  const batchActions = window.locator("#batch-actions");
+  if (await batchActions.count()) {
+    const clearSelection = window.locator("#clear-batch-selection");
+    if (await clearSelection.count()) {
+      await clearSelection.click();
+      await window.waitForTimeout(200);
+    }
+  }
 }
 
 test.beforeAll(async () => {
@@ -1021,4 +1036,23 @@ test("files can be organized into virtual collections from preview", async () =>
 
   await expect(window.locator("#toolbar-context")).toContainText("Collection: Desk Favorites");
   expect(await window.locator(".file-card").count()).toBe(1);
+});
+
+test("batch operations can tag multiple selected files", async () => {
+  await ensureFixtureFilesLoaded();
+  await resetUiState();
+
+  const toggles = window.locator(".file-select-toggle");
+  await toggles.nth(0).click();
+  await toggles.nth(1).click();
+
+  await expect(window.locator("#batch-actions")).toBeVisible();
+  await expect(window.locator("#batch-selection-count")).toContainText("2 selected");
+
+  await window.locator("#batch-tags-input").fill("batch-tag");
+  await window.locator("#apply-batch-tags").click();
+
+  await window.locator("#search-input").fill("batch-tag");
+  await window.waitForTimeout(400);
+  expect(await window.locator(".file-card").count()).toBe(2);
 });

@@ -40,6 +40,7 @@ import {
   removeCollection,
   addFilesToCollection,
 } from "../shared/libraryCollections";
+import { normalizeFileTags, parseStoredFileTags } from "../shared/fileTags";
 
 // Types for file records from the database
 interface FileRecord {
@@ -97,6 +98,9 @@ export const App: React.FC = () => {
   const [collectionsState, setCollectionsState] = useState<CollectionsState>(
     DEFAULT_COLLECTIONS_STATE,
   );
+  const [selectedFileIds, setSelectedFileIds] = useState<number[]>([]);
+  const [batchTagsInput, setBatchTagsInput] = useState("");
+  const [batchCollectionId, setBatchCollectionId] = useState("");
   const [progress, setProgress] = useState<ProgressState>({
     visible: false,
     percent: 0,
@@ -111,6 +115,7 @@ export const App: React.FC = () => {
     (collection) => collection.id === collectionsState.activeCollectionId,
   ) || null;
   const activeCollectionLabel = activeCollection?.name || null;
+  const selectedFiles = files.filter((file) => selectedFileIds.includes(file.id));
 
   // Refs to get latest state in IPC callbacks
   const foldersRef = useRef(folders);
@@ -632,6 +637,45 @@ export const App: React.FC = () => {
     );
   }, []);
 
+  const handleToggleFileSelection = useCallback((fileId: number) => {
+    setSelectedFileIds((current) =>
+      current.includes(fileId)
+        ? current.filter((id) => id !== fileId)
+        : [...current, fileId],
+    );
+  }, []);
+
+  const handleApplyBatchTags = useCallback(async () => {
+    const normalizedInput = normalizeFileTags(batchTagsInput.split(","));
+    if (selectedFiles.length === 0 || normalizedInput.length === 0) return;
+
+    const updates = await Promise.all(
+      selectedFiles.map((file) => {
+        const mergedTags = normalizeFileTags([
+          ...parseStoredFileTags(file.tags),
+          ...normalizedInput,
+        ]);
+        return window.polytray.updateFileMetadata({
+          id: file.id,
+          tags: mergedTags,
+        });
+      }),
+    );
+
+    setFiles((current) =>
+      current.map(
+        (file) =>
+          updates.find((updated) => updated.id === file.id) ?? file,
+      ),
+    );
+    setPreviewFile((current) =>
+      current
+        ? (updates.find((updated) => updated.id === current.id) ?? current)
+        : current,
+    );
+    setBatchTagsInput("");
+  }, [batchTagsInput, selectedFiles]);
+
   const handleCollectionSelect = useCallback((collectionId: string | null) => {
     const nextState = normalizeCollectionsState({
       ...collectionsStateRef.current,
@@ -674,6 +718,14 @@ export const App: React.FC = () => {
     },
     [applyCollectionsState, fetchFiles, persistCollectionsState],
   );
+
+  const handleBatchAddToCollection = useCallback(() => {
+    if (!batchCollectionId || selectedFiles.length === 0) return;
+    handleAddFilesToCollection(
+      batchCollectionId,
+      selectedFiles.map((file) => file.path),
+    );
+  }, [batchCollectionId, handleAddFilesToCollection, selectedFiles]);
 
   const handleRemoveCollection = useCallback(
     (collectionId: string) => {
@@ -792,6 +844,53 @@ export const App: React.FC = () => {
             onRescan={handleRescan}
             onClearThumbnails={handleClearThumbnails}
           />
+          {selectedFileIds.length > 0 && (
+            <div id="batch-actions" className="batch-actions">
+              <span id="batch-selection-count" className="context-chip neutral">
+                {selectedFileIds.length} selected
+              </span>
+              <input
+                id="batch-tags-input"
+                type="text"
+                value={batchTagsInput}
+                placeholder="Add tags to selection"
+                onChange={(e) => setBatchTagsInput(e.target.value)}
+              />
+              <button
+                id="apply-batch-tags"
+                className="btn-icon"
+                onClick={() => void handleApplyBatchTags()}
+              >
+                Apply Tags
+              </button>
+              <select
+                id="batch-collection-select"
+                value={batchCollectionId}
+                onChange={(e) => setBatchCollectionId(e.target.value)}
+              >
+                <option value="">Add to collection…</option>
+                {collectionsState.collections.map((collection) => (
+                  <option key={collection.id} value={collection.id}>
+                    {collection.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                id="batch-add-to-collection"
+                className="btn-icon"
+                onClick={handleBatchAddToCollection}
+              >
+                Add to Collection
+              </button>
+              <button
+                id="clear-batch-selection"
+                className="btn-icon"
+                onClick={() => setSelectedFileIds([])}
+              >
+                Clear
+              </button>
+            </div>
+          )}
           {/* VirtuosoGrid virtualizes the DOM elements for massive efficiency. */}
           {hasFiles && (
             <VirtuosoGrid
@@ -808,6 +907,8 @@ export const App: React.FC = () => {
                   file={file}
                   index={index}
                   selected={previewFile?.id === file.id}
+                  selectedForBatch={selectedFileIds.includes(file.id)}
+                  onToggleSelect={() => handleToggleFileSelection(file.id)}
                   onClick={() => setPreviewFile(file)}
                 />
               )}
@@ -920,6 +1021,8 @@ interface FileCardProps {
   file: FileRecord;
   index: number;
   selected?: boolean;
+  selectedForBatch?: boolean;
+  onToggleSelect: () => void;
   onClick: () => void;
 }
 
@@ -927,6 +1030,8 @@ const FileCard: React.FC<FileCardProps> = ({
   file,
   index: _index,
   selected,
+  selectedForBatch,
+  onToggleSelect,
   onClick,
 }) => {
   const extClass = file.extension === "3mf" ? "threemf" : file.extension;
@@ -946,6 +1051,16 @@ const FileCard: React.FC<FileCardProps> = ({
         window.polytray.showContextMenu(file.path);
       }}
     >
+      <button
+        type="button"
+        className={`file-select-toggle${selectedForBatch ? " active" : ""}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleSelect();
+        }}
+      >
+        {selectedForBatch ? "✓" : ""}
+      </button>
       <div className="card-thumbnail">
         {!file.thumbnail && (
           <>
