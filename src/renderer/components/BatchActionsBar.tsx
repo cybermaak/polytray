@@ -46,7 +46,7 @@ export const BatchActionsBar: React.FC<Props> = ({
       />
       <button
         id="apply-batch-tags"
-        className="btn-icon"
+        className="btn-secondary batch-action-button"
         onClick={onApplyBatchTags}
       >
         Apply Tags
@@ -65,17 +65,25 @@ export const BatchActionsBar: React.FC<Props> = ({
       </select>
       <button
         id="batch-add-to-collection"
-        className="btn-icon"
+        className="btn-secondary batch-action-button"
         onClick={onAddToCollection}
       >
         Add to Collection
       </button>
       {canCompare && (
-        <button id="compare-selected" className="btn-icon" onClick={onCompare}>
+        <button
+          id="compare-selected"
+          className="btn-secondary batch-action-button"
+          onClick={onCompare}
+        >
           Compare
         </button>
       )}
-      <button id="clear-batch-selection" className="btn-icon" onClick={onClear}>
+      <button
+        id="clear-batch-selection"
+        className="btn-secondary batch-action-button"
+        onClick={onClear}
+      >
         Clear
       </button>
     </div>

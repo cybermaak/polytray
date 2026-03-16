@@ -267,7 +267,10 @@ export const Sidebar: React.FC<Props> = ({
 
         <div className="sidebar-section" style={{ flexShrink: 0 }}>
           <h3>Collections</h3>
-          <div id="collection-list" className="sidebar-collections">
+          <div
+            id="collection-list"
+            className="sidebar-collections sidebar-scrollable"
+          >
             {collections.length > 0 ? (
               collections.map((collection) => (
                 <div
@@ -357,36 +360,37 @@ export const Sidebar: React.FC<Props> = ({
           borderBottom: "none",
         }}
       >
-        <button
-          id="btn-theme-toggle"
-          className="btn-primary"
-          style={{
-            background: "transparent",
-            border: "1px solid var(--border-default)",
-            color: "var(--text-primary)",
-            marginBottom: "8px",
-          }}
-          title="Toggle Light/Dark Mode"
-          onClick={() => onSettingsChange({ lightMode: !lightMode })}
-        >
-          <AppIcon name="theme" />
-          {lightMode ? "Dark Mode" : "Light Mode"}
-        </button>
+        <div className="sidebar-actions-row">
+          <button
+            id="btn-theme-toggle"
+            className="btn-primary"
+            style={{
+              background: "transparent",
+              border: "1px solid var(--border-default)",
+              color: "var(--text-primary)",
+            }}
+            title="Toggle Light/Dark Mode"
+            onClick={() => onSettingsChange({ lightMode: !lightMode })}
+          >
+            <AppIcon name="theme" />
+            {lightMode ? "Dark Mode" : "Light Mode"}
+          </button>
 
-        <button
-          id="btn-settings"
-          className="btn-primary"
-          style={{
-            background: "transparent",
-            border: "1px solid var(--border-default)",
-            color: "var(--text-primary)",
-          }}
-          title="Settings"
-          onClick={onOpenSettings}
-        >
-          <AppIcon name="settings" />
-          Settings
-        </button>
+          <button
+            id="btn-settings"
+            className="btn-primary"
+            style={{
+              background: "transparent",
+              border: "1px solid var(--border-default)",
+              color: "var(--text-primary)",
+            }}
+            title="Settings"
+            onClick={onOpenSettings}
+          >
+            <AppIcon name="settings" />
+            Settings
+          </button>
+        </div>
       </div>
     </aside>
   );

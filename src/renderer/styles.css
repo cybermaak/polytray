@@ -279,6 +279,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  max-height: 148px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 .collection-item {
@@ -320,27 +323,28 @@ body {
 /* Stats */
 .stat-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-2);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .stat-item {
   background: var(--bg-elevated);
   border-radius: var(--radius-sm);
-  padding: 10px 12px;
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border-subtle);
 }
 
 .stat-value {
-  font-size: var(--font-size-lg);
+  font-size: 1rem;
   font-weight: 700;
   color: var(--text-primary);
+  line-height: 1.1;
 }
 
 .stat-label {
-  font-size: var(--font-size-xs);
+  font-size: 10px;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -357,7 +361,7 @@ body {
 }
 
 .stat-size {
-  margin-top: var(--space-2);
+  margin-top: 6px;
   font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
@@ -523,6 +527,10 @@ body {
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
+  padding: 0 var(--space-4) var(--space-2);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
 }
 
 .batch-actions input,
@@ -533,6 +541,14 @@ body {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
+}
+
+.batch-actions input {
+  flex: 1 1 220px;
+}
+
+.batch-actions select {
+  flex: 1 1 180px;
 }
 
 .context-chip {
@@ -615,6 +631,50 @@ body {
 
 .btn-icon.desc svg {
   transform: rotate(180deg);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: var(--font-family);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.btn-secondary:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+
+.btn-secondary:active {
+  transform: scale(0.98);
+}
+
+.batch-action-button {
+  flex: 0 0 auto;
+}
+
+.sidebar-actions-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.sidebar-actions-row .btn-primary {
+  min-width: 0;
+  padding-left: 10px;
+  padding-right: 10px;
 }
 
 /* ── File Grid ─────────────────────────────────────────────────── */
