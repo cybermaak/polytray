@@ -15,6 +15,7 @@ import {
   PreviewMetricData,
   RuntimeSettingsData,
   SerializedMesh,
+  UpdateFileMetadataData,
 } from "../shared/types";
 
 function onChannel<T>(channel: string, callback: (data: T) => void) {
@@ -168,6 +169,8 @@ contextBridge.exposeInMainWorld("polytray", {
   // File queries
   getFiles: (opts: SortOptions) => ipcRenderer.invoke(IPC.GET_FILES, opts),
   getFileById: (id: number) => ipcRenderer.invoke(IPC.GET_FILE_BY_ID, id),
+  updateFileMetadata: (payload: UpdateFileMetadataData) =>
+    ipcRenderer.invoke(IPC.UPDATE_FILE_METADATA, payload),
   getStats: () => ipcRenderer.invoke(IPC.GET_STATS),
   startDrag: (filePath: string) =>
     ipcRenderer.send(IPC.ON_DRAG_START, filePath),

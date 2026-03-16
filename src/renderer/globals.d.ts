@@ -14,6 +14,7 @@ import type {
   PreviewMetricData,
   SerializedMesh,
   RuntimeSettingsData,
+  UpdateFileMetadataData,
 } from "../shared/types";
 
 export type { FileRecord };
@@ -34,6 +35,7 @@ interface PolytrayAPI {
     opts: SortOptions,
   ) => Promise<{ files: FileRecord[]; total: number }>;
   getFileById: (id: number) => Promise<FileRecord>;
+  updateFileMetadata: (payload: UpdateFileMetadataData) => Promise<FileRecord>;
   getStats: () => Promise<LibraryStats>;
 
   readFileBuffer: (filePath: string) => Promise<ArrayBuffer>;

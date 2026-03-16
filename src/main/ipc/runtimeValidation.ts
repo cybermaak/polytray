@@ -4,7 +4,9 @@ import {
   PreviewParseRequestData,
   RuntimeSettingsData,
   SortOptions,
+  UpdateFileMetadataData,
 } from "../../shared/types";
+import { normalizeFileTags } from "../../shared/fileTags";
 import { normalizeRuntimeSettings } from "../../shared/settings";
 
 function isNonEmptyString(value: unknown): value is string {
@@ -173,6 +175,44 @@ export function parseSortOptions(value: unknown): SortOptions {
     search,
     limit,
     offset,
+  };
+}
+
+export function parseFileMetadataUpdate(value: unknown): UpdateFileMetadataData {
+  if (!value || typeof value !== "object") {
+    throw new Error("Invalid file metadata update");
+  }
+
+  const raw = value as Partial<UpdateFileMetadataData>;
+  if (typeof raw.id !== "number" || !Number.isFinite(raw.id)) {
+    throw new Error("Invalid file metadata update");
+  }
+
+  if (
+    raw.tags !== undefined &&
+    raw.tags !== null &&
+    (!Array.isArray(raw.tags) || raw.tags.some((tag) => typeof tag !== "string"))
+  ) {
+    throw new Error("Invalid file metadata update");
+  }
+
+  if (
+    raw.notes !== undefined &&
+    raw.notes !== null &&
+    typeof raw.notes !== "string"
+  ) {
+    throw new Error("Invalid file metadata update");
+  }
+
+  return {
+    id: Math.trunc(raw.id),
+    tags:
+      raw.tags === undefined
+        ? undefined
+        : raw.tags === null
+          ? null
+          : normalizeFileTags(raw.tags),
+    notes: raw.notes === undefined ? undefined : raw.notes,
   };
 }
 

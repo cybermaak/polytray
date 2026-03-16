@@ -13,7 +13,12 @@ import {
   LibraryStats,
 } from "../../shared/types";
 import { isPathContained } from "../pathContainment";
-import { parseFilePath, parseSortOptions } from "./runtimeValidation";
+import { serializeFileTags } from "../../shared/fileTags";
+import {
+  parseFileMetadataUpdate,
+  parseFilePath,
+  parseSortOptions,
+} from "./runtimeValidation";
 
 export function registerFileHandlers() {
   ipcMain.handle(IPC.GET_FILES, (event, opts: SortOptions = {}) => {
@@ -45,8 +50,8 @@ export function registerFileHandlers() {
       params.push(extension.toLowerCase());
     }
     if (search) {
-      where.push("name LIKE ?");
-      params.push(`%${search}%`);
+      where.push("(name LIKE ? OR COALESCE(tags, '') LIKE ?)");
+      params.push(`%${search}%`, `%${search}%`);
     }
 
     const whereClause = where.length > 0 ? "WHERE " + where.join(" AND ") : "";
@@ -101,6 +106,42 @@ export function registerFileHandlers() {
   ipcMain.handle(IPC.GET_FILE_BY_ID, (event, id) => {
     const db = getDb();
     return db.prepare("SELECT * FROM files WHERE id = ?").get(id);
+  });
+
+  ipcMain.handle(IPC.UPDATE_FILE_METADATA, (event, payload) => {
+    const db = getDb();
+    const update = parseFileMetadataUpdate(payload);
+    const existing = db
+      .prepare("SELECT * FROM files WHERE id = ?")
+      .get(update.id) as FileRecord | undefined;
+
+    if (!existing) {
+      throw new Error("File not found");
+    }
+
+    const assignments: string[] = [];
+    const values: Array<string | number | null> = [];
+
+    if (update.tags !== undefined) {
+      assignments.push("tags = ?");
+      values.push(serializeFileTags(update.tags ?? []));
+    }
+
+    if (update.notes !== undefined) {
+      assignments.push("notes = ?");
+      values.push(update.notes);
+    }
+
+    if (assignments.length === 0) {
+      return existing;
+    }
+
+    values.push(update.id);
+    db.prepare(`UPDATE files SET ${assignments.join(", ")} WHERE id = ?`).run(
+      ...values,
+    );
+
+    return db.prepare("SELECT * FROM files WHERE id = ?").get(update.id);
   });
 
   ipcMain.handle(IPC.GET_DIRECTORIES, () => {

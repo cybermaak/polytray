@@ -42,6 +42,9 @@ interface FileRecord {
   modified_at: number;
   vertex_count: number;
   face_count: number;
+  tags?: string | null;
+  notes?: string | null;
+  dimensions?: string | null;
   thumbnail: string | null;
   thumbnail_failed: number;
   indexed_at: number;
@@ -565,6 +568,15 @@ export const App: React.FC = () => {
     [fetchFiles, getRuntimeSettings],
   );
 
+  const handleFileRecordUpdate = useCallback((updatedFile: FileRecord) => {
+    setFiles((current) =>
+      current.map((file) => (file.id === updatedFile.id ? updatedFile : file)),
+    );
+    setPreviewFile((current) =>
+      current?.id === updatedFile.id ? updatedFile : current,
+    );
+  }, []);
+
   const handleSettingsChange = useCallback(
     (newSettings: Partial<AppSettings>) => {
       setSettings((prev) => {
@@ -738,6 +750,7 @@ export const App: React.FC = () => {
           file={previewFile}
           showGrid={settings.showGrid}
           thumbnailColor={settings.thumbnailColor}
+          onFileChange={handleFileRecordUpdate}
           onClose={() => setPreviewFile(null)}
         />
       </div>

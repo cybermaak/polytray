@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { formatDimensions, formatSize, formatNumber } from "../lib/formatters";
-import type { ModelDimensions } from "../../shared/types";
+import type { FileRecord, ModelDimensions } from "../../shared/types";
+import { normalizeFileTags, parseStoredFileTags } from "../../shared/fileTags";
 import { DEFAULT_APP_SETTINGS } from "../../shared/settings";
 import { AppIcon } from "./AppIcon";
 import {
@@ -12,23 +13,11 @@ import {
   toggleGrid,
 } from "../lib/viewer";
 
-interface FileRecord {
-  id: number;
-  path: string;
-  name: string;
-  extension: string;
-  directory: string;
-  size_bytes: number;
-  vertex_count: number;
-  face_count: number;
-  dimensions?: string | null;
-  thumbnail?: string | null;
-}
-
 interface Props {
   file: FileRecord | null;
   showGrid: boolean;
   thumbnailColor: string;
+  onFileChange?: (file: FileRecord) => void;
   onClose: () => void;
 }
 
@@ -36,6 +25,7 @@ export const PreviewPanel: React.FC<Props> = ({
   file,
   showGrid,
   thumbnailColor,
+  onFileChange,
   onClose,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -44,6 +34,8 @@ export const PreviewPanel: React.FC<Props> = ({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [wireframe, setWireframe] = useState(false);
+  const [tagsInput, setTagsInput] = useState("");
+  const [savedTags, setSavedTags] = useState<string[]>([]);
 
   // Load model when file changes
   useEffect(() => {
@@ -121,6 +113,18 @@ export const PreviewPanel: React.FC<Props> = ({
     onClose();
   }, [onClose]);
 
+  const handleSaveTags = useCallback(async () => {
+    if (!file) return;
+    const normalized = normalizeFileTags(tagsInput.split(","));
+    const updated = (await window.polytray.updateFileMetadata({
+      id: file.id,
+      tags: normalized,
+    })) as FileRecord;
+    setSavedTags(normalized);
+    setTagsInput(normalized.join(", "));
+    onFileChange?.(updated);
+  }, [file, onFileChange, tagsInput]);
+
   // Escape key
   useEffect(() => {
     if (!file) return;
@@ -143,6 +147,12 @@ export const PreviewPanel: React.FC<Props> = ({
       toggleGrid(showGrid);
     }
   }, [showGrid, file]);
+
+  useEffect(() => {
+    const nextTags = parseStoredFileTags(file?.tags);
+    setSavedTags(nextTags);
+    setTagsInput(nextTags.join(", "));
+  }, [file?.id, file?.tags]);
 
   const panelClasses = [
     "preview-panel",
@@ -293,6 +303,36 @@ export const PreviewPanel: React.FC<Props> = ({
             {file
               ? `Volume: ${formatSize(file.size_bytes)} | ${formatNumber(file.face_count)} Faces | ${formatNumber(file.vertex_count)} Vertices | ${formatDimensions(parsedDimensions)} | ${file.extension.toUpperCase()}`
               : ""}
+          </div>
+          <div className="viewer-tags">
+            <div className="viewer-tags-header">Tags</div>
+            <div id="file-tags" className="tag-chip-list">
+              {savedTags.length > 0 ? (
+                savedTags.map((tag) => (
+                  <span key={tag} className="tag-chip">
+                    {tag}
+                  </span>
+                ))
+              ) : (
+                <span className="tag-chip tag-chip-muted">No tags</span>
+              )}
+            </div>
+            <div className="viewer-tag-editor">
+              <input
+                id="file-tags-input"
+                type="text"
+                value={tagsInput}
+                placeholder="comma,separated,tags"
+                onChange={(e) => setTagsInput(e.target.value)}
+              />
+              <button
+                id="save-file-tags"
+                className="btn-copy-path"
+                onClick={handleSaveTags}
+              >
+                Save Tags
+              </button>
+            </div>
           </div>
         </div>
       </div>

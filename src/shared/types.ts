@@ -8,6 +8,8 @@ export interface FileRecord {
   modified_at: number;
   vertex_count: number;
   face_count: number;
+  tags?: string | null;
+  notes?: string | null;
   dimensions?: string | null;
   thumbnail: string | null;
   thumbnail_failed: number;
@@ -62,6 +64,7 @@ export const IPC = {
   READ_THUMBNAIL: "read-thumbnail",
   GET_THUMBNAIL_PATH: "get-thumbnail-path",
   GET_DIRECTORIES: "get-directories",
+  UPDATE_FILE_METADATA: "update-file-metadata",
   REQUEST_THUMBNAIL_GENERATION: "request-thumbnail-generation",
   REQUEST_PREVIEW_PARSE: "request-preview-parse",
   GET_STATS: "get-stats",
@@ -222,4 +225,10 @@ export interface RuntimeSettingsData {
   watcher_stability: number;
   page_size: number;
   thumbnailColor: string;
+}
+
+export interface UpdateFileMetadataData {
+  id: number;
+  tags?: string[] | null;
+  notes?: string | null;
 }

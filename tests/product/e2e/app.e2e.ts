@@ -980,3 +980,28 @@ test("rescan specific folder triggers scan UI", async () => {
   // Wait for it to finish gracefully
   await window.waitForTimeout(2000);
 });
+
+test("files can be tagged from preview and found via tag search", async () => {
+  await ensureFixtureFilesLoaded();
+  await resetUiState();
+
+  const firstCard = window.locator(".file-card").first();
+  await firstCard.click();
+  await expect(window.locator("#preview-panel")).not.toHaveClass(/hidden/);
+
+  const tagInput = window.locator("#file-tags-input");
+  await expect(tagInput).toBeVisible();
+  await tagInput.fill("desk-tag, organizer-tag");
+  await window.locator("#save-file-tags").click();
+
+  await expect(window.locator("#file-tags .tag-chip")).toHaveCount(2);
+  await expect(window.locator("#file-tags")).toContainText("desk-tag");
+  await expect(window.locator("#file-tags")).toContainText("organizer-tag");
+
+  await window.locator("#btn-close-viewer").click();
+  await window.locator("#search-input").fill("desk-tag");
+  await window.waitForTimeout(400);
+
+  const visibleCards = await window.locator(".file-card").count();
+  expect(visibleCards).toBe(1);
+});
