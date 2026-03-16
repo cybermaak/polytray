@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  applySettingsPreset,
   DEFAULT_APP_SETTINGS,
   SETTINGS_STORAGE_KEY,
   normalizeAppSettings,
@@ -53,4 +54,14 @@ test('serializeAppSettings writes a normalized localStorage payload', () => {
   assert.equal(parsed.page_size, 2000);
   assert.equal(parsed.previewColor, '#224466');
   assert.equal(SETTINGS_STORAGE_KEY, 'polytray-settings');
+});
+
+test('applySettingsPreset returns tuned advanced settings profiles', () => {
+  const performance = applySettingsPreset(DEFAULT_APP_SETTINGS, 'performance');
+  const fidelity = applySettingsPreset(DEFAULT_APP_SETTINGS, 'fidelity');
+
+  assert.equal(performance.thumbQuality, '128');
+  assert.equal(performance.page_size, 300);
+  assert.equal(fidelity.thumbQuality, '512');
+  assert.equal(fidelity.thumbnail_timeout, 30000);
 });

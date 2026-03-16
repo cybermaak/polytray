@@ -1056,3 +1056,25 @@ test("batch operations can tag multiple selected files", async () => {
   await window.waitForTimeout(400);
   expect(await window.locator(".file-card").count()).toBe(2);
 });
+
+test("advanced settings presets update tuned values", async () => {
+  await ensureFixtureFilesLoaded();
+  await resetUiState();
+
+  await window.locator("#btn-settings").click();
+  await expect(window.locator("#settings-overlay")).not.toHaveClass(/hidden/);
+  await window.locator(".advanced-toggle").click();
+
+  await window.locator("#apply-settings-preset").selectOption("performance");
+  await expect(window.locator("#setting-thumb-quality")).toHaveValue("128");
+  await expect(window.locator("#setting-page-size")).toHaveValue("300");
+
+  await window.locator("#apply-settings-preset").selectOption("fidelity");
+  await expect(window.locator("#setting-thumb-quality")).toHaveValue("512");
+  await expect(window.locator("#setting-thumbnail-timeout")).toHaveValue("30000");
+
+  await window.locator("#reset-advanced-settings").click();
+  await expect(window.locator("#setting-page-size")).toHaveValue(
+    String(DEFAULT_RUNTIME_SETTINGS.page_size),
+  );
+});

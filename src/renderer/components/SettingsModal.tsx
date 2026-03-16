@@ -1,5 +1,10 @@
 import React from "react";
-import { DEFAULT_APP_SETTINGS, type AppSettings } from "../../shared/settings";
+import {
+  applySettingsPreset,
+  DEFAULT_APP_SETTINGS,
+  type AppSettings,
+  type SettingsPreset,
+} from "../../shared/settings";
 
 interface Props {
   open: boolean;
@@ -304,6 +309,29 @@ export const SettingsModal: React.FC<Props> = ({
 
                 <div className="settings-row">
                   <div>
+                    <div className="settings-row-label">Advanced Preset</div>
+                    <div className="settings-row-desc">
+                      Apply a tuned bundle for balanced, speed-focused, or fidelity-focused behavior.
+                    </div>
+                  </div>
+                  <select
+                    id="apply-settings-preset"
+                    defaultValue=""
+                    onChange={(e) => {
+                      const preset = e.target.value as SettingsPreset | "";
+                      if (!preset) return;
+                      onSettingsChange(applySettingsPreset(settings, preset));
+                    }}
+                  >
+                    <option value="">Choose preset…</option>
+                    <option value="balanced">Balanced</option>
+                    <option value="performance">Performance</option>
+                    <option value="fidelity">Fidelity</option>
+                  </select>
+                </div>
+
+                <div className="settings-row">
+                  <div>
                     <div className="settings-row-label">Grid Page Size</div>
                     <div className="settings-row-desc">
                       Number of files to load at once. Lower values improve scroll performance.
@@ -316,6 +344,31 @@ export const SettingsModal: React.FC<Props> = ({
                     style={{ width: '80px' }}
                     onChange={(e) => onSettingsChange({ page_size: parseInt(e.target.value) || 500 })}
                   />
+                </div>
+
+                <div className="settings-row">
+                  <div>
+                    <div className="settings-row-label">Reset Advanced</div>
+                    <div className="settings-row-desc">
+                      Restore advanced tuning values without changing appearance or scan/watch toggles.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    id="reset-advanced-settings"
+                    className="settings-reset-btn"
+                    onClick={() =>
+                      onSettingsChange({
+                        thumbnail_timeout: DEFAULT_APP_SETTINGS.thumbnail_timeout,
+                        scanning_batch_size: DEFAULT_APP_SETTINGS.scanning_batch_size,
+                        watcher_stability: DEFAULT_APP_SETTINGS.watcher_stability,
+                        page_size: DEFAULT_APP_SETTINGS.page_size,
+                        thumbQuality: DEFAULT_APP_SETTINGS.thumbQuality,
+                      })
+                    }
+                  >
+                    Reset Advanced
+                  </button>
                 </div>
               </>
             )}

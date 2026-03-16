@@ -2,6 +2,7 @@ export const SETTINGS_STORAGE_KEY = "polytray-settings";
 
 export type GridSize = "small" | "medium" | "large";
 export type ThumbnailQuality = "128" | "256" | "512";
+export type SettingsPreset = "balanced" | "performance" | "fidelity";
 
 export interface AppSettings {
   lightMode: boolean;
@@ -165,4 +166,40 @@ export function normalizeRuntimeSettings(input: unknown): RuntimeSettings {
 
 export function toRuntimeSettings(settings: AppSettings): RuntimeSettings {
   return normalizeRuntimeSettings(settings);
+}
+
+export function applySettingsPreset(
+  settings: AppSettings,
+  preset: SettingsPreset,
+): AppSettings {
+  switch (preset) {
+    case "performance":
+      return normalizeAppSettings({
+        ...settings,
+        thumbQuality: "128",
+        scanning_batch_size: 100,
+        watcher_stability: 1200,
+        page_size: 300,
+        thumbnail_timeout: 15000,
+      });
+    case "fidelity":
+      return normalizeAppSettings({
+        ...settings,
+        thumbQuality: "512",
+        scanning_batch_size: 40,
+        watcher_stability: 800,
+        page_size: 700,
+        thumbnail_timeout: 30000,
+      });
+    case "balanced":
+    default:
+      return normalizeAppSettings({
+        ...settings,
+        thumbQuality: DEFAULT_APP_SETTINGS.thumbQuality,
+        scanning_batch_size: DEFAULT_APP_SETTINGS.scanning_batch_size,
+        watcher_stability: DEFAULT_APP_SETTINGS.watcher_stability,
+        page_size: DEFAULT_APP_SETTINGS.page_size,
+        thumbnail_timeout: DEFAULT_APP_SETTINGS.thumbnail_timeout,
+      });
+  }
 }
