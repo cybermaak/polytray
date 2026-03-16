@@ -30,6 +30,16 @@ import {
   withAddedLibraryFolder,
   withRemovedLibraryFolder,
 } from "../shared/libraryState";
+import {
+  COLLECTIONS_STORAGE_KEY,
+  DEFAULT_COLLECTIONS_STATE,
+  type CollectionsState,
+  normalizeCollectionsState,
+  serializeCollectionsState,
+  upsertCollection,
+  removeCollection,
+  addFilesToCollection,
+} from "../shared/libraryCollections";
 
 // Types for file records from the database
 interface FileRecord {
@@ -84,6 +94,9 @@ export const App: React.FC = () => {
   const [search, setSearch] = useState("");
   const [previewFile, setPreviewFile] = useState<FileRecord | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [collectionsState, setCollectionsState] = useState<CollectionsState>(
+    DEFAULT_COLLECTIONS_STATE,
+  );
   const [progress, setProgress] = useState<ProgressState>({
     visible: false,
     percent: 0,
@@ -94,6 +107,10 @@ export const App: React.FC = () => {
   const activeFolderLabel = activeFolder
     ? activeFolder.split(/[\\/]/).filter(Boolean).pop() || activeFolder
     : null;
+  const activeCollection = collectionsState.collections.find(
+    (collection) => collection.id === collectionsState.activeCollectionId,
+  ) || null;
+  const activeCollectionLabel = activeCollection?.name || null;
 
   // Refs to get latest state in IPC callbacks
   const foldersRef = useRef(folders);
@@ -113,6 +130,7 @@ export const App: React.FC = () => {
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const libraryStateRef = useRef<LibraryState>(DEFAULT_LIBRARY_STATE);
+  const collectionsStateRef = useRef<CollectionsState>(DEFAULT_COLLECTIONS_STATE);
   const fileRefreshDebouncerRef = useRef<ReturnType<
     typeof createRefreshDebouncer
   > | null>(null);
@@ -163,6 +181,19 @@ export const App: React.FC = () => {
     );
   }, []);
 
+  const applyCollectionsState = useCallback((nextState: CollectionsState) => {
+    const normalized = normalizeCollectionsState(nextState);
+    collectionsStateRef.current = normalized;
+    setCollectionsState(normalized);
+  }, []);
+
+  const persistCollectionsState = useCallback((nextState: CollectionsState) => {
+    localStorage.setItem(
+      COLLECTIONS_STORAGE_KEY,
+      serializeCollectionsState(nextState),
+    );
+  }, []);
+
   const fetchFiles = useCallback(async () => {
     const result = await window.polytray.getFiles({
       sort: sortRef.current,
@@ -173,7 +204,13 @@ export const App: React.FC = () => {
       limit: settings.page_size,
       offset: 0,
     });
-    setFiles(result.files);
+    const collection = collectionsStateRef.current.collections.find(
+      (entry) => entry.id === collectionsStateRef.current.activeCollectionId,
+    );
+    const filteredFiles = collection
+      ? result.files.filter((file) => collection.filePaths.includes(file.path))
+      : result.files;
+    setFiles(filteredFiles);
 
     const s = await window.polytray.getStats();
     setStats(s);
@@ -360,6 +397,22 @@ export const App: React.FC = () => {
       applyLibraryState(loadedLibraryState);
       persistLibraryState(loadedLibraryState);
 
+      const savedCollectionsStateRaw = localStorage.getItem(
+        COLLECTIONS_STORAGE_KEY,
+      );
+      let loadedCollectionsState = DEFAULT_COLLECTIONS_STATE;
+      if (savedCollectionsStateRaw) {
+        try {
+          loadedCollectionsState = normalizeCollectionsState(
+            JSON.parse(savedCollectionsStateRaw),
+          );
+        } catch (error) {
+          console.error("Failed to parse collections state", error);
+        }
+      }
+      applyCollectionsState(loadedCollectionsState);
+      persistCollectionsState(loadedCollectionsState);
+
       if (loadedLibraryState.libraryFolders.length > 0) {
         const result = await window.polytray.getFiles({
           limit: loadedSettings.page_size,
@@ -386,7 +439,9 @@ export const App: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     applyLibraryState,
+    applyCollectionsState,
     applySettingsToDocument,
+    persistCollectionsState,
     persistLibraryState,
     persistSettings,
   ]);
@@ -577,6 +632,59 @@ export const App: React.FC = () => {
     );
   }, []);
 
+  const handleCollectionSelect = useCallback((collectionId: string | null) => {
+    const nextState = normalizeCollectionsState({
+      ...collectionsStateRef.current,
+      activeCollectionId: collectionId,
+    });
+    applyCollectionsState(nextState);
+    persistCollectionsState(nextState);
+    void fetchFiles();
+  }, [applyCollectionsState, fetchFiles, persistCollectionsState]);
+
+  const handleCreateCollection = useCallback(
+    (name: string, filePaths: string[]) => {
+      const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || `collection-${Date.now()}`;
+      let nextState = upsertCollection(collectionsStateRef.current, {
+        id,
+        name: name.trim(),
+        filePaths,
+      });
+      nextState = normalizeCollectionsState({
+        ...nextState,
+        activeCollectionId: id,
+      });
+      applyCollectionsState(nextState);
+      persistCollectionsState(nextState);
+      void fetchFiles();
+    },
+    [applyCollectionsState, fetchFiles, persistCollectionsState],
+  );
+
+  const handleAddFilesToCollection = useCallback(
+    (collectionId: string, filePaths: string[]) => {
+      const nextState = addFilesToCollection(
+        collectionsStateRef.current,
+        collectionId,
+        filePaths,
+      );
+      applyCollectionsState(nextState);
+      persistCollectionsState(nextState);
+      void fetchFiles();
+    },
+    [applyCollectionsState, fetchFiles, persistCollectionsState],
+  );
+
+  const handleRemoveCollection = useCallback(
+    (collectionId: string) => {
+      const nextState = removeCollection(collectionsStateRef.current, collectionId);
+      applyCollectionsState(nextState);
+      persistCollectionsState(nextState);
+      void fetchFiles();
+    },
+    [applyCollectionsState, fetchFiles, persistCollectionsState],
+  );
+
   const handleSettingsChange = useCallback(
     (newSettings: Partial<AppSettings>) => {
       setSettings((prev) => {
@@ -652,6 +760,8 @@ export const App: React.FC = () => {
         <Sidebar
           folders={folders}
           directories={directories}
+          collections={collectionsState.collections}
+          activeCollectionId={collectionsState.activeCollectionId}
           stats={stats}
           activeFilter={extension}
           activeFolder={activeFolder}
@@ -664,6 +774,8 @@ export const App: React.FC = () => {
           lightMode={settings.lightMode}
           onSettingsChange={handleSettingsChange}
           onRefreshFolderThumbnails={handleRefreshFolderThumbnails}
+          onCollectionSelect={handleCollectionSelect}
+          onRemoveCollection={handleRemoveCollection}
         />
         <main id="content">
           <Toolbar
@@ -671,6 +783,7 @@ export const App: React.FC = () => {
             order={order}
             search={search}
             activeFolderLabel={activeFolderLabel}
+            activeCollectionLabel={activeCollectionLabel}
             activeFilter={extension}
             resultCount={files.length}
             onSortChange={handleSortChange}
@@ -751,6 +864,9 @@ export const App: React.FC = () => {
           showGrid={settings.showGrid}
           thumbnailColor={settings.thumbnailColor}
           onFileChange={handleFileRecordUpdate}
+          collections={collectionsState.collections}
+          onCreateCollection={handleCreateCollection}
+          onAddFilesToCollection={handleAddFilesToCollection}
           onClose={() => setPreviewFile(null)}
         />
       </div>

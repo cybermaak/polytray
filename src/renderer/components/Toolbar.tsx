@@ -6,6 +6,7 @@ interface Props {
   order: "ASC" | "DESC";
   search: string;
   activeFolderLabel: string | null;
+  activeCollectionLabel: string | null;
   activeFilter: string | null;
   resultCount: number;
   onSortChange: (sort: string) => void;
@@ -20,6 +21,7 @@ export const Toolbar: React.FC<Props> = ({
   order,
   search,
   activeFolderLabel,
+  activeCollectionLabel,
   activeFilter,
   resultCount,
   onSortChange,
@@ -48,6 +50,15 @@ export const Toolbar: React.FC<Props> = ({
       label: activeFolderLabel ? `Folder: ${activeFolderLabel}` : "All Models",
       tone: "neutral",
     },
+    ...(activeCollectionLabel
+      ? [
+          {
+            key: "collection",
+            label: `Collection: ${activeCollectionLabel}`,
+            tone: "neutral",
+          },
+        ]
+      : []),
     ...(activeFilter
       ? [
           {

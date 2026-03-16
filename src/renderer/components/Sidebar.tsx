@@ -1,11 +1,14 @@
 import React from "react";
 import { formatSize } from "../lib/formatters";
 import type { AppSettings } from "../../shared/settings";
+import type { CollectionRecord } from "../../shared/libraryCollections";
 import { AppIcon } from "./AppIcon";
 
 interface Props {
   folders: string[];
   directories: string[];
+  collections: CollectionRecord[];
+  activeCollectionId: string | null;
   stats: {
     total: number;
     stl: number;
@@ -24,6 +27,8 @@ interface Props {
   lightMode: boolean;
   onSettingsChange: (settings: Partial<AppSettings>) => void;
   onRefreshFolderThumbnails: (folder: string) => void;
+  onCollectionSelect: (collectionId: string | null) => void;
+  onRemoveCollection: (collectionId: string) => void;
 }
 
 interface FolderNode {
@@ -199,6 +204,8 @@ const FolderTreeNode: React.FC<{
 export const Sidebar: React.FC<Props> = ({
   folders,
   directories,
+  collections,
+  activeCollectionId,
   stats,
   activeFilter,
   activeFolder,
@@ -211,6 +218,8 @@ export const Sidebar: React.FC<Props> = ({
   lightMode,
   onSettingsChange,
   onRefreshFolderThumbnails,
+  onCollectionSelect,
+  onRemoveCollection,
 }) => {
   const tree = React.useMemo(() => buildFolderTree(folders, directories), [folders, directories]);
   const filters = [
@@ -253,6 +262,39 @@ export const Sidebar: React.FC<Props> = ({
                  onRefreshThumbnails={onRefreshFolderThumbnails}
                />
             ))}
+          </div>
+        </div>
+
+        <div className="sidebar-section" style={{ flexShrink: 0 }}>
+          <h3>Collections</h3>
+          <div id="collection-list" className="sidebar-collections">
+            {collections.length > 0 ? (
+              collections.map((collection) => (
+                <div
+                  key={collection.id}
+                  className={`collection-item${activeCollectionId === collection.id ? " active" : ""}`}
+                  onClick={() =>
+                    onCollectionSelect(
+                      activeCollectionId === collection.id ? null : collection.id,
+                    )
+                  }
+                >
+                  <span className="collection-name">{collection.name}</span>
+                  <button
+                    className="library-folder-remove"
+                    title="Remove collection"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemoveCollection(collection.id);
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className="sidebar-empty-hint">No collections yet</div>
+            )}
           </div>
         </div>
 

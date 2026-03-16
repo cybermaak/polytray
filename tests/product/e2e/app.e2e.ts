@@ -1005,3 +1005,20 @@ test("files can be tagged from preview and found via tag search", async () => {
   const visibleCards = await window.locator(".file-card").count();
   expect(visibleCards).toBe(1);
 });
+
+test("files can be organized into virtual collections from preview", async () => {
+  await ensureFixtureFilesLoaded();
+  await resetUiState();
+
+  await window.locator(".file-card").first().click();
+  await expect(window.locator("#preview-panel")).not.toHaveClass(/hidden/);
+
+  await window.locator("#new-collection-name").fill("Desk Favorites");
+  await window.locator("#create-and-add-collection").click();
+
+  await expect(window.locator("#collection-list")).toContainText("Desk Favorites");
+  await window.waitForTimeout(300);
+
+  await expect(window.locator("#toolbar-context")).toContainText("Collection: Desk Favorites");
+  expect(await window.locator(".file-card").count()).toBe(1);
+});

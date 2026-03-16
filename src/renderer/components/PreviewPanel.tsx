@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 import { formatDimensions, formatSize, formatNumber } from "../lib/formatters";
 import type { FileRecord, ModelDimensions } from "../../shared/types";
 import { normalizeFileTags, parseStoredFileTags } from "../../shared/fileTags";
+import type { CollectionRecord } from "../../shared/libraryCollections";
 import { DEFAULT_APP_SETTINGS } from "../../shared/settings";
 import { AppIcon } from "./AppIcon";
 import {
@@ -17,7 +18,10 @@ interface Props {
   file: FileRecord | null;
   showGrid: boolean;
   thumbnailColor: string;
+  collections: CollectionRecord[];
   onFileChange?: (file: FileRecord) => void;
+  onCreateCollection: (name: string, filePaths: string[]) => void;
+  onAddFilesToCollection: (collectionId: string, filePaths: string[]) => void;
   onClose: () => void;
 }
 
@@ -25,7 +29,10 @@ export const PreviewPanel: React.FC<Props> = ({
   file,
   showGrid,
   thumbnailColor,
+  collections,
   onFileChange,
+  onCreateCollection,
+  onAddFilesToCollection,
   onClose,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -36,6 +43,8 @@ export const PreviewPanel: React.FC<Props> = ({
   const [wireframe, setWireframe] = useState(false);
   const [tagsInput, setTagsInput] = useState("");
   const [savedTags, setSavedTags] = useState<string[]>([]);
+  const [newCollectionName, setNewCollectionName] = useState("");
+  const [selectedCollectionId, setSelectedCollectionId] = useState("");
 
   // Load model when file changes
   useEffect(() => {
@@ -124,6 +133,20 @@ export const PreviewPanel: React.FC<Props> = ({
     setTagsInput(normalized.join(", "));
     onFileChange?.(updated);
   }, [file, onFileChange, tagsInput]);
+
+  const handleCreateAndAddCollection = useCallback(() => {
+    if (!file || !newCollectionName.trim()) return;
+    onCreateCollection(newCollectionName, [file.path]);
+    setSelectedCollectionId(
+      newCollectionName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+    );
+    setNewCollectionName("");
+  }, [file, newCollectionName, onCreateCollection]);
+
+  const handleAddToExistingCollection = useCallback(() => {
+    if (!file || !selectedCollectionId) return;
+    onAddFilesToCollection(selectedCollectionId, [file.path]);
+  }, [file, onAddFilesToCollection, selectedCollectionId]);
 
   // Escape key
   useEffect(() => {
@@ -331,6 +354,46 @@ export const PreviewPanel: React.FC<Props> = ({
                 onClick={handleSaveTags}
               >
                 Save Tags
+              </button>
+            </div>
+          </div>
+          <div className="viewer-tags">
+            <div className="viewer-tags-header">Collections</div>
+            <div className="viewer-tag-editor">
+              <select
+                id="existing-collection-select"
+                value={selectedCollectionId}
+                onChange={(e) => setSelectedCollectionId(e.target.value)}
+              >
+                <option value="">Choose collection…</option>
+                {collections.map((collection) => (
+                  <option key={collection.id} value={collection.id}>
+                    {collection.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                id="add-to-existing-collection"
+                className="btn-copy-path"
+                onClick={handleAddToExistingCollection}
+              >
+                Add
+              </button>
+            </div>
+            <div className="viewer-tag-editor">
+              <input
+                id="new-collection-name"
+                type="text"
+                value={newCollectionName}
+                placeholder="New collection name"
+                onChange={(e) => setNewCollectionName(e.target.value)}
+              />
+              <button
+                id="create-and-add-collection"
+                className="btn-copy-path"
+                onClick={handleCreateAndAddCollection}
+              >
+                Create & Add
               </button>
             </div>
           </div>
