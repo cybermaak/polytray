@@ -73,7 +73,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Node-side tests are now written in TypeScript and executed through `scripts/run-node-tests.mjs` with `tsx`.
 - **Docs State:** `README.md` was refreshed into a landing-page style product overview, and the demo media under `docs/assets/` is now generated from the live app via `scripts/capture-readme-media.ts`.
 - **Agent Docs State:** Root `AGENTS.md` now captures repo-specific working agreements, architecture gotchas, and a verification matrix for future contributors/agents.
-- **Next Focus:** Post-`v1.1.0` release follow-up, remaining correctness/security hardening, and selective renderer/data-layer cleanup.
+- **Next Focus:** Remaining `v1.2` product work (`F7`-`F10`) plus the outstanding `v1.1.x` correctness and performance follow-ups.
 
 ### Completed Features (v1.x.x)
 
@@ -92,6 +92,15 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **2026-03-10 · Preview customization and UI polish for v1.1.0**
   - **F3: Split color customization.** Expanded the old single accent-color setting into separate accent, preview-material, and thumbnail-material colors, each with reset controls. This makes UI branding independent from model preview appearance.
   - Delivered the low-risk UI polish pass for `v1.1.0`: clearer toolbar context chips, stronger selected-card states, cleaner preview/settings presentation, calmer empty/progress states, and a tidier sidebar layout.
+
+- **2026-03-15 · v1.2 workflow and shell expansion**
+  - **F6: Interactive tagging.** Added first-class per-file tags with preview-side editing, persisted metadata updates, and search integration so tags become part of normal library retrieval instead of a side channel.
+  - **F11: Virtual collections.** Added renderer-owned named collections decoupled from on-disk folders, including collection creation from preview, sidebar navigation, and collection-aware filtering in the main grid.
+  - **F12: Archive browsing.** Added zip-backed virtual file records so supported `.stl`, `.obj`, and `.3mf` files inside `.zip` archives can be scanned, thumbnailed, searched, and previewed without manual extraction.
+  - **F13: Model dimensions.** Added bounding-box dimension extraction for STL, OBJ, and 3MF metadata and surfaced dimensions directly in preview metadata so users can evaluate fit before opening a slicer.
+  - **F14: Batch operations.** Added multi-select workflows for bulk tagging and collection assignment, plus the shell-level selection model needed for richer batch actions.
+  - **F15: Configurable advanced settings.** Added advanced tuning presets and reset controls for runtime-sensitive settings so users can switch between balanced, performance, and fidelity-oriented behavior without editing stored settings manually.
+  - **F4: Side-by-side comparison.** Added a compare workspace driven by batch selection that places two models side by side with thumbnails, core metrics, tags, and quick handoff into full preview.
 
 #### Tech Debt / Stability Work
 
@@ -150,6 +159,9 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Extracted shared packaging logic into `.github/actions/package-app/action.yml`.
   - Reorganized tests into `product`, `repo`, `support`, and `dev` buckets, converted the active suite to TypeScript, and kept repo-only checks out of the default product gate.
 
+- **2026-03-15 · Renderer shell decomposition**
+  - Broke `src/renderer/App.tsx` into smaller shell-oriented components (`BatchActionsBar`, `FileGrid`, `EmptyState`, `ScanProgress`, and `ComparePanel`) so the root app component focuses more on orchestration and less on deeply nested JSX and card-level rendering details.
+
 - **2026-03-14 · Cross-platform CI hardening**
   - Fixed Windows CI by replacing migration fixtures that shell out to `sqlite3` with in-process `better-sqlite3` fixture creation.
   - Fixed macOS CI by separating “install Electron itself” from “rebuild Electron-native modules for this repo,” preventing arm64 install failures without compromising E2E coverage.
@@ -195,10 +207,6 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 ### Planned Product Features (Target: v1.2)
 
-- **F6: Interactive Tagging System**  
-  - **Proposed milestone:** `v1.2`
-  - Add first-class tagging so users can organize models across folders and formats. This is the most natural next feature because it unlocks richer search, collections, and status workflows without changing the core library model.
-
 - **F7: Model Notes & Descriptions**  
   - **Proposed milestone:** `v1.2`
   - Let users attach lightweight notes to a model record. This pairs well with tags and creates a place for print tips, source links, or change notes without inventing a full asset-management system.
@@ -213,31 +221,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 - **F10: Duplicate Detection**  
   - **Proposed milestone:** `v1.2`
-  - Detect likely duplicates by hash or strong heuristics so users can reduce clutter in large model libraries. This is especially valuable once tags/notes/statuses make library hygiene more important.
-
-- **F11: Virtual Collections (Projects / Themes)**  
-  - **Proposed milestone:** `v1.2`
-  - Allow users to gather models into named collections independent of on-disk folder structure. This complements tagging but gives a more deliberate project-oriented workflow.
-
-- **F12: Zip / Archive Browsing**  
-  - **Proposed milestone:** `v1.2`
-  - Allow browsing archives without a manual extract step. This is a common real-world distribution format for 3D model sets and fits Polytray’s local-library focus.
-
-- **F13: Model Measurements & Dimensions**  
-  - **Proposed milestone:** `v1.2`
-  - Surface basic dimensions directly in metadata and search. This is a frequent practical need when picking a model for a printer or assembly constraint.
-
-- **F14: Batch Operations**  
-  - **Proposed milestone:** `v1.2`
-  - Add multi-select workflows for retagging, thumbnail refresh, status changes, or collection assignment. This becomes more important once richer metadata features land.
-
-- **F15: Configurable Advanced Settings**  
-  - **Proposed milestone:** `v1.2`
-  - Expose selected tunables that are currently hard-coded or only implicitly configurable. This should stay narrow and purposeful rather than turning into a dumping ground for every magic number.
-
-- **F4: Side-by-side Model Comparison**  
-  - **Proposed milestone:** `v1.2` if demand appears, otherwise defer
-  - Useful for variants and printer tests, but lower priority than metadata and workflow features. Keep it on the feature list, but do not let it displace more broadly useful library-management work.
+  - Detect likely duplicates by hash or strong heuristics so users can reduce clutter in large model libraries. This is especially valuable once tags, notes, statuses, and collections become central workflows.
 
 ### Candidate Backlog (v1.3+)
 
@@ -254,7 +238,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Associate models with printer/material/profile presets and warn on mismatches. Strong workflow value, but it depends on a more mature metadata layer.
 
 - **F20: Dynamic Rule-Based Collections**  
-  - Auto-build collections like “No Thumbnail,” “High Poly,” “Recently Changed,” or “Parse Failures.” This should piggyback on richer metadata and tagging rather than arrive first.
+  - Auto-build collections like "No Thumbnail," "High Poly," "Recently Changed," or "Parse Failures." This should piggyback on richer metadata and tagging rather than arrive first.
 
 - **F21: Command Palette (Quick Actions)**  
   - Provide keyboard-centric access to navigation and common actions. Good fit for power users, but not core to current release stabilization.
@@ -284,9 +268,6 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 - **TD9: Background observability expansion**  
   - Queue depth and timing logs now exist, but worker restart metrics, richer failure counters, and clearer taxonomy across main/renderer/background logs remain open. This is valuable operationally but not blocking product work.
-
-- **App shell decomposition**  
-  - `src/renderer/App.tsx` still owns a lot of orchestration. Breaking it into focused hooks/modules is more maintainability work than user-facing feature work, so it should land when product scope is calm enough to support it.
 
 - **Thumbnail transport modernization**  
   - Thumbnails still travel as data URLs in steady-state UI rendering. There is room to reduce memory overhead and renderer churn later, but it should follow higher-value correctness and throughput work.
@@ -401,35 +382,6 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **S5:** Thumbnail Cache Lifecycle Plan — define cleanup, stale detection, and optional migration strategy if cache growth becomes problematic.
   - **Status:** Completed on 2026-03-10 via `src/main/thumbnailCacheLifecycle.ts` plus startup reconciliation and versioned cache metadata.
 
-### Future Features (v1.2 Roadmap)
-
-- **F6:** Interactive Tagging System
-- **F15:** Configurable Advanced Settings (User-tunable magic numbers)
-- **F7:** Model Notes & Descriptions
-- **F8:** Print Status Tracking
-- **F13:** Model Measurements & Dimensions
-- **F9:** Slicer Integration (Open In...)
-- **F11:** Virtual Collections (Projects/Themes)
-- **F14:** Batch Operations
-- **F10:** Duplicate Detection
-- **F12:** Zip/Archive Browsing
-- **F4:** Side-by-Side Model Comparison (Low priority)
-
-### Future Features (v1.3+ Candidate Backlog)
-
-- **F16:** Saved Views / Smart Filters — persist combinations of folder/tag/format/sort/search as reusable presets.
-- **F17:** Model Health & Repair Assistant — flag non-manifold/inverted-normal risks and provide repair/open-in-tool suggestions.
-- **F18:** Per-File Version History — track content-hash revisions over time and show "changed since last print/open" indicators.
-- **F19:** Print Profile Compatibility — map models to printer/material/profile presets and warn on mismatch risks.
-- **F20:** Dynamic Rule-Based Collections — auto-collections like "No Thumbnail", "High Poly", "Recently Changed", "Parse Failures".
-- **F21:** Command Palette (Quick Actions) — global shortcut for navigation, rescan, retag, regenerate thumbnails, and "open in" flows.
-- **F22:** Bulk Rename + Metadata Templates — apply naming conventions and template tags/notes during import or multi-select edits.
-- **F23:** Import Rules Engine — auto-tagging/classification by folder, filename regex, extension, and optional dimensions.
-- **F24:** Local Usage Insights — local-only stats such as most-opened, most-printed, and never-used models.
-- **F25:** Background Indexing Controls — pause/resume/schedule indexing and optional CPU-throttling for large libraries.
-- **F26:** Thumbnail Quality Profiles — user-selectable quality/resolution presets for battery vs fidelity tradeoffs.
-- **F27:** Library Integrity Audit — one-click checks for missing files, stale records, broken thumbnails, and guided repair actions.
-
 ### Test Gaps (Action Items)
 
 - **F2 (Sidebar Folders):** Need tests for nested DOM structure, expand/collapse chevron interactions, and top-level "All Models" filter reset.
@@ -444,13 +396,13 @@ If you are an AI assistant reading this file at the start of a session, use it t
 ## 💾 Core File Map Reference
 
 - **Renderer App Shell:** `src/renderer/App.tsx`
-- **Renderer UI Components:** `src/renderer/components/` (`Sidebar.tsx`, `Toolbar.tsx`, `PreviewPanel.tsx`, `SettingsModal.tsx`, `AppIcon.tsx`, `ErrorBoundary.tsx`, `iconPaths.ts`)
+- **Renderer UI Components:** `src/renderer/components/` (`Sidebar.tsx`, `Toolbar.tsx`, `PreviewPanel.tsx`, `ComparePanel.tsx`, `BatchActionsBar.tsx`, `FileGrid.tsx`, `EmptyState.tsx`, `ScanProgress.tsx`, `SettingsModal.tsx`, `AppIcon.tsx`, `ErrorBoundary.tsx`, `iconPaths.ts`)
 - **Renderer Viewer Pipeline:** `src/renderer/lib/viewer.ts`, `src/renderer/lib/previewStrategies.ts`, `src/renderer/lib/modelParsers.ts`, `src/renderer/lib/meshPrep.ts`, `src/renderer/lib/meshSerialization.ts`, `src/renderer/lib/orientation.ts`, `src/renderer/lib/cameraUtils.ts`, `src/renderer/lib/viewerConfig.ts`
 - **Renderer 3D Helpers:** `src/renderer/lib/formatters.ts`, `src/renderer/lib/threemf-repair.ts`
 - **Renderer Workers:** `src/renderer/lib/workers/parser.worker.ts`
 - **Renderer Styling / HTML Entrypoints:** `src/renderer/styles.css`, `src/renderer/index.html`, `src/renderer/thumbnail.html`, `src/renderer/main.tsx`, `src/renderer/thumbnail.ts`
 - **Preload Bridge:** `src/preload/index.ts`
-- **Shared Contracts / Local Persistence Models:** `src/shared/types.ts`, `src/shared/settings.ts`, `src/shared/libraryState.ts`
+- **Shared Contracts / Local Persistence Models:** `src/shared/types.ts`, `src/shared/settings.ts`, `src/shared/libraryState.ts`, `src/shared/libraryCollections.ts`, `src/shared/archivePaths.ts`, `src/shared/fileTags.ts`
 - **Database / Schema / Metadata:** `src/main/database.ts`, `src/main/metadata.ts`
 - **Main IPC Surface:** `src/main/ipc/`
   - `files.ts` for file queries and sort/filter fetches
