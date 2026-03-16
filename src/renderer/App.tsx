@@ -9,6 +9,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { Toolbar } from "./components/Toolbar";
 import { PreviewPanel } from "./components/PreviewPanel";
+import { ComparePanel } from "./components/ComparePanel";
 import { SettingsModal } from "./components/SettingsModal";
 import { formatSize, formatVertices, formatTimestamp } from "./lib/formatters";
 import { createRefreshDebouncer } from "./lib/refreshDebouncer";
@@ -95,6 +96,7 @@ export const App: React.FC = () => {
   const [directories, setDirectories] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [previewFile, setPreviewFile] = useState<FileRecord | null>(null);
+  const [comparisonFiles, setComparisonFiles] = useState<FileRecord[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collectionsState, setCollectionsState] = useState<CollectionsState>(
     DEFAULT_COLLECTIONS_STATE,
@@ -117,6 +119,7 @@ export const App: React.FC = () => {
   ) || null;
   const activeCollectionLabel = activeCollection?.name || null;
   const selectedFiles = files.filter((file) => selectedFileIds.includes(file.id));
+  const comparisonActive = comparisonFiles.length === 2;
 
   // Refs to get latest state in IPC callbacks
   const foldersRef = useRef(folders);
@@ -883,10 +886,25 @@ export const App: React.FC = () => {
               >
                 Add to Collection
               </button>
+              {selectedFileIds.length === 2 && (
+                <button
+                  id="compare-selected"
+                  className="btn-icon"
+                  onClick={() => {
+                    setPreviewFile(null);
+                    setComparisonFiles(selectedFiles.slice(0, 2));
+                  }}
+                >
+                  Compare
+                </button>
+              )}
               <button
                 id="clear-batch-selection"
                 className="btn-icon"
-                onClick={() => setSelectedFileIds([])}
+                onClick={() => {
+                  setSelectedFileIds([]);
+                  setComparisonFiles([]);
+                }}
               >
                 Clear
               </button>
@@ -907,10 +925,13 @@ export const App: React.FC = () => {
                   key={file.id}
                   file={file}
                   index={index}
-                  selected={previewFile?.id === file.id}
+                  selected={previewFile?.id === file.id || comparisonFiles.some((entry) => entry.id === file.id)}
                   selectedForBatch={selectedFileIds.includes(file.id)}
                   onToggleSelect={() => handleToggleFileSelection(file.id)}
-                  onClick={() => setPreviewFile(file)}
+                  onClick={() => {
+                    setComparisonFiles([]);
+                    setPreviewFile(file);
+                  }}
                 />
               )}
             />
@@ -961,8 +982,16 @@ export const App: React.FC = () => {
             </div>
           </div>
         </main>
+        <ComparePanel
+          files={comparisonFiles}
+          onClose={() => setComparisonFiles([])}
+          onOpenPreview={(file) => {
+            setComparisonFiles([]);
+            setPreviewFile(file);
+          }}
+        />
         <PreviewPanel
-          file={previewFile}
+          file={comparisonActive ? null : previewFile}
           showGrid={settings.showGrid}
           thumbnailColor={settings.thumbnailColor}
           onFileChange={handleFileRecordUpdate}

@@ -141,6 +141,13 @@ async function resetUiState() {
     await expect(overlay).toHaveClass(/hidden/);
   }
 
+  const comparePanel = window.locator("#compare-panel");
+  const compareClasses = (await comparePanel.getAttribute("class")) || "";
+  if (!compareClasses.includes("hidden")) {
+    await window.locator("#btn-close-compare").click();
+    await expect(comparePanel).toHaveClass(/hidden/);
+  }
+
   const previewPanel = window.locator("#preview-panel");
   const previewClasses = (await previewPanel.getAttribute("class")) || "";
   if (!previewClasses.includes("hidden")) {
@@ -1053,6 +1060,21 @@ test("files can be organized into virtual collections from preview", async () =>
 
   await expect(window.locator("#toolbar-context")).toContainText("Collection: Desk Favorites");
   expect(await window.locator(".file-card").count()).toBe(1);
+});
+
+test("two selected files can be compared side by side", async () => {
+  await ensureFixtureFilesLoaded();
+  await resetUiState();
+
+  const toggles = window.locator(".file-select-toggle");
+  await toggles.nth(0).click();
+  await toggles.nth(1).click();
+  await window.locator("#compare-selected").click();
+
+  await expect(window.locator("#compare-panel")).not.toHaveClass(/hidden/);
+  await expect(window.locator("#compare-card-1")).toBeVisible();
+  await expect(window.locator("#compare-card-2")).toBeVisible();
+  await expect(window.locator("#open-compare-preview-1")).toBeVisible();
 });
 
 test("batch operations can tag multiple selected files", async () => {
