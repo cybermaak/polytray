@@ -75,232 +75,235 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **Agent Docs State:** Root `AGENTS.md` now captures repo-specific working agreements, architecture gotchas, and a verification matrix for future contributors/agents.
 - **Next Focus:** Post-`v1.1.0` release follow-up, remaining correctness/security hardening, and selective renderer/data-layer cleanup.
 
-### Completed Features (v1.1.0)
+### Completed Features (v1.x.x)
 
-- **T1:** Rendering Pipeline Unblocking — Offscreen Web Worker for thumbnails + async yielding for 3MF.
-- **T2:** Viewer Architecture Refactoring — Modularized `viewer.ts`.
-- **T3:** Database Performance — Added SQLite indexes for sorting.
-- **T4:** Global IPC Signatures — Strongly typed IPC channels in `shared/types.ts`.
-- **F1:** Enriched Filtering — Grid virtualization, sort by vertices/faces, filter by formats.
-- **F2:** Sidebar Folder Hierarchy — Nested folder tree in sidebar, click-to-filter by directory.
-- **F3:** Custom Colors — User-configurable accent, preview-material, and thumbnail-material colors via Settings, with per-color reset controls.
-- **F5:** Target Folder Rescanning — Rescan individual folders from the sidebar.
-- **TD1:** Render-on-Demand — Battery optimization (stops 60FPS loop when idle).
-- **TD4:** Automated Schema Migrations — Formalized `user_version` pragma migrations in `database.ts` (expanded to v4 for Tags/Notes).
-- **TD3:** Detached Background Thumbnail Window — Fully decoupled generation from main UI using a hidden browser window, `fetch()` streaming, and App Nap bypass.
-- **Performance:** Solved pre-scan "beachball" UI freezes by chunking SQLite inserts (yielding to the Node event loop) and streaming large `.3mf` zip archives via `unzipper` instead of buffering into RAM.
-- **TD2:** Structured logging via `electron-log` configured securely and correctly disabled in production unless specified.
-- UX Bugfixes: Prevent 3MF rendering detail loss, loading % progress, infinite loop fix in `buildFolderTree`.
-- **2026-03-07:**
-  - Implemented subpath-appropriate naming for folders within the React sidebar hierarchy display.
-  - Implemented per-folder thumbnail refresh targeting IPC capabilities.
-  - Corrected thumbnail loading popups to show `file.path` absolutely for disambiguation.
-  - Replaced inline sidebar folder actions with a native right-click Context Menu (`IPC.SHOW_FOLDER_CONTEXT_MENU`).
-  - Set sidebar folder trees to spawn collapsed by default.
-  - Fixed severe node event loop UI freeze during startup by shifting `chokidar` watch instantiation out of a `for` loop and batching multi-root watch subscriptions.
-  - Further aggressively solved UI freeze thread starvation by completely removing `chokidar` from the Main process, wrapping it inside a dedicated OS `utilityProcess` spawned by `src/main/worker.ts` and bridging I/O events via `process.parentPort`.
-- **2026-03-08:**
-  - Consolidated thumbnail generation orchestration into a unified `thumbnails.ts` service.
-  - Resolved Race Condition where Renderer grid reloaded before background rendering began.
-  - Implemented live `onThumbnailReady` IPC bridge to update UI cards individually without full reloads.
-  - Refactored `App.tsx` sorting/filtering to use a generalized `fetchFiles` utility.
-- **2026-03-10:**
-  - Unified interactive preview loading so all formats use a background parse pipeline from `PreviewPanel` instead of format-specific top-level branches.
-  - Fixed severe interactive UI freeze when loading large `3MF` previews by moving `3MF` parsing off the visible renderer thread.
-  - Added a hidden-renderer preview parse IPC path for `3MF` because `ThreeMFLoader` and `fix3MF()` depend on DOM APIs unavailable in a plain worker.
-  - Added shared mesh prep + serialization helpers so preview and thumbnail paths preserve the same transforms/orientation semantics.
-  - Added regression coverage for large-preview responsiveness and the real `/Volumes/exssd/3D Models/base.3mf` repro case.
-  - Fixed a transform-loss regression in serialized `3MF` preview meshes by baking child world transforms before IPC transfer, restoring orientation parity with cached thumbnails.
-  - Refactored preview parsing behind a strategy registry (`previewStrategies.ts`) so `PreviewPanel`/`viewer.ts` stay unified while `3MF` can continue using a DOM-capable hidden renderer and `STL`/`OBJ` remain on workers.
-  - Reworked the `3MF` preview transport so preload owns the real `MessagePort` and forwards transferred geometry buffers directly to the visible renderer, avoiding the earlier full structured-clone IPC roundtrip.
-  - Reduced `3MF` serialization overhead by reusing unshared geometries during transform baking instead of cloning every mesh geometry unconditionally.
-  - Hardened the `base.3mf` E2E harness to locate the actual main window explicitly and to treat UI-freeze regression as the primary invariant; kept only a loose absolute load ceiling because machine/disk variance was too high for a tight timing budget.
-  - Replaced path-prefix folder filtering with canonical containment checks for file queries, stale scan cleanup, folder thumbnail refresh, and folder removal.
-  - Centralized settings validation/defaults in `src/shared/settings.ts` and removed main-process runtime reads of numeric settings from SQLite.
-  - Moved library folder persistence to renderer `localStorage` with a one-time migration fallback from legacy SQLite keys.
-  - Added a runtime IPC validation layer for scan, watcher, thumbnail, file-read, sort, and preview-parse entry points.
-  - Added a shared thumbnail job scheduler covering scan, watcher, and manual thumbnail generation with queue stats logging and pending-job cancellation hooks.
-  - Implemented the v1.1 low-risk polish pass: toolbar context chips, stronger file-card states, sidebar cleanup/reorder, calmer empty/progress states, and a cleaner preview/settings presentation.
-  - Split the former single accent color into separate accent, preview, and thumbnail material colors; thumbnail generation now consumes the renderer-owned thumbnail color setting through runtime settings snapshots.
-  - Added startup thumbnail cache reconciliation with versioned metadata plus orphaned-cache pruning.
-  - Added explicit startup and scan performance budget tests in Playwright so regressions fail CI instead of relying on ad-hoc timing checks.
-  - Added a schema migration test matrix covering upgrades from database versions 0 through 4 to the current schema.
-- **2026-03-11:**
-  - Refreshed `README.md` into a richer landing-page style repo front page with a stronger hero, `v1.1.0` highlights, workflow summary, and updated development/release guidance.
-  - Replaced `docs/assets/screenshot.png` and `docs/assets/polytray_demo.webp` with current `v1.1.0` captures generated from the live Electron app.
-  - Added `scripts/capture-readme-media.ts` so README media can be regenerated reproducibly instead of hand-curated.
-  - Committed the v1.1 low-risk polish mockups/design notes under `docs/mockups/v11-polish/` and `docs/plans/`.
-- **2026-03-12:**
-  - Fixed a Windows-specific E2E launch regression by sanitizing `ELECTRON_RUN_AS_NODE` out of the inherited environment before Playwright launches Electron.
-  - Stabilized the tagged `v1.1.0` release pipeline so the release workflow now completes successfully on Windows as well as macOS/Linux.
-  - Simplified CI by removing the old scheduled "Daily Build" concept; the repo now has a normal `Build` workflow for pushes to `main` and a separate `Release` workflow for tags.
-  - Extracted shared package/build logic into `.github/actions/package-app/action.yml` so `build.yml` and `release.yml` no longer duplicate `npm run build` + `electron-builder`.
-  - Tightened workflow artifact patterns to keep updater-compatible release files (`*.exe`, `*.dmg`, `*-mac.zip`, `*.AppImage`, `*.blockmap`, `latest*.yml`) and drop unused `snap` patterns.
-  - Reorganized the test suite into explicit `product`, `repo`, `support`, and `dev` buckets.
-  - Converted the active test code to TypeScript and replaced the old ad-hoc TS transpile helpers with direct TS execution via `tsx`.
-  - Moved fixture generation and Electron launch helpers into `tests/support/`, moved one-off verification utilities into `tests/dev/`, and removed stale task residue (`test2.js`, old preview screenshot artifact).
-  - Reduced default CI over-testing by keeping README/workflow/iconography/harness checks in `tests/repo/` instead of the product gate.
-  - Updated packaging config to exclude the entire `tests/` tree from shipped artifacts.
-- **2026-03-13:**
-  - Hardened watcher lifecycle semantics by introducing `src/main/watcherLifecycle.ts` and routing watcher start/stop/restart through one restart-safe lifecycle manager.
-  - Updated `src/main/worker.ts` to await watcher shutdown before restart/exit so rapid reconfigure/stop cycles do not leave stale chokidar instances behind.
-  - Centralized scan/watch file conflict policy in `src/main/fileIndexing.ts`, with pure merge helpers plus DB wrappers so scan and watcher writes now share one deterministic "newer modified_at wins" rule.
-  - Refactored `src/main/watcher.ts` and `src/main/ipc/scanning.ts` to consume the shared indexing policy instead of maintaining duplicated upsert logic.
-  - Restricted `polytray://local/` protocol reads through `src/main/localFileProtocol.ts` so only indexed model files and contained thumbnail-cache paths are served.
-  - Added product unit coverage for watcher lifecycle, file indexing conflict policy, and local protocol allowlisting.
-  - Reduced preview transfer cost by introducing compact preview-only mesh serialization in `src/renderer/lib/meshSerialization.ts`, dropping unused geometry attributes while preserving normals, indices, and baked world transforms.
-  - Switched both preview strategies (`parser.worker.ts` and `thumbnailRenderer.ts`) to the compact preview serializer so the optimization applies uniformly across `STL`, `OBJ`, and `3MF`.
-  - Added `src/renderer/lib/refreshDebouncer.ts` and used it in `src/renderer/App.tsx` so bursty watcher `FILES_UPDATED` events coalesce into bounded file-list refresh work instead of triggering immediate repeated fetches.
-  - Added renderer unit coverage for compact preview serialization and refresh-debounce behavior.
-- **2026-03-14:**
-  - Added preview-phase metrics plumbing (`PREVIEW_METRIC`) so hidden-renderer fetch/parse/serialize timings and visible-renderer wait/build timings are logged centrally under `[PreviewMetrics]`.
-  - Implemented `src/renderer/lib/fast3mfPreviewParser.ts`, a lightweight preview-only 3MF parser that reads core mesh geometry, component references, and build transforms while deliberately ignoring material/metadata features that are irrelevant to the current preview goal.
-  - Wired the fast parser into `src/renderer/lib/modelParsers.ts` as the primary `3MF` preview path, with fallback to `ThreeMFLoader` for unsupported files.
-  - Measured `/Volumes/exssd/3D Models/base.3mf` after the parser change: total preview load dropped from about `49.8s` to about `6.9s`, while logged hidden-renderer parse time dropped from about `46.0s` to about `4.7s`.
-  - Fixed the remaining Windows GitHub Actions build failure by rewriting the schema-migration test fixtures to use in-process `better-sqlite3` databases instead of shelling out to a missing `sqlite3` executable.
-  - Fixed the follow-on macOS arm64 GitHub Actions failure by making the repo postinstall skippable via `POLYTRAY_SKIP_INSTALL_APP_DEPS=1`: CI now installs dependencies normally so Electron itself is present, skips only the repo's `electron-builder install-app-deps` during setup, and still rebuilds native deps before E2E and packaging.
+#### Product Features
+
+- **Pre-2026-03-07 · Foundation features shipped before the v1.1.0 stabilization pass**
+  - **F1: Enriched filtering and browsing.** Added virtualized grid browsing, sort options that include model complexity fields such as vertices/faces, and format filters so large libraries remain navigable without rendering every card at once.
+  - **F2: Sidebar folder hierarchy.** Added nested directory presentation in the sidebar so users can browse a large library by folder context instead of only by flat search and format filters.
+  - **F5: Targeted folder rescanning.** Added per-folder rescan controls so users can refresh one library root without reprocessing the entire collection.
+
+- **2026-03-07 · Sidebar and library interaction polish**
+  - Improved sidebar naming so subpaths are labeled in a way that remains understandable even when multiple roots contain similarly named folders.
+  - Added per-folder thumbnail refresh targeting and moved folder actions to a native context menu, which reduced inline UI clutter and made advanced folder actions more discoverable.
+  - Defaulted folder trees to collapsed state so a large library does not overwhelm the sidebar immediately on launch.
+
+- **2026-03-10 · Preview customization and UI polish for v1.1.0**
+  - **F3: Split color customization.** Expanded the old single accent-color setting into separate accent, preview-material, and thumbnail-material colors, each with reset controls. This makes UI branding independent from model preview appearance.
+  - Delivered the low-risk UI polish pass for `v1.1.0`: clearer toolbar context chips, stronger selected-card states, cleaner preview/settings presentation, calmer empty/progress states, and a tidier sidebar layout.
+
+#### Tech Debt / Stability Work
+
+- **Pre-2026-03-07 · Foundational runtime cleanup**
+  - **TD1: Render-on-demand.** Replaced continuous viewer rendering with idle-aware rendering so the app does not burn power rendering frames unnecessarily.
+  - **TD2: Structured logging.** Standardized logging through `electron-log`, with production-safe defaults and clearer separation between debug and normal runtime behavior.
+  - **TD3: Detached thumbnail runtime.** Moved thumbnail generation out of the visible UI into a hidden `BrowserWindow`, streaming files via `fetch()` and bypassing slow ArrayBuffer IPC copies.
+  - **TD4: Formal schema migrations.** Moved schema evolution onto explicit `user_version` migrations, making upgrades repeatable and testable.
+  - **T2: Viewer modularization.** Broke up the old monolithic `viewer.ts` into smaller modules so preview parsing, orientation, camera behavior, and viewer configuration are easier to reason about.
+  - **T3: Database performance baseline.** Added the first round of SQLite indexes for common sort paths so browsing and filtering remain responsive on larger libraries.
+  - **T4: Typed IPC contracts.** Centralized shared channel signatures in `src/shared/types.ts`, reducing drift between renderer, preload, and main process.
+
+- **2026-03-07 · Watcher and startup freeze reduction**
+  - Fixed severe startup UI stalls by removing large synchronous watch setup from the main process hot path.
+  - Moved `chokidar` watching into a dedicated `utilityProcess`, which isolated file-system event churn from the Electron main process and materially reduced beachball-style freezes.
+
+- **2026-03-08 · Thumbnail orchestration cleanup**
+  - Consolidated thumbnail orchestration into `src/main/thumbnails.ts` and fixed a race where the renderer refreshed before background thumbnail generation had actually started.
+  - Added the `onThumbnailReady` bridge so individual cards can update as thumbnails arrive instead of waiting for a full list reload.
+
+- **2026-03-10 · Major v1.1.0 hardening pass**
+  - **Folder containment correctness.** Replaced string-prefix folder matching with canonical containment checks so sibling folders such as `/foo/bar` and `/foo/barista` are no longer confused.
+  - **Settings single source of truth.** Moved settings and library folder persistence to typed renderer-owned `localStorage` models, with validated runtime snapshots passed into main-process work instead of ad hoc SQLite reads.
+  - **Runtime IPC validation.** Added validation and normalization at high-risk IPC boundaries so scan, watcher, file, sort, thumbnail, and preview entry points fail more safely on malformed input.
+  - **Shared thumbnail scheduler.** Added a single-flight thumbnail scheduler with dedupe, queueing, retry behavior, and queue stats instead of scattered overlapping thumbnail loops.
+  - **Thumbnail cache lifecycle management.** Added versioned cache metadata plus orphan pruning so cached thumbnails do not accumulate silently across layout/runtime changes.
+  - **Schema migration coverage.** Added a migration test matrix for versions 0 through 4 so database evolution is no longer validated only by live upgrades.
+  - **Performance budget checks.** Added startup and scan budget tests so major regressions are detected in CI instead of only through manual observation.
+
+- **2026-03-13 · Post-release stability hardening**
+  - **TD5: Watcher lifecycle hardening.** Added restart-safe watcher lifecycle management, graceful stop semantics, and forced-kill fallback so quick stop/start/reconfigure cycles do not leave zombie listeners behind.
+  - **TD7: Scan/watch write conflict mitigation.** Centralized merge policy in `src/main/fileIndexing.ts` so scan and watcher updates now obey one deterministic “newer `modified_at` wins” rule.
+  - **TD8: Filesystem access hardening.** Restricted `polytray://local/` to indexed model files and contained thumbnail-cache paths; thumbnail reads now rely on canonical containment rather than path-prefix assumptions.
+  - Added debounced renderer refresh handling so bursty watcher updates no longer trigger immediate repeated file-list fetches.
+
+- **2026-03-14 · 3MF preview parsing hardening**
+  - Added lightweight `3MF` preview parsing for the common “geometry only” case and tightened fallback rules so unsupported 3MF structures still route through `ThreeMFLoader`.
+  - Preserved orientation parity and avoided several regressions by limiting the lightweight path to well-understood archive structures instead of trying to parse every 3MF dialect.
+
+#### Engineering Excellence Tasks
+
+- **2026-03-10 · Preview architecture unification**
+  - Unified preview loading under one background-loading entrypoint so `PreviewPanel` no longer branches into fundamentally different top-level flows per format.
+  - Added `previewStrategies.ts` so format-specific execution can vary internally while the viewer-facing preview contract stays consistent.
+
+- **2026-03-10 · 3MF background parsing and transport redesign**
+  - Moved expensive `3MF` parsing out of the visible renderer and into a DOM-capable hidden renderer because the upstream loader depends on DOM APIs unavailable inside a plain worker.
+  - Introduced shared mesh preparation and serialization utilities so thumbnail and preview pipelines preserve the same transforms and orientation assumptions.
+  - Reworked `3MF` preview transport to use a preload-brokered `MessagePort`, reducing avoidable main-process structured-clone overhead during large preview loads.
+
+- **2026-03-11 · Repo and release collateral improvements**
+  - Rebuilt the README into a product-style landing page, regenerated the screenshot/demo media from the live app, and checked in the related design notes and mockups so future contributors can trace how the polish work was meant to land.
+
+- **2026-03-12 · CI and test architecture cleanup**
+  - Removed the old “daily build” concept and replaced it with a simpler split: normal push-driven `Build` workflow and tag-driven `Release` workflow.
+  - Extracted shared packaging logic into `.github/actions/package-app/action.yml`.
+  - Reorganized tests into `product`, `repo`, `support`, and `dev` buckets, converted the active suite to TypeScript, and kept repo-only checks out of the default product gate.
+
+- **2026-03-14 · Cross-platform CI hardening**
+  - Fixed Windows CI by replacing migration fixtures that shell out to `sqlite3` with in-process `better-sqlite3` fixture creation.
+  - Fixed macOS CI by separating “install Electron itself” from “rebuild Electron-native modules for this repo,” preventing arm64 install failures without compromising E2E coverage.
+
+#### Non-Functional Improvements
+
+- **Pre-2026-03-07 · Early performance wins**
+  - Removed large startup freezes by chunking SQLite insert work and by streaming large `.3mf` archives instead of buffering them fully into memory.
+  - Fixed smaller UX regressions such as rendering detail loss in 3MF previews, missing progress feedback, and a folder-tree infinite loop.
+
+- **2026-03-13 · Preview transport cost reduction**
+  - Introduced compact preview mesh serialization that drops unused attributes for interactive preview while preserving normals, indices, and baked transforms. This reduced transport cost without forking the viewer contract.
+
+- **2026-03-14 · Measured 3MF preview performance improvements**
+  - Added structured preview-phase metrics and used them to identify parsing, not transfer, as the dominant remaining bottleneck for large `3MF` preview loads.
+  - For `/Volumes/exssd/3D Models/base.3mf`, the lightweight preview parser reduced total load time from roughly `49.8s` to roughly `6.9s`, with hidden-renderer parse time dropping from roughly `46.0s` to roughly `4.7s`.
 
 ---
 
-## 🗺 Next Features Roadmap (Prioritized)
+## 🗺 Future Roadmap
 
-### Immediate Execution Plan (Completed 2026-03-13)
+### Near-Term Engineering Work (Target: v1.1.1 / v1.1.x)
 
-> Objective: reduce ambiguity and make next engineering steps deterministic if conversation history is lost.
+- **P1 Data Layer: Reduce scan-time DB roundtrips**  
+  - **Proposed milestone:** `v1.1.1`
+  - The scan pipeline still performs too many per-file reads before writes. The next targeted optimization should prefetch or batch existing-row state so large-library scans generate less main-process and SQLite overhead.
 
-1. **TD5 Watcher Lifecycle Hardening**
-   - Completed via `src/main/watcherLifecycle.ts`, `src/main/watcher.ts`, and `src/main/worker.ts`.
-   - `stopWatcher()` now has explicit graceful-stop semantics with timeout + forced kill fallback.
-   - Restart flow is tokenized so stale worker exits/listeners cannot clear newer watcher instances.
+- **P1 Security/Test Coverage: Add symlink-escape coverage for thumbnail and protocol path checks**  
+  - **Proposed milestone:** `v1.1.1`
+  - The containment rules themselves are in place, but regression tests still need to prove that symlink-based escape attempts are rejected consistently. This is a correctness and safety follow-up, not a new security model.
 
-2. **TD7 Scan/Watch Write Conflict Mitigation**
-   - Completed via `src/main/fileIndexing.ts` plus integration in scan/watcher flows.
-   - Scan and watcher writes now share one deterministic conflict rule based on `modified_at`, with scan invalidating stale thumbnails only when the scanned file is newer.
+- **P1 Stability/Test Coverage: Add high-level watcher churn and scan+watch race tests**  
+  - **Proposed milestone:** `v1.1.1`
+  - Unit coverage exists for lifecycle and merge policy, but the repo still lacks stress-style product tests that drive the real watcher process while scans are in flight. This is the main remaining gap in the post-release hardening work.
 
-3. **TD8/P0 Filesystem Access Hardening**
-   - Completed for canonical thumbnail-path containment and `polytray://local/` allowlisting.
-   - Remaining follow-up, if revisited, is symlink-escape regression coverage rather than the base containment rule itself.
+- **P2 Renderer/Data Flow: Stop re-fetching stats and directories on every sort/search refresh**  
+  - **Proposed milestone:** `v1.1.x`
+  - File-list refreshes are currently heavier than they need to be. Splitting “list changed” from “library topology changed” would reduce needless IPC traffic and keep the UI snappier during rapid filter/search interaction.
 
-4. **Preview Follow-up**
-   - The main freeze regression is fixed and the largest parse bottleneck for preview-oriented `3MF` files is materially reduced by the lightweight parser path.
-   - Remaining preview work, if revisited, should focus on reducing payload size further or expanding lightweight-parser coverage before falling back to `ThreeMFLoader`.
-   - Preserve orientation parity between cached thumbnails and interactive preview if any further `3MF` serialization or transport changes are made.
+- **P3 React Hygiene: Resolve the `set-state-in-effect` lint failure in `PreviewPanel`**  
+  - **Proposed milestone:** `v1.1.x`
+  - This is a contained cleanup task, but worth doing so lint becomes a reliable signal again and preview-state transitions stay predictable.
 
-### Engineering Improvement Backlog (Priority + Impact + Effort)
+### Planned Product Features (Target: v1.2)
 
-> Objective: convert the current code/design/performance review into a concrete execution queue with expected payoff and scope.
+- **F6: Interactive Tagging System**  
+  - **Proposed milestone:** `v1.2`
+  - Add first-class tagging so users can organize models across folders and formats. This is the most natural next feature because it unlocks richer search, collections, and status workflows without changing the core library model.
 
-1. ~~**P0 Security: Canonicalize all thumbnail path reads**~~ ✅ Completed 2026-03-13
-   - Implemented via `src/main/ipc/thumbnails.ts` + `src/main/pathContainment.ts`.
-   - Remaining follow-up is explicit symlink-escape regression coverage.
+- **F7: Model Notes & Descriptions**  
+  - **Proposed milestone:** `v1.2`
+  - Let users attach lightweight notes to a model record. This pairs well with tags and creates a place for print tips, source links, or change notes without inventing a full asset-management system.
 
-2. ~~**P0 Security: Restrict `polytray://local/` protocol reads to indexed/library files**~~ ✅ Completed 2026-03-13
-   - Implemented via `src/main/localFileProtocol.ts` and `src/main/index.ts`.
-   - The protocol now serves only indexed model files plus contained thumbnail-cache paths, and rejects everything else with a closed 403 response.
+- **F8: Print Status Tracking**  
+  - **Proposed milestone:** `v1.2`
+  - Track whether a model is unprinted, testing, validated, failed, or archived. This would make Polytray more useful as a working print library rather than only a file browser.
 
-3. **P1 Stability/Perf: Debounce renderer refreshes from watcher churn**
-   - **Status:** Completed on 2026-03-13 via `src/renderer/lib/refreshDebouncer.ts` and `src/renderer/App.tsx`.
+- **F9: Slicer Integration ("Open In…")**  
+  - **Proposed milestone:** `v1.2`
+  - Add user-configurable handoff into slicers or related tools. This is a pragmatic workflow improvement and aligns well with the existing context-menu and drag support.
 
-4. ~~**P1 Stability/Perf: Enforce single-flight thumbnail queue orchestration**~~ ✅ Completed 2026-03-10
-   - Implemented via `src/main/thumbnailJobScheduler.ts`.
+- **F10: Duplicate Detection**  
+  - **Proposed milestone:** `v1.2`
+  - Detect likely duplicates by hash or strong heuristics so users can reduce clutter in large model libraries. This is especially valuable once tags/notes/statuses make library hygiene more important.
 
-5. ~~**P1 Correctness: Replace path-prefix folder matching with containment-aware filtering**~~ ✅ Completed 2026-03-10
-  - Implemented via canonical containment helper (`src/main/pathContainment.ts`) plus regression coverage.
+- **F11: Virtual Collections (Projects / Themes)**  
+  - **Proposed milestone:** `v1.2`
+  - Allow users to gather models into named collections independent of on-disk folder structure. This complements tagging but gives a more deliberate project-oriented workflow.
 
-6. **P1 Data Layer: Reduce scan-time DB roundtrips**
-   - **Impact:** Medium-high on large libraries. Lowers scan latency and main-process pressure.
-   - **Effort:** ~1-2 days.
-   - **Primary Files:** `src/main/ipc/scanning.ts`, `src/main/database.ts`.
-   - **Why now:** The scan loop performs per-file reads before writes.
-   - **Done when:** Existing-row state is prefetched or batched efficiently and scan throughput improves measurably.
+- **F12: Zip / Archive Browsing**  
+  - **Proposed milestone:** `v1.2`
+  - Allow browsing archives without a manual extract step. This is a common real-world distribution format for 3D model sets and fits Polytray’s local-library focus.
 
-7. **P2 Renderer Architecture: Break `App.tsx` into focused hooks/modules**
-   - **Impact:** Medium. Improves maintainability, testability, and reduces accidental coupling.
-   - **Effort:** ~2-3 days.
-   - **Primary Files:** `src/renderer/App.tsx`, new renderer hooks/modules.
-   - **Why later:** Important, but lower urgency than security and queue correctness.
-   - **Done when:** Bootstrapping, IPC subscriptions, library data orchestration, and progress state are separated cleanly.
+- **F13: Model Measurements & Dimensions**  
+  - **Proposed milestone:** `v1.2`
+  - Surface basic dimensions directly in metadata and search. This is a frequent practical need when picking a model for a printer or assembly constraint.
 
-8. **P2 Renderer Perf: Stop re-fetching stats/directories for every sort/search refresh**
-   - **Impact:** Medium. Avoids unnecessary IPC/DB work during high-frequency user interactions.
-   - **Effort:** ~0.5-1 day.
-   - **Primary Files:** `src/renderer/App.tsx`.
-   - **Why later:** Straightforward win once refresh semantics are cleaned up.
-   - **Done when:** File-list refreshes are independent from stats/directory refreshes unless topology actually changes.
+- **F14: Batch Operations**  
+  - **Proposed milestone:** `v1.2`
+  - Add multi-select workflows for retagging, thumbnail refresh, status changes, or collection assignment. This becomes more important once richer metadata features land.
 
-9. **P2 Memory/IPC Perf: Replace thumbnail data URLs with a less expensive transport**
-   - **Impact:** Medium. Reduces base64 overhead, memory churn, and renderer state size.
-   - **Effort:** ~1-2 days.
-   - **Primary Files:** `src/main/ipc/thumbnails.ts`, `src/renderer/App.tsx`, `src/preload/index.ts`.
-   - **Why later:** Valuable, but should follow path hardening and queue stabilization.
-   - **Done when:** Thumbnails no longer require large base64 strings for steady-state rendering.
+- **F15: Configurable Advanced Settings**  
+  - **Proposed milestone:** `v1.2`
+  - Expose selected tunables that are currently hard-coded or only implicitly configurable. This should stay narrow and purposeful rather than turning into a dumping ground for every magic number.
 
-10. **P2 Quality: Remove timing-based E2E waits and add event-driven assertions**
-    - **Impact:** Medium. Lowers flake rate and makes perf regressions easier to reason about.
-    - **Effort:** ~1-2 days.
-    - **Primary Files:** `tests/product/e2e/app.e2e.ts`.
-    - **Why later:** Testing quality matters, but product correctness/security still comes first.
-    - **Done when:** Major workflows wait on observable app state instead of fixed sleeps.
+- **F4: Side-by-side Model Comparison**  
+  - **Proposed milestone:** `v1.2` if demand appears, otherwise defer
+  - Useful for variants and printer tests, but lower priority than metadata and workflow features. Keep it on the feature list, but do not let it displace more broadly useful library-management work.
 
-11. **P3 React Hygiene: Resolve `set-state-in-effect` lint failure in preview loading**
-    - **Impact:** Low-medium. Improves React correctness and keeps lint green.
-    - **Effort:** ~0.5 day.
-    - **Primary Files:** `src/renderer/components/PreviewPanel.tsx`.
-    - **Why later:** Isolated issue, but worth addressing during renderer cleanup.
-    - **Done when:** `npm run lint` passes without suppressing the rule.
+### Candidate Backlog (v1.3+)
 
-12. **P3 IPC Robustness: Add runtime validation for high-risk handlers**
-    - **Impact:** Medium. Complements TypeScript IPC typing with actual runtime safety.
-    - **Effort:** ~1-2 days initial slice, more if expanded across all handlers.
-    - **Primary Files:** `src/shared/types.ts`, `src/main/ipc/*.ts`, `src/preload/index.ts`.
-    - **Why later:** Strong follow-on to the security hardening work.
-    - **Done when:** High-risk inbound payloads are schema-validated and fail closed.
+- **F16: Saved Views / Smart Filters**  
+  - Save combinations of folder, tag, search, sort, and format filters as reusable presets. This becomes much more valuable after tags, notes, and status fields exist.
 
-### Delivery Buckets
+- **F17: Model Health & Repair Assistant**  
+  - Surface likely mesh issues and route users toward repair workflows. This is a good long-term fit, but should follow the current preview/parser stabilization work.
 
-- **1-day bucket:** PreviewPanel lint cleanup.
-- **3-day bucket:** Scan-time DB roundtrip reduction, thumbnail symlink-containment regression coverage, scan+watch race coverage.
-- **1-week bucket:** App renderer decomposition, thumbnail transport profiling, E2E flake reduction.
+- **F18: Per-File Version History**  
+  - Track content-hash revisions and show when a model changed since last use or print. Useful, but it introduces real lifecycle and storage questions that are better tackled after metadata features settle.
 
-### Recommended Sequence After TD5-TD9
+- **F19: Print Profile Compatibility**  
+  - Associate models with printer/material/profile presets and warn on mismatches. Strong workflow value, but it depends on a more mature metadata layer.
 
-1. Add missing stress/regression coverage around watcher churn, scan+watch overlap, and thumbnail symlink escapes.
-2. Optimize throughput once semantics are stable: reduce scan DB roundtrips and separate list refreshes from stats/directory refreshes.
-3. Refactor renderer architecture and thumbnail transport only after the background/runtime contracts stop shifting.
-5. Finish with test hardening and runtime validation so future regressions fail earlier in CI.
+- **F20: Dynamic Rule-Based Collections**  
+  - Auto-build collections like “No Thumbnail,” “High Poly,” “Recently Changed,” or “Parse Failures.” This should piggyback on richer metadata and tagging rather than arrive first.
 
-### Code Improvement Suggestions (Actionable)
+- **F21: Command Palette (Quick Actions)**  
+  - Provide keyboard-centric access to navigation and common actions. Good fit for power users, but not core to current release stabilization.
 
-- **Unify background runtime contracts**
-  - Standardize request/event payload shape between main process and utility/background workers.
-  - Define explicit semantics for progress, completion, error, and cancellation events.
+- **F22: Bulk Rename + Metadata Templates**  
+  - Apply naming and metadata conventions during import or multi-select edits. Valuable once tagging/status/notes exist.
 
-- **Typed + runtime-validated IPC boundaries**
-  - Keep TypeScript IPC channel typing (`src/shared/types.ts`) and add runtime validation for inbound payloads.
-  - Fail closed with safe errors for malformed or unsafe requests.
+- **F23: Import Rules Engine**  
+  - Auto-classify models by folder, filename, extension, or dimensions. This is likely better as a later-stage feature once manual tagging and notes establish the right data model.
 
-- **Conflict-safe persistence patterns**
-  - Prefer targeted `UPDATE`/upsert over broad `INSERT OR REPLACE` where state preservation matters.
-  - Prevent accidental resets of `thumbnail`, `thumbnail_failed`, or newer metadata fields.
+- **F24: Local Usage Insights**  
+  - Track local-only usage patterns such as most opened or never used. Useful, but not urgent compared with workflow fundamentals.
 
-- **Thumbnail orchestration resilience**
-  - Maintain dedupe/inflight maps and ensure repeated requests do not trigger duplicate heavy parsing.
-  - Keep bounded concurrency and enforce timeout behavior from settings with safe min/max limits.
+- **F25: Background Indexing Controls**  
+  - Expose pause/resume/throttle/schedule controls for large libraries. This is a likely future quality-of-life feature once the background runtime model is fully stable.
 
-- **Data layer efficiency**
-  - Reduce per-item DB roundtrips in thumbnail pipelines (avoid avoidable N+1 lookup paths).
-  - Continue indexing strategy review as new sort/filter fields are introduced.
+- **F26: Thumbnail Quality Profiles**  
+  - Offer fidelity-vs-speed presets for thumbnail generation. Valuable, but should follow more impactful runtime and workflow work.
 
-- **Security hardening baseline**
-  - Canonicalize all filesystem IPC paths.
-  - Ensure preload surface remains least-privilege and no unsafe renderer escape hatches are introduced.
+- **F27: Library Integrity Audit**  
+  - Provide one-click checks for missing files, stale records, broken thumbnails, and guided repair actions. This is a strong long-term maintenance feature once the metadata and cache lifecycle stabilize further.
 
-- **Testing strategy upgrades**
-  - Add migration test matrix for schema versions.
-  - Add IPC contract tests, race regression tests, and worker lifecycle failure tests.
+### Future Tech Debt and Platform Work
 
-- **Customer-centric delivery guardrails**
-  - For each feature PR, require: user problem statement, acceptance criteria, rollback path, and telemetry/review note.
+- **TD3b: Background runtime consolidation**  
+  - Evaluate whether thumbnail orchestration should move into the same background-runtime model as file watching, or whether the current split between hidden renderer, utility process, and worker should remain intentional. This is primarily an architectural simplification question.
+
+- **TD9: Background observability expansion**  
+  - Queue depth and timing logs now exist, but worker restart metrics, richer failure counters, and clearer taxonomy across main/renderer/background logs remain open. This is valuable operationally but not blocking product work.
+
+- **App shell decomposition**  
+  - `src/renderer/App.tsx` still owns a lot of orchestration. Breaking it into focused hooks/modules is more maintainability work than user-facing feature work, so it should land when product scope is calm enough to support it.
+
+- **Thumbnail transport modernization**  
+  - Thumbnails still travel as data URLs in steady-state UI rendering. There is room to reduce memory overhead and renderer churn later, but it should follow higher-value correctness and throughput work.
+
+### Test and Verification Backlog
+
+- **Sidebar hierarchy interaction tests**  
+  - The folder tree works, but expand/collapse behavior, nested DOM structure, and “All Models” reset behavior still deserve explicit product coverage.
+
+- **Folder-rescan targeting tests**  
+  - The per-folder rescan feature needs stronger tests proving it ignores unrelated roots and behaves correctly when the targeted folder was deleted from disk.
+
+- **Thumbnail queue dedupe tests**  
+  - The queue scheduler exists, but repeated requests for the same path still need contract-level tests proving work is deduped and updates fan out safely.
+
+- **Event-driven E2E cleanup**  
+  - The suite is much healthier than before, but there is still room to replace more fixed sleeps with explicit readiness markers and event-driven assertions.
 
 ### Engineering Standards & Design Practices
 
