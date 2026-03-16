@@ -1,6 +1,15 @@
 import fs from "fs";
 import path from "path";
+import * as unzipper from "unzipper";
 import { EXT_SET } from "../shared/types";
+import {
+  ARCHIVE_EXT_SET,
+  createArchiveEntryPath,
+  getArchiveEntryBaseName,
+  getArchiveEntryDirectory,
+  getArchiveEntryExtension,
+  isSupportedArchiveEntry,
+} from "../shared/archivePaths";
 
 interface ScannedFile {
   path: string;
@@ -54,7 +63,40 @@ async function walkDir(dirPath: string, results: ScannedFile[]): Promise<void> {
         } catch (e: unknown) {
           console.warn(`Cannot stat ${fullPath}:`, (e as Error).message);
         }
+      } else if (ARCHIVE_EXT_SET.has(ext)) {
+        await scanArchive(fullPath, dirPath, results);
       }
     }
+  }
+}
+
+async function scanArchive(
+  archivePath: string,
+  parentDir: string,
+  results: ScannedFile[],
+) {
+  try {
+    const [directory, stat] = await Promise.all([
+      unzipper.Open.file(archivePath),
+      fs.promises.stat(archivePath),
+    ]);
+
+    for (const entry of directory.files) {
+      if (entry.type !== "File" || !isSupportedArchiveEntry(entry.path)) {
+        continue;
+      }
+
+      const virtualPath = createArchiveEntryPath(archivePath, entry.path);
+      results.push({
+        path: virtualPath,
+        name: getArchiveEntryBaseName(entry.path),
+        ext: getArchiveEntryExtension(entry.path),
+        dir: getArchiveEntryDirectory(virtualPath) || parentDir,
+        size: entry.uncompressedSize,
+        mtime: Math.floor(stat.mtimeMs),
+      });
+    }
+  } catch (e: unknown) {
+    console.warn(`Cannot inspect archive ${archivePath}:`, (e as Error).message);
   }
 }

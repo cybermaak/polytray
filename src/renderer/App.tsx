@@ -41,6 +41,7 @@ import {
   addFilesToCollection,
 } from "../shared/libraryCollections";
 import { normalizeFileTags, parseStoredFileTags } from "../shared/fileTags";
+import { isArchiveEntryPath } from "../shared/archivePaths";
 
 // Types for file records from the database
 interface FileRecord {
@@ -1035,18 +1036,21 @@ const FileCard: React.FC<FileCardProps> = ({
   onClick,
 }) => {
   const extClass = file.extension === "3mf" ? "threemf" : file.extension;
+  const isArchiveEntry = isArchiveEntryPath(file.path);
 
   return (
     <div
       className={`file-card${selected ? " selected" : ""}`}
       data-file-id={file.id}
       onClick={onClick}
-      draggable={true}
+      draggable={!isArchiveEntry}
       onDragStart={(e) => {
+        if (isArchiveEntry) return;
         e.preventDefault();
         window.polytray.startDrag(file.path);
       }}
       onContextMenu={(e) => {
+        if (isArchiveEntry) return;
         e.preventDefault();
         window.polytray.showContextMenu(file.path);
       }}

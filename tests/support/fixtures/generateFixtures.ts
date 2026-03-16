@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import JSZip from 'jszip';
 
 const fixtureDir = __dirname;
 fs.mkdirSync(fixtureDir, { recursive: true });
@@ -70,9 +71,23 @@ f 4 1 5 8
   console.log(`  Created ${filename}`);
 }
 
-console.log('Generating test fixtures...');
-createBinaryStl('test_square.stl');
-createBinaryStl('test_model_a.stl');
-createBinaryStl('test_model_b.stl');
-createObj('test_cube.obj');
-console.log('Done!');
+async function createZipArchive(filename: string) {
+  const zip = new JSZip();
+  zip.file('bundle/zip_preview.stl', fs.readFileSync(path.join(fixtureDir, 'test_model_a.stl')));
+  zip.file('bundle/zip_compare.obj', fs.readFileSync(path.join(fixtureDir, 'test_cube.obj')));
+  const archivePath = path.join(fixtureDir, filename);
+  fs.writeFileSync(archivePath, await zip.generateAsync({ type: 'nodebuffer' }));
+  console.log(`  Created ${filename}`);
+}
+
+async function main() {
+  console.log('Generating test fixtures...');
+  createBinaryStl('test_square.stl');
+  createBinaryStl('test_model_a.stl');
+  createBinaryStl('test_model_b.stl');
+  createObj('test_cube.obj');
+  await createZipArchive('test_bundle.zip');
+  console.log('Done!');
+}
+
+void main();

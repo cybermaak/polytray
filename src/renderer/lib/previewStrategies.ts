@@ -1,5 +1,6 @@
 import ParserWorker from "./workers/parser.worker?worker";
 import type { SerializedMesh } from "../../shared/types";
+import { isArchiveEntryPath } from "../../shared/archivePaths";
 
 interface PreviewStrategyArgs {
   fileUrl: string;
@@ -18,17 +19,25 @@ function toPreviewUrl(fileUrl: string) {
     : `polytray://local/${encodeURIComponent(fileUrl)}`;
 }
 
+async function loadModelBuffer(fileUrl: string, signal: AbortSignal) {
+  if (isArchiveEntryPath(fileUrl)) {
+    return window.polytray.readFileBuffer(fileUrl);
+  }
+
+  const loadUrl = toPreviewUrl(fileUrl);
+  const response = await fetch(loadUrl, { signal });
+  if (!response.ok) {
+    throw new Error(`Failed to load ${loadUrl}: status ${response.status}`);
+  }
+
+  return response.arrayBuffer();
+}
+
 const workerStrategy: PreviewParseStrategy = {
   async loadMeshes({ fileUrl, extension, signal, onProgress }) {
-    const loadUrl = toPreviewUrl(fileUrl);
     if (onProgress) onProgress(-1);
 
-    const response = await fetch(loadUrl, { signal });
-    if (!response.ok) {
-      throw new Error(`Failed to load ${loadUrl}: status ${response.status}`);
-    }
-
-    const buffer = await response.arrayBuffer();
+    const buffer = await loadModelBuffer(fileUrl, signal);
     if (signal.aborted) {
       throw new DOMException("Aborted", "AbortError");
     }

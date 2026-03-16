@@ -373,6 +373,23 @@ test("thumbnails are generated for scanned files", async () => {
 
 // ── Test 5: Clicking a card opens the preview panel ────────────────
 
+test("zip archives surface contained models and preview them", async () => {
+  await ensureFixtureFilesLoaded();
+  await resetUiState();
+
+  await window.locator("#search-input").fill("zip_preview");
+  await window.waitForTimeout(300);
+
+  const zippedCard = window.locator(".file-card", { hasText: "zip_preview" });
+  await expect(zippedCard).toHaveCount(1);
+  await zippedCard.first().click();
+
+  await expect(window.locator("#preview-panel")).not.toHaveClass(/hidden/);
+  await expect(window.locator("#viewer-loading")).toHaveClass(/hidden/);
+  await expect(window.locator("#viewer-filename")).toContainText("zip_preview");
+  await expect(window.locator("#viewer-meta")).toContainText("STL");
+});
+
 test("clicking a file card opens the 3D preview panel", async () => {
   await ensureFixtureFilesLoaded();
   await resetUiState();

@@ -3,6 +3,7 @@
  */
 import { ipcMain } from "electron";
 import fs from "fs";
+import * as unzipper from "unzipper";
 import { getDb } from "../database";
 import {
   FileRecord,
@@ -13,12 +14,25 @@ import {
   LibraryStats,
 } from "../../shared/types";
 import { isPathContained } from "../pathContainment";
+import { parseArchiveEntryPath } from "../../shared/archivePaths";
 import { serializeFileTags } from "../../shared/fileTags";
 import {
   parseFileMetadataUpdate,
   parseFilePath,
   parseSortOptions,
 } from "./runtimeValidation";
+
+
+async function readArchiveEntryBuffer(archivePath: string, entryPath: string) {
+  const directory = await unzipper.Open.file(archivePath);
+  const entry = directory.files.find(
+    (file) => file.path === entryPath && file.type === "File",
+  );
+  if (!entry) {
+    throw new Error("Archive entry not found");
+  }
+  return entry.buffer();
+}
 
 export function registerFileHandlers() {
   ipcMain.handle(IPC.GET_FILES, (event, opts: SortOptions = {}) => {
@@ -154,7 +168,6 @@ export function registerFileHandlers() {
 
   ipcMain.handle(IPC.READ_FILE_BUFFER, async (event, filePath) => {
     const parsedFilePath = parseFilePath(filePath);
-    // Validate that the file is part of the indexed library
     const db = getDb();
     const record = db
       .prepare("SELECT id FROM files WHERE path = ?")
@@ -163,7 +176,10 @@ export function registerFileHandlers() {
       throw new Error("Access denied: File not in library");
     }
 
-    const buffer = await fs.promises.readFile(parsedFilePath);
+    const archiveEntry = parseArchiveEntryPath(parsedFilePath);
+    const buffer = archiveEntry
+      ? await readArchiveEntryBuffer(archiveEntry.archivePath, archiveEntry.entryPath)
+      : await fs.promises.readFile(parsedFilePath);
     return buffer.buffer.slice(
       buffer.byteOffset,
       buffer.byteOffset + buffer.byteLength,

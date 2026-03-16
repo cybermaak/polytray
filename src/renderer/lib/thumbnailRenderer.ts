@@ -10,6 +10,7 @@ import { parseModelToGroup, setModelColor } from "./modelParsers";
 import { applySmartOrientation } from "./orientation";
 import { computeCameraFit } from "./cameraUtils";
 import { collectSerializedPreviewMeshes } from "./meshSerialization";
+import { isArchiveEntryPath } from "../../shared/archivePaths";
 
 // ── Thumbnail Rendering State ─────────────────────────────────────
 
@@ -198,6 +199,21 @@ export async function parsePreviewMeshes(
   }
 }
 
+async function readPreviewBuffer(filePath: string) {
+  if (isArchiveEntryPath(filePath)) {
+    return window.polytray.readFileBuffer(filePath);
+  }
+
+  const url = `polytray://local/${encodeURIComponent(filePath)}`;
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${url}: ${response.status}`);
+  }
+
+  return response.arrayBuffer();
+}
+
 // ── IPC-Driven Thumbnail Pipeline ─────────────────────────────────
 
 /**
@@ -210,16 +226,7 @@ export function initThumbnailGenerator(canvas: HTMLCanvasElement) {
     const { filePath, ext, thumbPath, color } = data;
 
     try {
-      // Use the custom polytray:// protocol to stream the file natively into the browser memory
-      // bypassing slow Node-to-Chromium IPC ArrayBuffer serialization.
-      const url = `polytray://local/${encodeURIComponent(filePath)}`;
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch ${url}: ${response.status}`);
-      }
-      
-      const buffer = await response.arrayBuffer();
+      const buffer = await readPreviewBuffer(filePath);
       const dataUrl = await renderThumbnail(buffer, ext, canvas, color);
 
       if (dataUrl) {
@@ -252,14 +259,7 @@ export function initThumbnailGenerator(canvas: HTMLCanvasElement) {
 
     try {
       const fetchStartedAt = performance.now();
-      const url = `polytray://local/${encodeURIComponent(filePath)}`;
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch ${url}: ${response.status}`);
-      }
-
-      const buffer = await response.arrayBuffer();
+      const buffer = await readPreviewBuffer(filePath);
       const fetchDurationMs = performance.now() - fetchStartedAt;
 
       const {

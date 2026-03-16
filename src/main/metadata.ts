@@ -2,6 +2,7 @@ import fs from "fs";
 import readline from "readline";
 import * as unzipper from "unzipper";
 import type { ModelDimensions } from "../shared/types";
+import { parseArchiveEntryPath } from "../shared/archivePaths";
 
 export interface MetadataSummary {
   vertexCount: number;
@@ -20,14 +21,22 @@ interface Bounds {
 
 /**
  * Extracts vertex/face count metadata from a 3D file.
- * @param {string} filePath - Absolute path to the file
+ * @param {string} filePath - Absolute path to the file or virtual archive entry path
  * @param {string} ext - File extension (stl, obj, 3mf)
- * @returns {Promise<{vertexCount: number, faceCount: number, dimensions: ModelDimensions | null}>}
  */
 export async function extractMetadata(
   filePath: string,
   ext: string,
 ): Promise<MetadataSummary> {
+  const archiveEntry = parseArchiveEntryPath(filePath);
+  if (archiveEntry) {
+    const entryBuffer = await readArchiveEntryBuffer(archiveEntry.archivePath, archiveEntry.entryPath);
+    if (!entryBuffer) {
+      return { vertexCount: 0, faceCount: 0, dimensions: null };
+    }
+    return extractMetadataFromBuffer(entryBuffer, ext);
+  }
+
   switch (ext.toLowerCase()) {
     case "stl":
       return extractSTL(filePath);
@@ -40,71 +49,98 @@ export async function extractMetadata(
   }
 }
 
-/**
- * Parse STL file — supports both binary and ASCII formats.
- */
-async function extractSTL(
-  filePath: string,
+export async function extractMetadataFromBuffer(
+  buffer: Buffer,
+  ext: string,
 ): Promise<MetadataSummary> {
-  // Read just the first 84 bytes to check header and binary face count
-  const fd = await fs.promises.open(filePath, "r");
-  const buffer = Buffer.alloc(84);
-  const { bytesRead } = await fd.read(buffer, 0, 84, 0);
-  await fd.close();
-
-  if (bytesRead < 80) return { vertexCount: 0, faceCount: 0, dimensions: null };
-
-  // Check if it's ASCII STL (starts with "solid")
-  const header = buffer.slice(0, 80).toString("ascii").trim().toLowerCase();
-  
-  if (header.startsWith("solid")) {
-    // We can't be 100% sure it's ASCII just from "solid" (some binary STLs violate the spec),
-    // but we can check if the file size matches the binary formula: 84 + (faceCount * 50)
-    const stat = await fs.promises.stat(filePath);
-    if (bytesRead >= 84) {
-       const expectedBinaryFaceCount = buffer.readUInt32LE(80);
-       const expectedBinarySize = 84 + (expectedBinaryFaceCount * 50);
-       if (stat.size === expectedBinarySize) {
-           return extractSTLBinary(filePath, expectedBinaryFaceCount);
-       }
-    }
-    return extractSTLAscii(filePath);
+  switch (ext.toLowerCase()) {
+    case "stl":
+      return extractSTLFromBuffer(buffer);
+    case "obj":
+      return extractOBJFromText(buffer.toString("utf8"));
+    case "3mf":
+      return extract3MFFromBuffer(buffer);
+    default:
+      return { vertexCount: 0, faceCount: 0, dimensions: null };
   }
+}
 
-  // Binary STL: 80 byte header + 4 byte face count
-  if (bytesRead < 84) return { vertexCount: 0, faceCount: 0, dimensions: null };
-  const faceCount = buffer.readUInt32LE(80);
-  return extractSTLBinary(filePath, faceCount);
+async function readArchiveEntryBuffer(
+  archivePath: string,
+  entryPath: string,
+): Promise<Buffer | null> {
+  try {
+    const directory = await unzipper.Open.file(archivePath);
+    const entry = directory.files.find((file) => file.path === entryPath && file.type === "File");
+    if (!entry) {
+      return null;
+    }
+    return entry.buffer();
+  } catch (e: unknown) {
+    console.warn(`[Metadata] Failed to read archive entry ${archivePath} :: ${entryPath}:`, (e as Error).message);
+    return null;
+  }
 }
 
 /**
- * Fast streaming ASCII STL parser
+ * Parse STL file — supports both binary and ASCII formats.
  */
-async function extractSTLAscii(
-  filePath: string,
-): Promise<MetadataSummary> {
-  let faceCount = 0;
-  const bounds = createBounds();
-  
+async function extractSTL(filePath: string): Promise<MetadataSummary> {
+  const buffer = await fs.promises.readFile(filePath);
+  return extractSTLFromBuffer(buffer);
+}
+
+function extractSTLFromBuffer(buffer: Buffer): MetadataSummary {
+  if (buffer.length < 80) return { vertexCount: 0, faceCount: 0, dimensions: null };
+
+  const header = buffer.slice(0, 80).toString("ascii").trim().toLowerCase();
+  if (header.startsWith("solid") && buffer.length >= 84) {
+    const expectedBinaryFaceCount = buffer.readUInt32LE(80);
+    const expectedBinarySize = 84 + expectedBinaryFaceCount * 50;
+    if (buffer.length !== expectedBinarySize) {
+      return extractSTLAsciiFromText(buffer.toString("utf8"));
+    }
+  }
+
+  if (buffer.length < 84) return { vertexCount: 0, faceCount: 0, dimensions: null };
+  const faceCount = buffer.readUInt32LE(80);
+  return extractSTLBinaryFromBuffer(buffer, faceCount);
+}
+
+async function extractSTLAscii(filePath: string): Promise<MetadataSummary> {
   const fileStream = fs.createReadStream(filePath, { encoding: "utf8" });
+  return extractSTLAsciiFromLineSource(fileStream);
+}
+
+function extractSTLAsciiFromText(text: string): MetadataSummary {
+  return extractSTLAsciiFromLines(text.split(/\r?\n/));
+}
+
+async function extractSTLAsciiFromLineSource(input: NodeJS.ReadableStream): Promise<MetadataSummary> {
   const rl = readline.createInterface({
-    input: fileStream,
+    input,
     crlfDelay: Infinity,
   });
 
+  const lines: string[] = [];
   for await (const line of rl) {
+    lines.push(line);
+  }
+  return extractSTLAsciiFromLines(lines);
+}
+
+function extractSTLAsciiFromLines(lines: Iterable<string>): MetadataSummary {
+  let faceCount = 0;
+  const bounds = createBounds();
+
+  for (const line of lines) {
     const trimmed = line.trimStart().toLowerCase();
     if (trimmed.startsWith("facet normal")) {
       faceCount++;
     } else if (trimmed.startsWith("vertex ")) {
       const parts = trimmed.split(/\s+/);
       if (parts.length >= 4) {
-        updateBounds(
-          bounds,
-          Number(parts[1]),
-          Number(parts[2]),
-          Number(parts[3]),
-        );
+        updateBounds(bounds, Number(parts[1]), Number(parts[2]), Number(parts[3]));
       }
     }
   }
@@ -116,16 +152,12 @@ async function extractSTLAscii(
   };
 }
 
-async function extractSTLBinary(
-  filePath: string,
-  faceCount: number,
-): Promise<MetadataSummary> {
-  const buffer = await fs.promises.readFile(filePath);
+function extractSTLBinaryFromBuffer(buffer: Buffer, faceCount: number): MetadataSummary {
   const bounds = createBounds();
 
   let offset = 84;
   for (let i = 0; i < faceCount; i++) {
-    offset += 12; // skip normal
+    offset += 12;
     for (let vertex = 0; vertex < 3; vertex++) {
       const x = buffer.readFloatLE(offset);
       const y = buffer.readFloatLE(offset + 4);
@@ -133,7 +165,7 @@ async function extractSTLBinary(
       updateBounds(bounds, x, y, z);
       offset += 12;
     }
-    offset += 2; // attribute byte count
+    offset += 2;
   }
 
   return {
@@ -143,92 +175,95 @@ async function extractSTLBinary(
   };
 }
 
-/**
- * Fast streaming OBJ file parser.
- */
-async function extractOBJ(
-  filePath: string,
-): Promise<MetadataSummary> {
-  let vertexCount = 0;
-  let faceCount = 0;
-  const bounds = createBounds();
-
+async function extractOBJ(filePath: string): Promise<MetadataSummary> {
   const fileStream = fs.createReadStream(filePath, { encoding: "utf8" });
   const rl = readline.createInterface({
     input: fileStream,
     crlfDelay: Infinity,
   });
 
+  const lines: string[] = [];
   for await (const line of rl) {
+    lines.push(line);
+  }
+
+  return extractOBJFromText(lines.join("\n"));
+}
+
+function extractOBJFromText(text: string): MetadataSummary {
+  let vertexCount = 0;
+  let faceCount = 0;
+  const bounds = createBounds();
+
+  for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trimStart();
     if (trimmed.startsWith("v ")) {
       vertexCount++;
       const parts = trimmed.split(/\s+/);
       if (parts.length >= 4) {
-        updateBounds(
-          bounds,
-          Number(parts[1]),
-          Number(parts[2]),
-          Number(parts[3]),
-        );
+        updateBounds(bounds, Number(parts[1]), Number(parts[2]), Number(parts[3]));
       }
-    } else if (trimmed.startsWith("f ")) faceCount++;
+    } else if (trimmed.startsWith("f ")) {
+      faceCount++;
+    }
   }
 
   return { vertexCount, faceCount, dimensions: boundsToDimensions(bounds) };
 }
 
-/**
- * Parse 3MF file — it's a ZIP containing XML model files.
- */
-async function extract3MF(
-  filePath: string,
+async function extract3MF(filePath: string): Promise<MetadataSummary> {
+  try {
+    const directory = await unzipper.Open.file(filePath);
+    return extract3MFFromDirectory(directory);
+  } catch (e: unknown) {
+    console.warn(`[Streaming] extract3MF failed for ${filePath}: ${(e as Error).message}`);
+    return { vertexCount: 0, faceCount: 0, dimensions: null };
+  }
+}
+
+async function extract3MFFromBuffer(buffer: Buffer): Promise<MetadataSummary> {
+  try {
+    const directory = await unzipper.Open.buffer(buffer);
+    return extract3MFFromDirectory(directory);
+  } catch (e: unknown) {
+    console.warn(`[Streaming] extract3MF failed from buffer: ${(e as Error).message}`);
+    return { vertexCount: 0, faceCount: 0, dimensions: null };
+  }
+}
+
+async function extract3MFFromDirectory(
+  directory: unzipper.CentralDirectory,
 ): Promise<MetadataSummary> {
   let vertexCount = 0;
   let faceCount = 0;
   const bounds = createBounds();
 
-  try {
-    const directory = await unzipper.Open.file(filePath);
-    
-    // Look for 3D model files in the archive
-    const modelFiles = directory.files.filter(
-      (file: unzipper.File) =>
-        file.path.endsWith(".model") ||
-        file.path.includes("3dmodel.model") ||
-        file.path.includes("3D/3dmodel.model")
-    );
+  const modelFiles = directory.files.filter(
+    (file: unzipper.File) =>
+      file.path.endsWith(".model") ||
+      file.path.includes("3dmodel.model") ||
+      file.path.includes("3D/3dmodel.model"),
+  );
 
-    for (const file of modelFiles) {
-      const stream = file.stream();
-      
-      const rl = readline.createInterface({
-        input: stream,
-        crlfDelay: Infinity,
-      });
+  for (const file of modelFiles) {
+    const stream = file.stream();
+    const rl = readline.createInterface({
+      input: stream,
+      crlfDelay: Infinity,
+    });
 
-      for await (const line of rl) {
-        // Count <vertex> or <v ... /> elements
-        const vertexMatches = line.match(/<vertex\s/gi) || line.match(/<v\s/gi);
-        if (vertexMatches) vertexCount += vertexMatches.length;
-        for (const match of line.matchAll(
-          /<vertex[^>]*x="([^"]+)"[^>]*y="([^"]+)"[^>]*z="([^"]+)"/gi,
-        )) {
-          updateBounds(
-            bounds,
-            Number(match[1]),
-            Number(match[2]),
-            Number(match[3]),
-          );
-        }
-
-        // Count <triangle> or <t ... /> elements
-        const triMatches = line.match(/<triangle\s/gi) || line.match(/<t\s/gi);
-        if (triMatches) faceCount += triMatches.length;
+    for await (const line of rl) {
+      const vertexMatches = line.match(/<vertex\s/gi) || line.match(/<v\s/gi);
+      if (vertexMatches) vertexCount += vertexMatches.length;
+      for (const match of line.matchAll(
+        /<vertex[^>]*x="([^"]+)"[^>]*y="([^"]+)"[^>]*z="([^"]+)"/gi,
+      )) {
+        updateBounds(bounds, Number(match[1]), Number(match[2]), Number(match[3]));
       }
+
+      const triMatches = line.match(/<triangle\s/gi) || line.match(/<t\s/gi);
+      if (triMatches) faceCount += triMatches.length;
     }
-  } catch (e: unknown) {
-    console.warn(`[Streaming] extract3MF failed for ${filePath}: ${(e as Error).message}`);
   }
 
   return { vertexCount, faceCount, dimensions: boundsToDimensions(bounds) };

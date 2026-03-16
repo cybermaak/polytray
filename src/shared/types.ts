@@ -44,9 +44,9 @@ export interface ScannedFile {
   mtime: number;
 }
 
-export const SUPPORTED_EXTENSIONS = ["stl", "obj", "3mf"];
+export const SUPPORTED_EXTENSIONS = ["stl", "obj", "3mf"] as const;
 
-export const EXT_SET = new Set(SUPPORTED_EXTENSIONS);
+export const EXT_SET = new Set<string>(SUPPORTED_EXTENSIONS);
 
 // Centralized IPC channel names — used across main, preload, and watcher
 export const IPC = {
