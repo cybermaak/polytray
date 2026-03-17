@@ -33,6 +33,14 @@ export function isPathContained(rootPath: string, candidatePath: string) {
   const candidateArchive = parseArchiveVirtualPath(candidatePath);
 
   if (rootArchive || candidateArchive) {
+    if (!rootArchive && candidateArchive) {
+      return isPathContained(rootPath, candidateArchive.archivePath);
+    }
+
+    if (rootArchive && !candidateArchive) {
+      return false;
+    }
+
     if (!rootArchive || !candidateArchive) {
       return false;
     }

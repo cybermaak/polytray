@@ -39,6 +39,73 @@ interface FolderNode {
   children: FolderNode[];
 }
 
+function parseArchiveNodePath(nodePath: string) {
+  const separatorIndex = nodePath.indexOf(ARCHIVE_ENTRY_SEPARATOR);
+  if (separatorIndex === -1) {
+    return null;
+  }
+
+  return {
+    archivePath: nodePath.slice(0, separatorIndex),
+    entryPath: nodePath.slice(separatorIndex + ARCHIVE_ENTRY_SEPARATOR.length),
+  };
+}
+
+function getFolderNodeLabel(node: FolderNode) {
+  const archiveNode = parseArchiveNodePath(node.path);
+  if (!archiveNode) {
+    return node.name;
+  }
+
+  if (!archiveNode.entryPath) {
+    return archiveNode.archivePath.split(/[\\/]/).filter(Boolean).pop() || archiveNode.archivePath;
+  }
+
+  return node.name;
+}
+
+function FolderNodeIcon({ node }: { node: FolderNode }) {
+  const archiveNode = parseArchiveNodePath(node.path);
+
+  if (archiveNode && !archiveNode.entryPath) {
+    return (
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ flexShrink: 0, opacity: 0.7, marginRight: "6px" }}
+      >
+        <path d="M4 2.5h6.5L13.5 5v8A1.5 1.5 0 0 1 12 14.5H4A1.5 1.5 0 0 1 2.5 13v-9A1.5 1.5 0 0 1 4 2.5Z" />
+        <path d="M10 2.5V5h3.5" />
+        <path d="M5.5 7h5" />
+        <path d="M5.5 9h5" />
+        <path d="M5.5 11h3.5" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ flexShrink: 0, opacity: 0.7, marginRight: "6px" }}
+    >
+      <path d="M2 3.5A1.5 1.5 0 013.5 2h2.879a1.5 1.5 0 011.06.44l.622.62a1.5 1.5 0 001.06.44H12.5A1.5 1.5 0 0114 5v7.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12.5v-9z" />
+    </svg>
+  );
+}
+
 function buildFolderTree(roots: string[], directories: string[]): FolderNode[] {
   const pathSet = new Set([...roots, ...directories]);
   
@@ -186,21 +253,9 @@ const FolderTreeNode: React.FC<{
         ) : (
           <span style={{ width: 14, display: 'inline-block', marginRight: 4 }} />
         )}
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{ flexShrink: 0, opacity: 0.7, marginRight: "6px" }}
-        >
-          <path d="M2 3.5A1.5 1.5 0 013.5 2h2.879a1.5 1.5 0 011.06.44l.622.62a1.5 1.5 0 001.06.44H12.5A1.5 1.5 0 0114 5v7.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12.5v-9z" />
-        </svg>
+        <FolderNodeIcon node={node} />
         <span className="library-folder-name" title={node.path} style={{ flex: 1, whiteSpace: 'nowrap' }}>
-          {node.name}
+          {getFolderNodeLabel(node)}
         </span>
         
         {node.isLibraryRoot && (
@@ -258,10 +313,10 @@ export const Sidebar: React.FC<Props> = ({
 }) => {
   const tree = React.useMemo(() => buildFolderTree(folders, directories), [folders, directories]);
   const filters = [
-    { label: "All", ext: null, dataExt: "" },
-    { label: "STL", ext: "stl", dataExt: "stl" },
-    { label: "OBJ", ext: "obj", dataExt: "obj" },
-    { label: "3MF", ext: "3mf", dataExt: "3mf" },
+    { label: "All", ext: null, dataExt: "", count: stats.total, statId: "stat-total" },
+    { label: "STL", ext: "stl", dataExt: "stl", count: stats.stl, statId: "stat-stl" },
+    { label: "OBJ", ext: "obj", dataExt: "obj", count: stats.obj, statId: "stat-obj" },
+    { label: "3MF", ext: "3mf", dataExt: "3mf", count: stats.threemf, statId: "stat-3mf" },
   ];
 
   return (
@@ -320,10 +375,20 @@ export const Sidebar: React.FC<Props> = ({
                   <span className="collection-name">{collection.name}</span>
                   <button
                     className="library-folder-remove"
-                    title="Remove collection"
+                    title={
+                      activeCollectionId === collection.id
+                        ? "Clear collection filter"
+                        : "Delete collection"
+                    }
                     onClick={(e) => {
                       e.stopPropagation();
-                      onRemoveCollection(collection.id);
+                      if (activeCollectionId === collection.id) {
+                        onCollectionSelect(null);
+                        return;
+                      }
+                      if (confirm(`Delete collection "${collection.name}"?`)) {
+                        onRemoveCollection(collection.id);
+                      }
                     }}
                   >
                     ×
@@ -338,7 +403,7 @@ export const Sidebar: React.FC<Props> = ({
 
         <div className="sidebar-section" style={{ flexShrink: 0 }}>
           <h3>Format Filter</h3>
-          <div className="filter-buttons">
+          <div className="filter-buttons filter-buttons-stats">
             {filters.map((f) => (
               <button
                 key={f.label}
@@ -346,39 +411,12 @@ export const Sidebar: React.FC<Props> = ({
                 data-ext={f.dataExt}
                 onClick={() => onFilterChange(f.ext)}
               >
-                {f.label}
+                <span className="filter-label">{f.label}</span>
+                <span id={f.statId} className="filter-count">
+                  {f.count}
+                </span>
               </button>
             ))}
-          </div>
-        </div>
-
-        <div className="sidebar-section sidebar-stats" style={{ flexShrink: 0 }}>
-          <h3>Library</h3>
-          <div className="stat-grid">
-            <div className="stat-item">
-              <span className="stat-value" id="stat-total">
-                {stats.total}
-              </span>
-              <span className="stat-label">Total</span>
-            </div>
-            <div className="stat-item stat-stl">
-              <span className="stat-value" id="stat-stl">
-                {stats.stl}
-              </span>
-              <span className="stat-label">STL</span>
-            </div>
-            <div className="stat-item stat-obj">
-              <span className="stat-value" id="stat-obj">
-                {stats.obj}
-              </span>
-              <span className="stat-label">OBJ</span>
-            </div>
-            <div className="stat-item stat-3mf">
-              <span className="stat-value" id="stat-3mf">
-                {stats.threemf}
-              </span>
-              <span className="stat-label">3MF</span>
-            </div>
           </div>
           <div className="stat-size">
             <span id="stat-size">{formatSize(stats.totalSize)}</span> total

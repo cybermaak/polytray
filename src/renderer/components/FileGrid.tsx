@@ -62,6 +62,7 @@ const FileCard: React.FC<{
     <div
       className={`file-card${selected ? " selected" : ""}`}
       data-file-id={file.id}
+      title={file.path}
       onClick={onClick}
       draggable={!isArchiveEntry}
       onDragStart={(e) => {

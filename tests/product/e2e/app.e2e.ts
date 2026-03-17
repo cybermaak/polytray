@@ -412,7 +412,7 @@ test("archive sidebar nodes filter to archive contents and show zip provenance",
   await rootToggle.click();
 
   const archiveNode = window.locator(".library-folder-item", {
-    hasText: "test_bundle.zip::entry::",
+    hasText: "test_bundle.zip",
   });
   await expect(archiveNode).toBeVisible();
   await archiveNode.click();
@@ -435,6 +435,7 @@ test("clicking a file card opens the 3D preview panel", async () => {
   // Click the first file card
   const firstCard = window.locator(".file-card").first();
   await expect(firstCard).toBeVisible();
+  await expect(firstCard).toHaveAttribute("title", /.+/);
   await firstCard.click();
 
   // Wait for the preview panel to become visible
@@ -914,7 +915,7 @@ test("separate color settings persist and thumbnail color can reset to default",
   await expect(window.locator("#settings-overlay")).toHaveClass(/hidden/);
 });
 
-test("toolbar context strip reflects active scope and sidebar keeps filter before stats", async () => {
+test("toolbar context strip reflects active scope and sidebar keeps collections above merged filter stats", async () => {
   await ensureFixtureFilesLoaded();
   await resetUiState();
 
@@ -940,8 +941,10 @@ test("toolbar context strip reflects active scope and sidebar keeps filter befor
   });
 
   expect(order.indexOf("Format Filter")).toBeGreaterThan(-1);
-  expect(order.indexOf("Library")).toBeGreaterThan(-1);
-  expect(order.indexOf("Format Filter")).toBeLessThan(order.indexOf("Library"));
+  expect(order.indexOf("Collections")).toBeGreaterThan(-1);
+  expect(order.indexOf("Collections")).toBeLessThan(order.indexOf("Format Filter"));
+  await expect(window.locator("#stat-total")).toHaveText(/\d+/);
+  await expect(window.locator("#stat-size")).toContainText("B");
 });
 
 // ── Test 10: Format filter buttons work ────────────────────────────
@@ -1111,6 +1114,26 @@ test("preview collections reflect the selected file instead of sticking between 
 
   await cards.nth(0).click();
   await expect(window.locator("#file-collections")).toContainText("Preview Membership");
+});
+
+test("active collection close affordance clears the filter instead of deleting it", async () => {
+  await ensureFixtureFilesLoaded();
+  await resetUiState();
+
+  await window.locator(".file-card").first().click();
+  await window.locator("#new-collection-name").fill("Clearable Collection");
+  await window.locator("#create-and-add-collection").click();
+
+  await expect(window.locator("#collection-list")).toContainText("Clearable Collection");
+  await expect(window.locator("#toolbar-context")).toContainText(
+    "Collection: Clearable Collection",
+  );
+
+  const activeCollection = window.locator(".collection-item.active").first();
+  await activeCollection.locator(".library-folder-remove").click();
+
+  await expect(window.locator("#toolbar-context")).not.toContainText("Collection:");
+  await expect(window.locator("#collection-list")).toContainText("Clearable Collection");
 });
 
 test("two selected files can be compared side by side", async () => {

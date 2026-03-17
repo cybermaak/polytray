@@ -51,4 +51,8 @@ test('isPathContained understands virtual archive directories', () => {
     isPathContained('/library/bundle.zip::entry::', '/library/bundle.zip::entry::root.stl'),
     true,
   );
+  assert.equal(
+    isPathContained('/library', '/library/bundle.zip::entry::nested/part.stl'),
+    true,
+  );
 });

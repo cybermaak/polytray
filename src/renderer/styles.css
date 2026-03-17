@@ -320,46 +320,6 @@ body {
   color: var(--text-muted);
 }
 
-/* Stats */
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.stat-item {
-  background: var(--bg-elevated);
-  border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border-subtle);
-}
-
-.stat-value {
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  line-height: 1.1;
-}
-
-.stat-label {
-  font-size: 10px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.stat-stl .stat-value {
-  color: var(--stl-color);
-}
-.stat-obj .stat-value {
-  color: var(--obj-color);
-}
-.stat-3mf .stat-value {
-  color: var(--threemf-color);
-}
-
 .stat-size {
   margin-top: 6px;
   font-size: var(--font-size-xs);
@@ -381,6 +341,13 @@ body {
   border-radius: var(--radius-md);
 }
 
+.filter-buttons-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 6px;
+}
+
 .filter-btn {
   flex: 1;
   padding: 7px var(--space-2);
@@ -394,6 +361,29 @@ body {
   cursor: pointer;
   transition: all var(--transition-fast);
   -webkit-app-region: no-drag;
+}
+
+.filter-buttons-stats .filter-btn {
+  min-height: 52px;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8px 10px;
+}
+
+.filter-label {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.filter-count {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.1;
 }
 
 .filter-btn:hover {
@@ -420,6 +410,23 @@ body {
   background: var(--threemf-color);
   border-color: var(--threemf-color);
   color: #111;
+}
+
+.filter-btn[data-ext="stl"] .filter-count {
+  color: var(--stl-color);
+}
+
+.filter-btn[data-ext="obj"] .filter-count {
+  color: var(--obj-color);
+}
+
+.filter-btn[data-ext="3mf"] .filter-count {
+  color: var(--threemf-color);
+}
+
+.filter-btn.active .filter-count,
+.filter-btn.active .filter-label {
+  color: inherit;
 }
 
 /* ── Content Area ──────────────────────────────────────────────── */
