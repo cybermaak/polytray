@@ -45,6 +45,13 @@ export const PreviewPanel: React.FC<Props> = ({
   const [savedTags, setSavedTags] = useState<string[]>([]);
   const [newCollectionName, setNewCollectionName] = useState("");
   const [selectedCollectionId, setSelectedCollectionId] = useState("");
+  const currentCollections = React.useMemo(
+    () =>
+      file
+        ? collections.filter((collection) => collection.filePaths.includes(file.path))
+        : [],
+    [collections, file],
+  );
 
   // Load model when file changes
   useEffect(() => {
@@ -146,6 +153,7 @@ export const PreviewPanel: React.FC<Props> = ({
   const handleAddToExistingCollection = useCallback(() => {
     if (!file || !selectedCollectionId) return;
     onAddFilesToCollection(selectedCollectionId, [file.path]);
+    setSelectedCollectionId("");
   }, [file, onAddFilesToCollection, selectedCollectionId]);
 
   // Escape key
@@ -176,6 +184,21 @@ export const PreviewPanel: React.FC<Props> = ({
     setSavedTags(nextTags);
     setTagsInput(nextTags.join(", "));
   }, [file?.id, file?.tags]);
+
+  useEffect(() => {
+    setSelectedCollectionId("");
+    setNewCollectionName("");
+  }, [file?.id]);
+
+  useEffect(() => {
+    if (!selectedCollectionId) {
+      return;
+    }
+
+    if (currentCollections.some((collection) => collection.id === selectedCollectionId)) {
+      setSelectedCollectionId("");
+    }
+  }, [currentCollections, selectedCollectionId]);
 
   const panelClasses = [
     "preview-panel",
@@ -359,6 +382,17 @@ export const PreviewPanel: React.FC<Props> = ({
           </div>
           <div className="viewer-tags">
             <div className="viewer-tags-header">Collections</div>
+            <div id="file-collections" className="tag-chip-list">
+              {currentCollections.length > 0 ? (
+                currentCollections.map((collection) => (
+                  <span key={collection.id} className="tag-chip">
+                    {collection.name}
+                  </span>
+                ))
+              ) : (
+                <span className="tag-chip tag-chip-muted">Not in any collections</span>
+              )}
+            </div>
             <div className="viewer-tag-editor">
               <select
                 id="existing-collection-select"
@@ -366,16 +400,22 @@ export const PreviewPanel: React.FC<Props> = ({
                 onChange={(e) => setSelectedCollectionId(e.target.value)}
               >
                 <option value="">Choose collection…</option>
-                {collections.map((collection) => (
+                {collections
+                  .filter(
+                    (collection) =>
+                      !currentCollections.some((entry) => entry.id === collection.id),
+                  )
+                  .map((collection) => (
                   <option key={collection.id} value={collection.id}>
                     {collection.name}
                   </option>
-                ))}
+                  ))}
               </select>
               <button
                 id="add-to-existing-collection"
                 className="btn-copy-path"
                 onClick={handleAddToExistingCollection}
+                disabled={!selectedCollectionId}
               >
                 Add
               </button>

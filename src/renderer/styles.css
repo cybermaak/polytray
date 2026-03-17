@@ -1205,6 +1205,13 @@ body {
   background: var(--bg-hover);
 }
 
+.btn-copy-path:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: transparent;
+  color: var(--text-muted);
+}
+
 .viewer-controls {
   display: flex;
   align-items: center;

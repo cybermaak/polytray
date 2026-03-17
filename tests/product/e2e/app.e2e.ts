@@ -1090,6 +1090,29 @@ test("files can be organized into virtual collections from preview", async () =>
   expect(await window.locator(".file-card").count()).toBe(1);
 });
 
+test("preview collections reflect the selected file instead of sticking between selections", async () => {
+  await ensureFixtureFilesLoaded();
+  await resetUiState();
+
+  const cards = window.locator(".file-card");
+  await cards.nth(0).click();
+  await expect(window.locator("#preview-panel")).not.toHaveClass(/hidden/);
+
+  await window.locator("#new-collection-name").fill("Preview Membership");
+  await window.locator("#create-and-add-collection").click();
+  await expect(window.locator("#file-collections")).toContainText("Preview Membership");
+
+  await window.locator(".collection-item.active").click();
+  await expect(window.locator("#toolbar-context")).not.toContainText("Collection:");
+
+  await cards.nth(1).click();
+  await expect(window.locator("#file-collections")).toContainText("Not in any collections");
+  await expect(window.locator("#existing-collection-select")).toHaveValue("");
+
+  await cards.nth(0).click();
+  await expect(window.locator("#file-collections")).toContainText("Preview Membership");
+});
+
 test("two selected files can be compared side by side", async () => {
   await ensureFixtureFilesLoaded();
   await resetUiState();
