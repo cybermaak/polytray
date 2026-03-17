@@ -342,9 +342,9 @@ body {
 }
 
 .filter-buttons-stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
   padding: 6px;
 }
 
@@ -364,11 +364,11 @@ body {
 }
 
 .filter-buttons-stats .filter-btn {
-  min-height: 52px;
-  flex-direction: column;
-  gap: 2px;
-  align-items: flex-start;
-  justify-content: center;
+  min-height: 34px;
+  flex: 1 1 calc(50% - 4px);
+  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
   padding: 8px 10px;
 }
 
@@ -377,13 +377,21 @@ body {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  line-height: 1;
 }
 
 .filter-count {
-  font-size: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-base) 55%, transparent);
+  font-size: 11px;
   font-weight: 700;
-  color: var(--text-primary);
-  line-height: 1.1;
+  color: var(--text-secondary);
+  line-height: 1;
 }
 
 .filter-btn:hover {
@@ -427,6 +435,10 @@ body {
 .filter-btn.active .filter-count,
 .filter-btn.active .filter-label {
   color: inherit;
+}
+
+.filter-btn.active .filter-count {
+  background: color-mix(in srgb, rgba(255, 255, 255, 0.16) 85%, transparent);
 }
 
 /* ── Content Area ──────────────────────────────────────────────── */
