@@ -102,6 +102,12 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - **F15: Configurable advanced settings.** Added advanced tuning presets and reset controls for runtime-sensitive settings so users can switch between balanced, performance, and fidelity-oriented behavior without editing stored settings manually.
   - **F4: Side-by-side comparison.** Added a compare workspace driven by batch selection that places two models side by side with thumbnails, core metrics, tags, and quick handoff into full preview.
 
+- **2026-03-16 · v1.2 workflow UX polish**
+  - Refined the new batch-action shell so text actions no longer collapse into icon-sized controls or overlap each other when the toolbar gets crowded.
+  - Polished archive browsing in the sidebar: archive nodes now stay attached to their containing folders, selecting an archive subtree shows its contents correctly, archive roots render with archive-specific labeling/iconography, and file cards show ZIP provenance without forcing users to inspect the full path.
+  - Improved collection ergonomics so the preview shows actual file membership as chips, the transient “add to collection” selector resets when switching files, and the active collection close affordance clears the filter instead of deleting the collection outright.
+  - Compacted the sidebar by merging the old library stats block into the format filter controls, keeping per-format counts visible while freeing vertical space for library navigation and collections.
+
 #### Tech Debt / Stability Work
 
 - **Pre-2026-03-07 · Foundational runtime cleanup**
@@ -135,6 +141,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - **TD7: Scan/watch write conflict mitigation.** Centralized merge policy in `src/main/fileIndexing.ts` so scan and watcher updates now obey one deterministic “newer `modified_at` wins” rule.
   - **TD8: Filesystem access hardening.** Restricted `polytray://local/` to indexed model files and contained thumbnail-cache paths; thumbnail reads now rely on canonical containment rather than path-prefix assumptions.
   - Added debounced renderer refresh handling so bursty watcher updates no longer trigger immediate repeated file-list fetches.
+  - Extended canonical containment so normal filesystem folder filters continue to include archive-backed descendants, while archive-root folder filters still behave like proper virtual subtrees.
 
 - **2026-03-14 · 3MF preview parsing hardening**
   - Added lightweight `3MF` preview parsing for the common “geometry only” case and tightened fallback rules so unsupported 3MF structures still route through `ThreeMFLoader`.
