@@ -108,6 +108,15 @@ function FolderNodeIcon({ node }: { node: FolderNode }) {
 
 function buildFolderTree(roots: string[], directories: string[]): FolderNode[] {
   const pathSet = new Set([...roots, ...directories]);
+
+  for (const entry of [...roots, ...directories]) {
+    const archiveNode = parseArchiveNodePath(entry);
+    if (!archiveNode || !archiveNode.entryPath) {
+      continue;
+    }
+
+    pathSet.add(`${archiveNode.archivePath}${ARCHIVE_ENTRY_SEPARATOR}`);
+  }
   
   // Synthesize missing intermediate directories
   for (const dir of directories) {
@@ -232,6 +241,7 @@ const FolderTreeNode: React.FC<{
     <div className="folder-tree-node">
       <div 
         className={`library-folder-item ${isActive ? 'active' : ''}`}
+        data-folder-path={node.path}
         style={{ paddingLeft: `${level * 12 + 8}px`, cursor: 'pointer' }}
         onClick={(e) => {
           if ((e.target as HTMLElement).classList.contains('folder-toggle')) return;
@@ -254,7 +264,15 @@ const FolderTreeNode: React.FC<{
           <span style={{ width: 14, display: 'inline-block', marginRight: 4 }} />
         )}
         <FolderNodeIcon node={node} />
-        <span className="library-folder-name" title={node.path} style={{ flex: 1, whiteSpace: 'nowrap' }}>
+        <span
+          className="library-folder-name"
+          title={node.path}
+          style={{ flex: 1, whiteSpace: 'nowrap' }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect(isActive ? null : node.path);
+          }}
+        >
           {getFolderNodeLabel(node)}
         </span>
         

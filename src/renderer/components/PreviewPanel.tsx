@@ -4,6 +4,10 @@ import type { FileRecord, ModelDimensions } from "../../shared/types";
 import { normalizeFileTags, parseStoredFileTags } from "../../shared/fileTags";
 import type { CollectionRecord } from "../../shared/libraryCollections";
 import { DEFAULT_APP_SETTINGS } from "../../shared/settings";
+import {
+  type DisplayFileRecord,
+  isArchiveSummaryRecord,
+} from "../lib/archiveDisplay";
 import { AppIcon } from "./AppIcon";
 import {
   initViewer,
@@ -16,6 +20,7 @@ import {
 
 interface Props {
   file: FileRecord | null;
+  item: DisplayFileRecord | null;
   showGrid: boolean;
   thumbnailColor: string;
   collections: CollectionRecord[];
@@ -25,8 +30,34 @@ interface Props {
   onClose: () => void;
 }
 
+const ArchiveThumbImage: React.FC<{ thumbnailPath: string; name: string }> = ({
+  thumbnailPath,
+  name,
+}) => {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    let canceled = false;
+    window.polytray.readThumbnail(thumbnailPath).then((dataUrl) => {
+      if (!canceled) {
+        setSrc(dataUrl);
+      }
+    });
+    return () => {
+      canceled = true;
+    };
+  }, [thumbnailPath]);
+
+  if (!src) {
+    return <span className="archive-thumb-fallback">{name.slice(0, 1).toUpperCase()}</span>;
+  }
+
+  return <img src={src} alt={name} draggable={false} />;
+};
+
 export const PreviewPanel: React.FC<Props> = ({
   file,
+  item,
   showGrid,
   thumbnailColor,
   collections,
@@ -45,17 +76,22 @@ export const PreviewPanel: React.FC<Props> = ({
   const [savedTags, setSavedTags] = useState<string[]>([]);
   const [newCollectionName, setNewCollectionName] = useState("");
   const [selectedCollectionId, setSelectedCollectionId] = useState("");
+  const [archiveEntryIndex, setArchiveEntryIndex] = useState(0);
+  const archiveSummary = item && isArchiveSummaryRecord(item) ? item : null;
+  const currentFile = archiveSummary
+    ? archiveSummary.entries[Math.min(archiveEntryIndex, archiveSummary.entries.length - 1)] ?? null
+    : file;
   const currentCollections = React.useMemo(
     () =>
-      file
-        ? collections.filter((collection) => collection.filePaths.includes(file.path))
+      currentFile
+        ? collections.filter((collection) => collection.filePaths.includes(currentFile.path))
         : [],
-    [collections, file],
+    [collections, currentFile],
   );
 
   // Load model when file changes
   useEffect(() => {
-    if (!file) return;
+    if (!currentFile) return;
 
     const abortController = new AbortController();
     const { signal } = abortController;
@@ -74,9 +110,9 @@ export const PreviewPanel: React.FC<Props> = ({
       try {
         initViewer(containerRef.current);
         await loadModelWithWorker(
-          file.path,
-          file.extension,
-          file.name,
+          currentFile.path,
+          currentFile.extension,
+          currentFile.name,
           signal,
           (percent) => {
             if (!signal.aborted) setLoadProgress(percent);
@@ -87,8 +123,8 @@ export const PreviewPanel: React.FC<Props> = ({
         setLoading(false);
 
         // Thumbnail robustness: attempt one last generation if missing
-        if (!file.thumbnail) {
-          window.polytray.requestThumbnailGeneration(file.path, file.extension, {
+        if (!currentFile.thumbnail) {
+          window.polytray.requestThumbnailGeneration(currentFile.path, currentFile.extension, {
             thumbnail_timeout: DEFAULT_APP_SETTINGS.thumbnail_timeout,
             scanning_batch_size: DEFAULT_APP_SETTINGS.scanning_batch_size,
             watcher_stability: DEFAULT_APP_SETTINGS.watcher_stability,
@@ -110,7 +146,7 @@ export const PreviewPanel: React.FC<Props> = ({
       abortController.abort();
       disposeViewer();
     };
-  }, [file]);
+  }, [currentFile, thumbnailColor]);
 
   // Fire resize when expanding/collapsing
   useEffect(() => {
@@ -130,35 +166,35 @@ export const PreviewPanel: React.FC<Props> = ({
   }, [onClose]);
 
   const handleSaveTags = useCallback(async () => {
-    if (!file) return;
+    if (!currentFile) return;
     const normalized = normalizeFileTags(tagsInput.split(","));
     const updated = (await window.polytray.updateFileMetadata({
-      id: file.id,
+      id: currentFile.id,
       tags: normalized,
     })) as FileRecord;
     setSavedTags(normalized);
     setTagsInput(normalized.join(", "));
     onFileChange?.(updated);
-  }, [file, onFileChange, tagsInput]);
+  }, [currentFile, onFileChange, tagsInput]);
 
   const handleCreateAndAddCollection = useCallback(() => {
-    if (!file || !newCollectionName.trim()) return;
-    onCreateCollection(newCollectionName, [file.path]);
+    if (!currentFile || !newCollectionName.trim()) return;
+    onCreateCollection(newCollectionName, [currentFile.path]);
     setSelectedCollectionId(
       newCollectionName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-"),
     );
     setNewCollectionName("");
-  }, [file, newCollectionName, onCreateCollection]);
+  }, [currentFile, newCollectionName, onCreateCollection]);
 
   const handleAddToExistingCollection = useCallback(() => {
-    if (!file || !selectedCollectionId) return;
-    onAddFilesToCollection(selectedCollectionId, [file.path]);
+    if (!currentFile || !selectedCollectionId) return;
+    onAddFilesToCollection(selectedCollectionId, [currentFile.path]);
     setSelectedCollectionId("");
-  }, [file, onAddFilesToCollection, selectedCollectionId]);
+  }, [currentFile, onAddFilesToCollection, selectedCollectionId]);
 
   // Escape key
   useEffect(() => {
-    if (!file) return;
+    if (!item) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (expanded) {
@@ -171,24 +207,28 @@ export const PreviewPanel: React.FC<Props> = ({
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [file, expanded, handleClose]);
+  }, [item, expanded, handleClose]);
 
   useEffect(() => {
-    if (file) {
+    if (item) {
       toggleGrid(showGrid);
     }
-  }, [showGrid, file]);
+  }, [showGrid, item]);
 
   useEffect(() => {
-    const nextTags = parseStoredFileTags(file?.tags);
+    const nextTags = parseStoredFileTags(currentFile?.tags);
     setSavedTags(nextTags);
     setTagsInput(nextTags.join(", "));
-  }, [file?.id, file?.tags]);
+  }, [currentFile?.id, currentFile?.tags]);
 
   useEffect(() => {
     setSelectedCollectionId("");
     setNewCollectionName("");
-  }, [file?.id]);
+  }, [currentFile?.id]);
+
+  useEffect(() => {
+    setArchiveEntryIndex(0);
+  }, [archiveSummary?.path]);
 
   useEffect(() => {
     if (!selectedCollectionId) {
@@ -202,20 +242,39 @@ export const PreviewPanel: React.FC<Props> = ({
 
   const panelClasses = [
     "preview-panel",
-    !file ? "hidden" : "",
+    !item ? "hidden" : "",
     expanded ? "expanded" : "",
   ]
     .filter(Boolean)
     .join(" ");
 
   const parsedDimensions = React.useMemo<ModelDimensions | null>(() => {
-    if (!file?.dimensions) return null;
+    if (!currentFile?.dimensions) return null;
     try {
-      return JSON.parse(file.dimensions) as ModelDimensions;
+      return JSON.parse(currentFile.dimensions) as ModelDimensions;
     } catch {
       return null;
     }
-  }, [file?.dimensions]);
+  }, [currentFile?.dimensions]);
+
+  const archiveFormats = archiveSummary
+    ? Array.from(new Set(archiveSummary.entries.map((entry) => entry.extension.toUpperCase()))).join(", ")
+    : "";
+  const renderArchiveThumb = (entry: FileRecord) => {
+    if (!entry.thumbnail) {
+      return <span className="archive-thumb-fallback">{entry.extension.toUpperCase()}</span>;
+    }
+
+    const src = entry.thumbnail.startsWith("data:")
+      ? entry.thumbnail
+      : undefined;
+
+    if (src) {
+      return <img src={src} alt={entry.name} draggable={false} />;
+    }
+
+    return <ArchiveThumbImage thumbnailPath={entry.thumbnail} name={entry.name} />;
+  };
 
   return (
     <aside id="preview-panel" className={panelClasses}>
@@ -254,6 +313,23 @@ export const PreviewPanel: React.FC<Props> = ({
             <AppIcon name="close" />
           </button>
         </div>
+      </div>
+
+      <div
+        className={`viewer-multi-model${archiveSummary ? "" : " hidden"}`}
+        id="archive-preview-models"
+      >
+        {archiveSummary?.entries.map((entry, index) => (
+          <button
+            key={entry.path}
+            type="button"
+            className={`multi-model-thumb${archiveEntryIndex === index ? " active" : ""}`}
+            onClick={() => setArchiveEntryIndex(index)}
+            title={`${entry.name}.${entry.extension}`}
+          >
+            {renderArchiveThumb(entry)}
+          </button>
+        ))}
       </div>
 
       <div className="viewer-multi-model hidden" id="viewer-multi-model" />
@@ -308,25 +384,29 @@ export const PreviewPanel: React.FC<Props> = ({
       <div className="viewer-footer">
         <div className="viewer-title">
           <h2 id="viewer-filename" style={{ userSelect: "text" }}>
-            {file ? `${file.name}.${file.extension}` : "model_name.stl"}
+            {archiveSummary
+              ? archiveSummary.name
+              : currentFile
+                ? `${currentFile.name}.${currentFile.extension}`
+                : "model_name.stl"}
           </h2>
           <div
             className="viewer-path"
             id="viewer-path"
-            title={file?.path || ""}
+            title={archiveSummary?.path || currentFile?.path || ""}
           >
             <span
               style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}
             >
-              {file?.path || ""}
+              {archiveSummary?.path || currentFile?.path || ""}
             </span>
-            {file && (
+            {(archiveSummary || currentFile) && (
               <button
                 className="btn-copy-path"
                 title="Copy full path"
                 onClick={(e) => {
                   e.stopPropagation();
-                  navigator.clipboard.writeText(file.path);
+                  navigator.clipboard.writeText(archiveSummary?.path || currentFile?.path || "");
                 }}
               >
                 <svg
@@ -346,8 +426,10 @@ export const PreviewPanel: React.FC<Props> = ({
             )}
           </div>
           <div className="viewer-meta" id="viewer-meta">
-            {file
-              ? `Volume: ${formatSize(file.size_bytes)} | ${formatNumber(file.face_count)} Faces | ${formatNumber(file.vertex_count)} Vertices | ${formatDimensions(parsedDimensions)} | ${file.extension.toUpperCase()}`
+            {archiveSummary
+              ? `${archiveSummary.entries.length} models | ${formatSize(archiveSummary.size_bytes)} total | ${archiveFormats || "Mixed formats"}${currentFile ? ` | Viewing: ${currentFile.name}.${currentFile.extension}` : ""}`
+              : currentFile
+              ? `Volume: ${formatSize(currentFile.size_bytes)} | ${formatNumber(currentFile.face_count)} Faces | ${formatNumber(currentFile.vertex_count)} Vertices | ${formatDimensions(parsedDimensions)} | ${currentFile.extension.toUpperCase()}`
               : ""}
           </div>
           <div className="viewer-tags">
@@ -370,11 +452,13 @@ export const PreviewPanel: React.FC<Props> = ({
                 value={tagsInput}
                 placeholder="comma,separated,tags"
                 onChange={(e) => setTagsInput(e.target.value)}
+                disabled={!currentFile}
               />
               <button
                 id="save-file-tags"
                 className="btn-copy-path"
                 onClick={handleSaveTags}
+                disabled={!currentFile}
               >
                 Save Tags
               </button>
@@ -398,6 +482,7 @@ export const PreviewPanel: React.FC<Props> = ({
                 id="existing-collection-select"
                 value={selectedCollectionId}
                 onChange={(e) => setSelectedCollectionId(e.target.value)}
+                disabled={!currentFile}
               >
                 <option value="">Choose collection…</option>
                 {collections
@@ -415,7 +500,7 @@ export const PreviewPanel: React.FC<Props> = ({
                 id="add-to-existing-collection"
                 className="btn-copy-path"
                 onClick={handleAddToExistingCollection}
-                disabled={!selectedCollectionId}
+                disabled={!selectedCollectionId || !currentFile}
               >
                 Add
               </button>
@@ -427,11 +512,13 @@ export const PreviewPanel: React.FC<Props> = ({
                 value={newCollectionName}
                 placeholder="New collection name"
                 onChange={(e) => setNewCollectionName(e.target.value)}
+                disabled={!currentFile}
               />
               <button
                 id="create-and-add-collection"
                 className="btn-copy-path"
                 onClick={handleCreateAndAddCollection}
+                disabled={!currentFile}
               >
                 Create & Add
               </button>

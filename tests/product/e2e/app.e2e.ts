@@ -158,6 +158,11 @@ async function resetUiState() {
   const searchInput = window.locator("#search-input");
   await searchInput.fill("");
   await window.waitForTimeout(300);
+  await expect(searchInput).toHaveValue("");
+  await window.waitForFunction(() => {
+    const context = document.querySelector("#toolbar-context");
+    return context ? !context.textContent?.includes('Search: "') : true;
+  });
 
   const allBtn = window.locator('.filter-btn[data-ext=""]');
   const allBtnClasses = (await allBtn.getAttribute("class")) || "";
@@ -176,6 +181,10 @@ async function resetUiState() {
   if (await activeFolder.count()) {
     await activeFolder.click();
     await window.waitForTimeout(300);
+    await window.waitForFunction(() => {
+      const context = document.querySelector("#toolbar-context");
+      return context ? !context.textContent?.includes("Folder: ") : true;
+    });
   }
 
   const batchActions = window.locator("#batch-actions");
@@ -403,6 +412,40 @@ test("zip archives surface contained models and preview them", async () => {
   await expect(window.locator("#viewer-meta")).toContainText("STL");
 });
 
+test("archive summary card previews on click and opens contents on double click", async () => {
+  await ensureFixtureFilesLoaded();
+  await resetUiState();
+
+  const fixtureFolderNode = window.locator(
+    `[data-folder-path="${FIXTURE_DIR}"]`,
+  ).first();
+  await expect(fixtureFolderNode).toBeVisible();
+  await fixtureFolderNode.click({ force: true });
+  await window.waitForTimeout(500);
+  await expect(window.locator("#toolbar-context")).toContainText("Folder: fixtures");
+
+  const archiveName = window.locator(".file-card .card-name", { hasText: "test_bundle.zip" }).first();
+  await expect(archiveName).toBeVisible();
+  await expect(window.locator(".file-card", { hasText: "zip_preview" })).toHaveCount(0);
+  const archiveCard = archiveName.locator("xpath=ancestor::div[contains(@class,'file-card')][1]");
+
+  await archiveCard.click();
+  await expect(window.locator("#preview-panel")).not.toHaveClass(/hidden/);
+  await expect(window.locator("#viewer-filename")).toContainText("test_bundle.zip");
+  await expect(window.locator("#archive-preview-models .multi-model-thumb")).toHaveCount(2);
+  await expect(window.locator("#viewer-meta")).toContainText("2 models");
+  await window.locator("#btn-close-viewer").click();
+  await expect(window.locator("#preview-panel")).toHaveClass(/hidden/);
+
+  const archiveNameAgain = window
+    .locator(".file-card .card-name", { hasText: "test_bundle.zip" })
+    .first();
+  await archiveNameAgain.dblclick();
+  await expect(window.locator("#toolbar-context")).toContainText("Folder: test_bundle.zip");
+  await expect(window.locator(".file-card", { hasText: "zip_preview" })).toHaveCount(1);
+  await expect(window.locator(".file-card", { hasText: "zip_compare" })).toHaveCount(1);
+});
+
 test("archive sidebar nodes filter to archive contents and show zip provenance", async () => {
   await ensureFixtureFilesLoaded();
   await resetUiState();
@@ -411,14 +454,23 @@ test("archive sidebar nodes filter to archive contents and show zip provenance",
   await expect(rootToggle).toBeVisible();
   await rootToggle.click();
 
-  const archiveNode = window.locator(".library-folder-item", {
+  const fixtureFolderNode = window.locator(
+    `[data-folder-path="${FIXTURE_DIR}"]`,
+  ).first();
+  await expect(fixtureFolderNode).toBeVisible();
+  await fixtureFolderNode.click({ force: true });
+  await window.waitForTimeout(500);
+  await expect(window.locator("#toolbar-context")).toContainText("Folder: fixtures");
+
+  const archiveNodeLabel = window.locator(".library-folder-name", {
     hasText: "test_bundle.zip",
-  });
-  await expect(archiveNode).toBeVisible();
-  await archiveNode.click();
+  }).first();
+  await expect(archiveNodeLabel).toBeVisible();
+  await archiveNodeLabel.click({ force: true });
+  await window.waitForTimeout(500);
 
   await expect(window.locator("#toolbar-context")).toContainText(
-    "Folder: test_bundle.zip::entry::",
+    "Folder: test_bundle.zip",
   );
   await expect(window.locator(".file-card")).toHaveCount(2);
   await expect(window.locator(".card-source-badge")).toHaveCount(2);

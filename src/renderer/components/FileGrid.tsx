@@ -3,15 +3,20 @@ import { VirtuosoGrid } from "react-virtuoso";
 import { formatSize, formatTimestamp, formatVertices } from "../lib/formatters";
 import type { FileRecord } from "../../shared/types";
 import { isArchiveEntryPath } from "../../shared/archivePaths";
+import {
+  type DisplayFileRecord,
+  isArchiveSummaryRecord,
+} from "../lib/archiveDisplay";
 
 interface Props {
-  files: FileRecord[];
+  files: DisplayFileRecord[];
   gridSize: "small" | "medium" | "large";
   activeFileId: number | null;
   comparisonFileIds: number[];
   selectedFileIds: number[];
   onToggleFileSelection: (fileId: number) => void;
-  onSelectFile: (file: FileRecord) => void;
+  onSelectFile: (file: DisplayFileRecord) => void;
+  onOpenArchive: (file: DisplayFileRecord) => void;
 }
 
 const ThumbnailImage: React.FC<{ thumbnailPath: string; name: string }> = ({
@@ -48,46 +53,129 @@ const ThumbnailImage: React.FC<{ thumbnailPath: string; name: string }> = ({
   return <img src={src} alt={name} draggable={false} />;
 };
 
+const ArchiveThumbnailGrid: React.FC<{ files: FileRecord[] }> = ({ files }) => {
+  const [sources, setSources] = useState<string[]>([]);
+
+  useEffect(() => {
+    let canceled = false;
+    const thumbnails = files
+      .map((file) => file.thumbnail)
+      .filter((thumbnail): thumbnail is string => Boolean(thumbnail))
+      .slice(0, 4);
+
+    if (thumbnails.length === 0) {
+      setSources([]);
+      return;
+    }
+
+    Promise.all(
+      thumbnails.map((thumbnailPath) =>
+        thumbnailPath.startsWith("data:")
+          ? Promise.resolve(thumbnailPath)
+          : window.polytray.readThumbnail(thumbnailPath),
+      ),
+    ).then((resolved) => {
+      if (!canceled) {
+        setSources(resolved.filter((entry): entry is string => Boolean(entry)));
+      }
+    });
+
+    return () => {
+      canceled = true;
+    };
+  }, [files]);
+
+  if (sources.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="archive-thumbnail-grid">
+      {sources.map((src, index) => (
+        <img key={`${index}-${src}`} src={src} alt="" draggable={false} />
+      ))}
+    </div>
+  );
+};
+
 const FileCard: React.FC<{
-  file: FileRecord;
+  file: DisplayFileRecord;
   selected: boolean;
   selectedForBatch: boolean;
   onToggleSelect: () => void;
   onClick: () => void;
-}> = ({ file, selected, selectedForBatch, onToggleSelect, onClick }) => {
+  onDoubleClick: () => void;
+}> = ({ file, selected, selectedForBatch, onToggleSelect, onClick, onDoubleClick }) => {
+  const isArchiveSummary = isArchiveSummaryRecord(file);
   const extClass = file.extension === "3mf" ? "threemf" : file.extension;
-  const isArchiveEntry = isArchiveEntryPath(file.path);
+  const isArchiveEntry = !isArchiveSummary && isArchiveEntryPath(file.path);
+  const clickTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (clickTimeoutRef.current !== null) {
+        window.clearTimeout(clickTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleCardClick = () => {
+    if (!isArchiveSummary) {
+      onClick();
+      return;
+    }
+
+    if (clickTimeoutRef.current !== null) {
+      window.clearTimeout(clickTimeoutRef.current);
+    }
+
+    clickTimeoutRef.current = window.setTimeout(() => {
+      clickTimeoutRef.current = null;
+      onClick();
+    }, 180);
+  };
+
+  const handleCardDoubleClick = () => {
+    if (clickTimeoutRef.current !== null) {
+      window.clearTimeout(clickTimeoutRef.current);
+      clickTimeoutRef.current = null;
+    }
+    onDoubleClick();
+  };
 
   return (
     <div
-      className={`file-card${selected ? " selected" : ""}`}
+      className={`file-card${selected ? " selected" : ""}${isArchiveSummary ? " archive-summary" : ""}`}
       data-file-id={file.id}
       title={file.path}
-      onClick={onClick}
-      draggable={!isArchiveEntry}
+      onClick={handleCardClick}
+      onDoubleClick={handleCardDoubleClick}
+      draggable={!isArchiveEntry && !isArchiveSummary}
       onDragStart={(e) => {
-        if (isArchiveEntry) return;
+        if (isArchiveEntry || isArchiveSummary) return;
         e.preventDefault();
         window.polytray.startDrag(file.path);
       }}
       onContextMenu={(e) => {
-        if (isArchiveEntry) return;
+        if (isArchiveEntry || isArchiveSummary) return;
         e.preventDefault();
         window.polytray.showContextMenu(file.path);
       }}
     >
-      <button
-        type="button"
-        className={`file-select-toggle${selectedForBatch ? " active" : ""}`}
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggleSelect();
-        }}
-      >
-        {selectedForBatch ? "✓" : ""}
-      </button>
+      {!isArchiveSummary && (
+        <button
+          type="button"
+          className={`file-select-toggle${selectedForBatch ? " active" : ""}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleSelect();
+          }}
+        >
+          {selectedForBatch ? "✓" : ""}
+        </button>
+      )}
       <div className="card-thumbnail">
-        {!file.thumbnail && (
+        {!isArchiveSummary && !file.thumbnail && (
           <>
             {!file.thumbnail_failed ? (
               <div className="thumbnail-pulse" />
@@ -116,19 +204,37 @@ const FileCard: React.FC<{
             </svg>
           </>
         )}
-        {file.thumbnail && <ThumbnailImage thumbnailPath={file.thumbnail} name={file.name} />}
+        {isArchiveSummary ? (
+          <ArchiveThumbnailGrid files={file.entries} />
+        ) : (
+          file.thumbnail && <ThumbnailImage thumbnailPath={file.thumbnail} name={file.name} />
+        )}
         <span className={`card-ext-badge ${extClass}`}>{file.extension.toUpperCase()}</span>
         {isArchiveEntry && (
           <span className="card-source-badge" title="Model stored inside a zip archive">
             ZIP
           </span>
         )}
+        {isArchiveSummary && (
+          <span className="card-source-badge" title={`${file.entries.length} models in archive`}>
+            {file.entries.length} items
+          </span>
+        )}
       </div>
       <div className="card-info">
         <div className="card-name" title={file.name}>{file.name}</div>
         <div className="card-meta">
-          <span>{formatSize(file.size_bytes)}</span>
-          <span>{formatVertices(file.vertex_count)}</span>
+          {isArchiveSummary ? (
+            <>
+              <span>{formatSize(file.size_bytes)}</span>
+              <span>{file.entries.length} models</span>
+            </>
+          ) : (
+            <>
+              <span>{formatSize(file.size_bytes)}</span>
+              <span>{formatVertices(file.vertex_count)}</span>
+            </>
+          )}
         </div>
         <div className="card-timestamp">{formatTimestamp(file.modified_at)}</div>
       </div>
@@ -137,9 +243,12 @@ const FileCard: React.FC<{
 };
 
 const FileCardMemo = React.memo(FileCard, (prev, next) => {
+  const prevArchive = isArchiveSummaryRecord(prev.file) ? prev.file.entries.map((entry) => `${entry.id}:${entry.thumbnail ?? ""}`).join("|") : "";
+  const nextArchive = isArchiveSummaryRecord(next.file) ? next.file.entries.map((entry) => `${entry.id}:${entry.thumbnail ?? ""}`).join("|") : "";
   return (
     prev.file.id === next.file.id &&
     prev.file.thumbnail === next.file.thumbnail &&
+    prevArchive === nextArchive &&
     prev.selected === next.selected &&
     prev.selectedForBatch === next.selectedForBatch
   );
@@ -182,6 +291,7 @@ export const FileGrid: React.FC<Props> = ({
   selectedFileIds,
   onToggleFileSelection,
   onSelectFile,
+  onOpenArchive,
 }) => {
   if (files.length === 0) {
     return null;
@@ -201,6 +311,7 @@ export const FileGrid: React.FC<Props> = ({
           selectedForBatch={selectedFileIds.includes(file.id)}
           onToggleSelect={() => onToggleFileSelection(file.id)}
           onClick={() => onSelectFile(file)}
+          onDoubleClick={() => onOpenArchive(file)}
         />
       )}
     />

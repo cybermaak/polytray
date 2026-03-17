@@ -17,6 +17,13 @@ import { FileGrid } from "./components/FileGrid";
 import { ScanProgress } from "./components/ScanProgress";
 import { createRefreshDebouncer } from "./lib/refreshDebouncer";
 import {
+  collapseArchiveEntriesForDisplay,
+  type DisplayFileRecord,
+  formatArchiveFolderLabel,
+  getArchiveRootVirtualPath,
+  isArchiveSummaryRecord,
+} from "./lib/archiveDisplay";
+import {
   AppSettings,
   DEFAULT_APP_SETTINGS,
   normalizeAppSettings,
@@ -79,6 +86,7 @@ export const App: React.FC = () => {
   const [directories, setDirectories] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [previewFile, setPreviewFile] = useState<FileRecord | null>(null);
+  const [previewItem, setPreviewItem] = useState<DisplayFileRecord | null>(null);
   const [comparisonFiles, setComparisonFiles] = useState<FileRecord[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collectionsState, setCollectionsState] = useState<CollectionsState>(
@@ -95,13 +103,19 @@ export const App: React.FC = () => {
   });
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const activeFolderLabel = activeFolder
-    ? activeFolder.split(/[\\/]/).filter(Boolean).pop() || activeFolder
+    ? formatArchiveFolderLabel(activeFolder)?.split(/[\\/]/).filter(Boolean).pop()
+      || formatArchiveFolderLabel(activeFolder)
     : null;
   const activeCollection = collectionsState.collections.find(
     (collection) => collection.id === collectionsState.activeCollectionId,
   ) || null;
   const activeCollectionLabel = activeCollection?.name || null;
   const selectedFiles = files.filter((file) => selectedFileIds.includes(file.id));
+  const displayFiles = collapseArchiveEntriesForDisplay(files, {
+    activeFolder,
+    search,
+    hasActiveCollection: Boolean(collectionsState.activeCollectionId),
+  });
   const comparisonActive = comparisonFiles.length === 2;
 
   // Refs to get latest state in IPC callbacks
@@ -622,6 +636,18 @@ export const App: React.FC = () => {
     setPreviewFile((current) =>
       current?.id === updatedFile.id ? updatedFile : current,
     );
+    setPreviewItem((current) => {
+      if (!current) return current;
+      if (isArchiveSummaryRecord(current)) {
+        return {
+          ...current,
+          entries: current.entries.map((entry) =>
+            entry.id === updatedFile.id ? updatedFile : entry,
+          ),
+        };
+      }
+      return current.id === updatedFile.id ? updatedFile : current;
+    });
   }, []);
 
   const handleToggleFileSelection = useCallback((fileId: number) => {
@@ -788,8 +814,6 @@ export const App: React.FC = () => {
   // #content (not wrapped in fragments) because the CSS flex layout
   // depends on this parent-child relationship for scrolling.
 
-  const hasFiles = files.length > 0;
-
   return (
     <>
       <div id="titlebar">
@@ -824,7 +848,7 @@ export const App: React.FC = () => {
             activeFolderLabel={activeFolderLabel}
             activeCollectionLabel={activeCollectionLabel}
             activeFilter={extension}
-            resultCount={files.length}
+            resultCount={displayFiles.length}
             onSortChange={handleSortChange}
             onOrderToggle={handleOrderToggle}
             onSearch={handleSearch}
@@ -843,6 +867,7 @@ export const App: React.FC = () => {
             onAddToCollection={handleBatchAddToCollection}
             onCompare={() => {
               setPreviewFile(null);
+              setPreviewItem(null);
               setComparisonFiles(selectedFiles.slice(0, 2));
             }}
             onClear={() => {
@@ -851,18 +876,26 @@ export const App: React.FC = () => {
             }}
           />
           <FileGrid
-            files={files}
+            files={displayFiles}
             gridSize={settings.gridSize}
-            activeFileId={previewFile?.id ?? null}
+            activeFileId={previewItem?.id ?? null}
             comparisonFileIds={comparisonFiles.map((file) => file.id)}
             selectedFileIds={selectedFileIds}
             onToggleFileSelection={handleToggleFileSelection}
             onSelectFile={(file) => {
               setComparisonFiles([]);
-              setPreviewFile(file);
+              setPreviewItem(file);
+              setPreviewFile(isArchiveSummaryRecord(file) ? null : file);
+            }}
+            onOpenArchive={(file) => {
+              if (!isArchiveSummaryRecord(file)) return;
+              const archiveFolder = getArchiveRootVirtualPath(file.path);
+              setActiveFolder(archiveFolder);
+              activeFolderRef.current = archiveFolder;
+              void fetchFiles();
             }}
           />
-          <EmptyState hidden={hasFiles} />
+          <EmptyState hidden={displayFiles.length > 0} />
           <ScanProgress
             visible={progress.visible}
             percent={progress.percent}
@@ -875,18 +908,23 @@ export const App: React.FC = () => {
           onClose={() => setComparisonFiles([])}
           onOpenPreview={(file) => {
             setComparisonFiles([]);
+            setPreviewItem(file);
             setPreviewFile(file);
           }}
         />
         <PreviewPanel
           file={comparisonActive ? null : previewFile}
+          item={comparisonActive ? null : previewItem}
           showGrid={settings.showGrid}
           thumbnailColor={settings.thumbnailColor}
           onFileChange={handleFileRecordUpdate}
           collections={collectionsState.collections}
           onCreateCollection={handleCreateCollection}
           onAddFilesToCollection={handleAddFilesToCollection}
-          onClose={() => setPreviewFile(null)}
+          onClose={() => {
+            setPreviewFile(null);
+            setPreviewItem(null);
+          }}
         />
       </div>
       <SettingsModal
@@ -898,4 +936,3 @@ export const App: React.FC = () => {
     </>
   );
 };
-

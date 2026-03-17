@@ -836,6 +836,25 @@ body {
   animation: thumbnailFadeIn 0.18s ease;
 }
 
+.archive-thumbnail-grid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 12px;
+}
+
+.archive-thumbnail-grid img {
+  position: static;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-surface) 86%, transparent);
+}
+
 .card-thumbnail .placeholder-icon {
   position: absolute;
   top: 50%;
@@ -887,6 +906,16 @@ body {
   letter-spacing: 0.5px;
   text-transform: uppercase;
   background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+}
+
+.file-card.archive-summary .card-source-badge {
+  left: var(--space-2);
+}
+
+.card-ext-badge.zip {
+  background: rgba(255, 255, 255, 0.12);
   color: var(--text-primary);
   border: 1px solid var(--border-default);
 }
@@ -1394,6 +1423,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  appearance: none;
+  padding: 0;
 }
 
 .multi-model-thumb:hover {
@@ -1408,6 +1439,12 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.archive-thumb-fallback {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
 }
 
 /* ── Settings Modal ────────────────────────────────────────────── */
