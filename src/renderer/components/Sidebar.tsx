@@ -3,6 +3,7 @@ import { formatSize } from "../lib/formatters";
 import type { AppSettings } from "../../shared/settings";
 import type { CollectionRecord } from "../../shared/libraryCollections";
 import { AppIcon } from "./AppIcon";
+import { ARCHIVE_ENTRY_SEPARATOR } from "../../shared/archivePaths";
 
 interface Props {
   folders: string[];
@@ -81,6 +82,35 @@ function buildFolderTree(roots: string[], directories: string[]): FolderNode[] {
   }
 
   const tree: FolderNode[] = [];
+
+  const findArchiveAncestor = (virtualPath: string) => {
+    const separatorIndex = virtualPath.indexOf(ARCHIVE_ENTRY_SEPARATOR);
+    if (separatorIndex === -1) {
+      return null;
+    }
+
+    const archivePath = virtualPath.slice(0, separatorIndex);
+    const entryPath = virtualPath
+      .slice(separatorIndex + ARCHIVE_ENTRY_SEPARATOR.length)
+      .replace(/\\/g, "/")
+      .replace(/^\/+/, "");
+
+    if (!entryPath) {
+      return (
+        roots.find((root) => archivePath === root || archivePath.startsWith(`${root}/`) || archivePath.startsWith(`${root}\\`)) ||
+        null
+      );
+    }
+
+    const segments = entryPath.split("/").filter(Boolean);
+    segments.pop();
+
+    if (segments.length === 0) {
+      return `${archivePath}${ARCHIVE_ENTRY_SEPARATOR}`;
+    }
+
+    return `${archivePath}${ARCHIVE_ENTRY_SEPARATOR}${segments.join("/")}`;
+  };
   
   for (const p of nodeMap.keys()) {
     const isWin = p.includes('\\');
@@ -88,18 +118,23 @@ function buildFolderTree(roots: string[], directories: string[]): FolderNode[] {
     const node = nodeMap.get(p)!;
     
     let parentNode: FolderNode | null = null;
+    const archiveAncestor = findArchiveAncestor(p);
+    if (archiveAncestor && nodeMap.has(archiveAncestor)) {
+      parentNode = nodeMap.get(archiveAncestor)!;
+    }
+
     let current = p;
-    while(current.length > 0) {
-       const lastSep = current.lastIndexOf(sep);
-       if (lastSep === -1) break;
-       current = current.substring(0, lastSep);
-       if (current === '' && p.startsWith(sep)) current = sep;
-       
-       if (nodeMap.has(current)) {
-          parentNode = nodeMap.get(current)!;
-          break;
-       }
-       if (current === sep) break; // Prevent infinite loop on root
+    while(!parentNode && current.length > 0) {
+      const lastSep = current.lastIndexOf(sep);
+      if (lastSep === -1) break;
+      current = current.substring(0, lastSep);
+      if (current === '' && p.startsWith(sep)) current = sep;
+
+      if (nodeMap.has(current)) {
+        parentNode = nodeMap.get(current)!;
+        break;
+      }
+      if (current === sep) break; // Prevent infinite loop on root
     }
     
     if (parentNode) {

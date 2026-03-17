@@ -172,6 +172,12 @@ async function resetUiState() {
     await window.waitForTimeout(300);
   }
 
+  const activeFolder = window.locator(".library-folder-item.active").first();
+  if (await activeFolder.count()) {
+    await activeFolder.click();
+    await window.waitForTimeout(300);
+  }
+
   const batchActions = window.locator("#batch-actions");
   if (await batchActions.count()) {
     const clearSelection = window.locator("#clear-batch-selection");
@@ -395,6 +401,28 @@ test("zip archives surface contained models and preview them", async () => {
   await expect(window.locator("#viewer-loading")).toHaveClass(/hidden/);
   await expect(window.locator("#viewer-filename")).toContainText("zip_preview");
   await expect(window.locator("#viewer-meta")).toContainText("STL");
+});
+
+test("archive sidebar nodes filter to archive contents and show zip provenance", async () => {
+  await ensureFixtureFilesLoaded();
+  await resetUiState();
+
+  const rootToggle = window.locator(".folder-tree-node .folder-toggle").first();
+  await expect(rootToggle).toBeVisible();
+  await rootToggle.click();
+
+  const archiveNode = window.locator(".library-folder-item", {
+    hasText: "test_bundle.zip::entry::",
+  });
+  await expect(archiveNode).toBeVisible();
+  await archiveNode.click();
+
+  await expect(window.locator("#toolbar-context")).toContainText(
+    "Folder: test_bundle.zip::entry::",
+  );
+  await expect(window.locator(".file-card")).toHaveCount(2);
+  await expect(window.locator(".card-source-badge")).toHaveCount(2);
+  await expect(window.locator("#empty-state")).toHaveClass(/hidden/);
 });
 
 test("clicking a file card opens the 3D preview panel", async () => {

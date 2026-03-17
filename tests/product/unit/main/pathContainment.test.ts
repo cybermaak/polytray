@@ -31,3 +31,24 @@ test('filterContainedPaths drops sibling-prefix collisions', () => {
     '/library/models/nested/b.stl',
   ]);
 });
+
+test('isPathContained understands virtual archive directories', () => {
+  const root = '/library/bundle.zip::entry::nested';
+
+  assert.equal(
+    isPathContained(root, '/library/bundle.zip::entry::nested/part.stl'),
+    true,
+  );
+  assert.equal(
+    isPathContained(root, '/library/bundle.zip::entry::nested/deeper/part.obj'),
+    true,
+  );
+  assert.equal(
+    isPathContained(root, '/library/bundle.zip::entry::other/part.stl'),
+    false,
+  );
+  assert.equal(
+    isPathContained('/library/bundle.zip::entry::', '/library/bundle.zip::entry::root.stl'),
+    true,
+  );
+});

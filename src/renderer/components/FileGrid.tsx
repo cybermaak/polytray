@@ -117,6 +117,11 @@ const FileCard: React.FC<{
         )}
         {file.thumbnail && <ThumbnailImage thumbnailPath={file.thumbnail} name={file.name} />}
         <span className={`card-ext-badge ${extClass}`}>{file.extension.toUpperCase()}</span>
+        {isArchiveEntry && (
+          <span className="card-source-badge" title="Model stored inside a zip archive">
+            ZIP
+          </span>
+        )}
       </div>
       <div className="card-info">
         <div className="card-name" title={file.name}>{file.name}</div>
