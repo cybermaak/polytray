@@ -24,6 +24,9 @@ const os = require("os");
 const { buildElectronLaunchEnv } = require("../../support/helpers/electronLaunch");
 
 const FIXTURE_DIR = path.join(__dirname, "../../support/fixtures");
+// Forward-slash variant for data-folder-path attribute selectors (backslashes
+// are CSS escape characters and break attribute matching on Windows).
+const FIXTURE_DIR_ATTR = FIXTURE_DIR.replace(/\\/g, "/");
 const APP_DIR = path.resolve(__dirname, "../../..");
 const REAL_BASE_3MF_PATH = process.env.POLYTRAY_REAL_BASE_3MF_PATH || "";
 const DEFAULT_RUNTIME_SETTINGS = {
@@ -417,7 +420,7 @@ test("archive summary card previews on click and opens contents on double click"
   await resetUiState();
 
   const fixtureFolderNode = window.locator(
-    `[data-folder-path="${FIXTURE_DIR}"]`,
+    `[data-folder-path="${FIXTURE_DIR_ATTR}"]`,
   ).first();
   await expect(fixtureFolderNode).toBeVisible();
   await fixtureFolderNode.click({ force: true });
@@ -455,7 +458,7 @@ test("archive sidebar nodes filter to archive contents and show zip provenance",
   await rootToggle.click();
 
   const fixtureFolderNode = window.locator(
-    `[data-folder-path="${FIXTURE_DIR}"]`,
+    `[data-folder-path="${FIXTURE_DIR_ATTR}"]`,
   ).first();
   await expect(fixtureFolderNode).toBeVisible();
   await fixtureFolderNode.click({ force: true });
