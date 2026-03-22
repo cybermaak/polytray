@@ -70,7 +70,11 @@ async function readArchiveEntryBuffer(
   entryPath: string,
 ): Promise<Buffer | null> {
   try {
-    const directory = await unzipper.Open.file(archivePath);
+    // Read the archive into memory first so the file descriptor is released
+    // before the caller can attempt cleanup (important on Windows where open
+    // handles prevent directory removal).
+    const fileBuffer = await fs.promises.readFile(archivePath);
+    const directory = await unzipper.Open.buffer(fileBuffer);
     const entry = directory.files.find((file) => file.path === entryPath && file.type === "File");
     if (!entry) {
       return null;
