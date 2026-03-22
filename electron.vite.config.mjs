@@ -19,6 +19,10 @@ export default defineConfig({
   },
   renderer: {
     plugins: [react()],
+    server: {
+      port: 5173,
+      strictPort: true,
+    },
     build: {
       rollupOptions: {
         input: {

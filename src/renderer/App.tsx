@@ -854,6 +854,10 @@ export const App: React.FC = () => {
             onSearch={handleSearch}
             onRescan={handleRescan}
             onClearThumbnails={handleClearThumbnails}
+            onDismissFolder={() => handleFolderSelect(null)}
+            onDismissCollection={() => handleCollectionSelect(null)}
+            onDismissFilter={() => handleExtensionFilter(null)}
+            onDismissSearch={() => handleSearch("")}
           />
           <BatchActionsBar
             selectedCount={selectedFileIds.length}

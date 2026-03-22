@@ -14,6 +14,10 @@ interface Props {
   onSearch: (query: string) => void;
   onRescan: () => void;
   onClearThumbnails: () => void;
+  onDismissFolder: () => void;
+  onDismissCollection: () => void;
+  onDismissFilter: () => void;
+  onDismissSearch: () => void;
 }
 
 export const Toolbar: React.FC<Props> = ({
@@ -29,6 +33,10 @@ export const Toolbar: React.FC<Props> = ({
   onSearch,
   onRescan,
   onClearThumbnails,
+  onDismissFolder,
+  onDismissCollection,
+  onDismissFilter,
+  onDismissSearch,
 }) => {
   const [searchValue, setSearchValue] = useState(search);
   const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -44,11 +52,17 @@ export const Toolbar: React.FC<Props> = ({
     onSearch("");
   };
 
-  const contextChips = [
+  const contextChips: {
+    key: string;
+    label: string;
+    tone: string;
+    onDismiss?: () => void;
+  }[] = [
     {
       key: "scope",
       label: activeFolderLabel ? `Folder: ${activeFolderLabel}` : "All Models",
       tone: "neutral",
+      onDismiss: activeFolderLabel ? onDismissFolder : undefined,
     },
     ...(activeCollectionLabel
       ? [
@@ -56,6 +70,7 @@ export const Toolbar: React.FC<Props> = ({
             key: "collection",
             label: `Collection: ${activeCollectionLabel}`,
             tone: "neutral",
+            onDismiss: onDismissCollection,
           },
         ]
       : []),
@@ -68,6 +83,7 @@ export const Toolbar: React.FC<Props> = ({
               activeFilter.toLowerCase() === "3mf"
                 ? "threemf"
                 : activeFilter.toLowerCase(),
+            onDismiss: onDismissFilter,
           },
         ]
       : []),
@@ -77,6 +93,7 @@ export const Toolbar: React.FC<Props> = ({
             key: "search",
             label: `Search: "${search}"`,
             tone: "neutral",
+            onDismiss: onDismissSearch,
           },
         ]
       : []),
@@ -178,6 +195,15 @@ export const Toolbar: React.FC<Props> = ({
             className={`context-chip ${chip.tone}`}
           >
             {chip.label}
+            {chip.onDismiss && (
+              <button
+                className="context-chip-dismiss"
+                onClick={chip.onDismiss}
+                title={`Remove ${chip.key} filter`}
+              >
+                ×
+              </button>
+            )}
           </span>
         ))}
       </div>

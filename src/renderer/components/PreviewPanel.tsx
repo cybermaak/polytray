@@ -16,6 +16,7 @@ import {
   toggleWireframe,
   resetCamera,
   toggleGrid,
+  notifyViewerResize,
 } from "../lib/viewer";
 
 interface Props {
@@ -67,6 +68,11 @@ export const PreviewPanel: React.FC<Props> = ({
   onClose,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const dragStartX = useRef<number>(0);
+  const dragStartWidth = useRef<number>(0);
+  const [panelWidth, setPanelWidth] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadProgress, setLoadProgress] = useState<number>(-1);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -88,6 +94,14 @@ export const PreviewPanel: React.FC<Props> = ({
         : [],
     [collections, currentFile],
   );
+
+  // Keep viewer canvas in sync when the container is resized (e.g. panel drag)
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(() => notifyViewerResize());
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   // Load model when file changes
   useEffect(() => {
@@ -240,6 +254,28 @@ export const PreviewPanel: React.FC<Props> = ({
     }
   }, [currentCollections, selectedCollectionId]);
 
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragStartX.current = e.clientX;
+    dragStartWidth.current = panelRef.current?.offsetWidth ?? (panelWidth ?? 640);
+    setIsDragging(true);
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const delta = dragStartX.current - ev.clientX;
+      const next = Math.max(320, Math.min(900, dragStartWidth.current + delta));
+      setPanelWidth(next);
+    };
+
+    const onMouseUp = () => {
+      setIsDragging(false);
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }, [panelWidth]);
+
   const panelClasses = [
     "preview-panel",
     !item ? "hidden" : "",
@@ -277,7 +313,18 @@ export const PreviewPanel: React.FC<Props> = ({
   };
 
   return (
-    <aside id="preview-panel" className={panelClasses}>
+    <aside
+      id="preview-panel"
+      ref={panelRef}
+      className={panelClasses}
+      style={!expanded && panelWidth !== null ? { width: panelWidth } : undefined}
+    >
+      {!expanded && (
+        <div
+          className={`preview-resize-handle${isDragging ? " dragging" : ""}`}
+          onMouseDown={handleResizeMouseDown}
+        />
+      )}
       <div className="viewer-header" style={{ justifyContent: "flex-end" }}>
         <div className="viewer-controls">
           <button

@@ -309,6 +309,35 @@ const FolderTreeNode: React.FC<{
   );
 };
 
+function useSidebarResize(minWidth = 200, maxWidth = 600) {
+  const sidebarRef = React.useRef<HTMLElement>(null);
+  const [width, setWidth] = React.useState<number | null>(null);
+  const [isDragging, setIsDragging] = React.useState(false);
+
+  const handleMouseDown = React.useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarRef.current?.offsetWidth ?? (width ?? 260);
+    setIsDragging(true);
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const next = Math.max(minWidth, Math.min(maxWidth, startWidth + (ev.clientX - startX)));
+      setWidth(next);
+    };
+
+    const onMouseUp = () => {
+      setIsDragging(false);
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }, [width, minWidth, maxWidth]);
+
+  return { sidebarRef, width, isDragging, handleMouseDown };
+}
+
 export const Sidebar: React.FC<Props> = ({
   folders,
   directories,
@@ -329,6 +358,7 @@ export const Sidebar: React.FC<Props> = ({
   onCollectionSelect,
   onRemoveCollection,
 }) => {
+  const { sidebarRef, width: sidebarWidth, isDragging: sidebarDragging, handleMouseDown: handleSidebarMouseDown } = useSidebarResize();
   const tree = React.useMemo(() => buildFolderTree(folders, directories), [folders, directories]);
   const filters = [
     { label: "All", ext: null, dataExt: "", count: stats.total, statId: "stat-total" },
@@ -338,7 +368,15 @@ export const Sidebar: React.FC<Props> = ({
   ];
 
   return (
-    <aside id="sidebar" style={{ display: "flex", flexDirection: "column", overflow: "hidden", resize: "horizontal", minWidth: 220, maxWidth: "50vw" }}>
+    <aside
+      id="sidebar"
+      ref={sidebarRef}
+      style={{ display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 200, maxWidth: "50vw", ...(sidebarWidth !== null ? { width: sidebarWidth } : {}) }}
+    >
+      <div
+        className={`sidebar-resize-handle${sidebarDragging ? " dragging" : ""}`}
+        onMouseDown={handleSidebarMouseDown}
+      />
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <div className="sidebar-section" style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, paddingBottom: 0 }}>
           <button

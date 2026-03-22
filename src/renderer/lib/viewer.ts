@@ -196,6 +196,10 @@ function handleResize() {
   state.renderer.setSize(width, height);
 }
 
+export function notifyViewerResize() {
+  handleResize();
+}
+
 function yieldToMainThread(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }

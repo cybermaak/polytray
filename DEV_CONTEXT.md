@@ -74,6 +74,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **Docs State:** `README.md` was refreshed into a landing-page style product overview, and the demo media under `docs/assets/` is now generated from the live app via `scripts/capture-readme-media.ts`.
 - **Agent Docs State:** Root `AGENTS.md` now captures repo-specific working agreements, architecture gotchas, and a verification matrix for future contributors/agents.
 - **Next Focus:** Remaining `v1.2` product work (`F7`-`F10`) plus the outstanding `v1.1.x` correctness and performance follow-ups.
+- **Dev-mode localStorage note:** The vite renderer dev server is now pinned to port 5173 (`strictPort: true` in `electron.vite.config.mjs`). This prevents silent origin changes between sessions that previously caused all `localStorage`-backed state (collections, settings, folders) to appear cleared on restart. If `npm run dev` fails with a port conflict, kill the orphaned process with `lsof -ti:5173 | xargs kill`.
 
 ### Completed Features (v1.x.x)
 
@@ -101,6 +102,14 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - **F14: Batch operations.** Added multi-select workflows for bulk tagging and collection assignment, plus the shell-level selection model needed for richer batch actions.
   - **F15: Configurable advanced settings.** Added advanced tuning presets and reset controls for runtime-sensitive settings so users can switch between balanced, performance, and fidelity-oriented behavior without editing stored settings manually.
   - **F4: Side-by-side comparison.** Added a compare workspace driven by batch selection that places two models side by side with thumbnails, core metrics, tags, and quick handoff into full preview.
+
+- **2026-03-22 · UX and interaction polish**
+  - **Animated BatchActionsBar.** The batch-actions bar now slides in with a 150ms ease animation instead of appearing instantly, making multi-select feel more intentional.
+  - **Dismissible filter chips.** Toolbar context chips for active folder, collection, format filter, and search now carry a `×` dismiss button so users can peel off filters without navigating back to the sidebar.
+  - **Resizable preview panel.** The preview panel now has a drag handle on its left edge. Dragging resizes it between 320px and 900px. The Three.js viewer is notified via `ResizeObserver` → `notifyViewerResize()` so the camera aspect ratio and renderer size stay correct during drag.
+  - **Resizable sidebar.** The sidebar now has a custom drag handle on its right edge (replacing the native browser resize triangle). Default width increased from 220px to 260px to prevent the dark/light mode button text from wrapping.
+  - **Expanded collections height.** The sidebar collections list `max-height` was raised from 148px (≈3.7 items) to `min(260px, 30vh)` (≈6–7 items).
+  - **Responsive settings modal.** Settings modal width changed from fixed 480px to `min(480px, 90vw)` so it doesn't feel stranded on large displays or clipped on small ones.
 
 - **2026-03-16 · v1.2 workflow UX polish**
   - Refined the new batch-action shell so text actions no longer collapse into icon-sized controls or overlap each other when the toolbar gets crowded.
