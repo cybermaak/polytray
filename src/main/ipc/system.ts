@@ -13,6 +13,7 @@ import { join } from "path";
 import { getDb } from "../database";
 import { startWatcher, stopWatcher } from "../watcher";
 import { IPC, PreviewMetricData, RuntimeSettingsData } from "../../shared/types";
+import { ARCHIVE_ENTRY_SEPARATOR } from "../../shared/archivePaths";
 import {
   parseFilePath,
   parseFolderPath,
@@ -103,6 +104,45 @@ export function registerSystemHandlers(
     ];
     const menu = Menu.buildFromTemplate(template);
     menu.popup({ window: BrowserWindow.fromWebContents(event.sender)! });
+  });
+
+  ipcMain.on(IPC.SHOW_ARCHIVE_CONTEXT_MENU, (event, path: unknown, isSummary: unknown) => {
+    if (typeof path !== "string" || !path.trim()) return;
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+
+    const separatorIndex = path.indexOf(ARCHIVE_ENTRY_SEPARATOR);
+    const archivePath = separatorIndex !== -1 ? path.slice(0, separatorIndex) : path;
+    const archiveVirtualRoot = `${archivePath}${ARCHIVE_ENTRY_SEPARATOR}`;
+
+    const template = isSummary
+      ? [
+          {
+            label: "Browse Archive",
+            click: () => win.webContents.send("trigger-open-archive", archiveVirtualRoot),
+          },
+          { type: "separator" as const },
+          {
+            label: "Reveal in Finder / Explorer",
+            click: () => shell.showItemInFolder(archivePath),
+          },
+          {
+            label: "Copy Archive Path",
+            click: () => clipboard.writeText(archivePath),
+          },
+        ]
+      : [
+          {
+            label: "Reveal Archive in Finder / Explorer",
+            click: () => shell.showItemInFolder(archivePath),
+          },
+          {
+            label: "Copy Archive Path",
+            click: () => clipboard.writeText(archivePath),
+          },
+        ];
+
+    Menu.buildFromTemplate(template).popup({ window: win });
   });
 
   ipcMain.on(IPC.PREVIEW_METRIC, (_event, metric: PreviewMetricData) => {

@@ -53,6 +53,7 @@ interface PolytrayAPI {
   startDrag: (filePath: string) => void;
   showContextMenu: (filePath: string) => void;
   showFolderContextMenu: (path: string) => void;
+  showArchiveContextMenu: (path: string, isSummary: boolean) => void;
 
   startWatching: (folderPaths: string[], settings: RuntimeSettingsData) => Promise<void>;
   stopWatching: () => Promise<void>;
@@ -60,6 +61,7 @@ interface PolytrayAPI {
   onFolderAction: (
     callback: (action: "refresh" | "rescan", folderPath: string) => void,
   ) => () => void;
+  onArchiveOpen: (callback: (archiveVirtualPath: string) => void) => () => void;
   onScanProgress: (callback: (data: ScanProgressData) => void) => () => void;
   onScanComplete: (callback: (data: ScanCompleteData) => void) => () => void;
   onFilesUpdated: (callback: (data: FilesUpdatedData) => void) => () => void;

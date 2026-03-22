@@ -178,6 +178,8 @@ contextBridge.exposeInMainWorld("polytray", {
     ipcRenderer.send(IPC.SHOW_CONTEXT_MENU, filePath),
   showFolderContextMenu: (folderPath: string) =>
     ipcRenderer.send(IPC.SHOW_FOLDER_CONTEXT_MENU, folderPath),
+  showArchiveContextMenu: (path: string, isSummary: boolean) =>
+    ipcRenderer.send(IPC.SHOW_ARCHIVE_CONTEXT_MENU, path, isSummary),
 
   // 3D preview
   readFileBuffer: (filePath: string) =>
@@ -241,6 +243,12 @@ contextBridge.exposeInMainWorld("polytray", {
       ipcRenderer.removeListener("trigger-refresh-folder", refreshHandler);
       ipcRenderer.removeListener("trigger-rescan-folder", rescanHandler);
     };
+  },
+
+  onArchiveOpen: (callback: (archiveVirtualPath: string) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, path: string) => callback(path);
+    ipcRenderer.on("trigger-open-archive", handler);
+    return () => ipcRenderer.removeListener("trigger-open-archive", handler);
   },
 
   onScanProgress: (callback: (data: ScanProgressData) => void) =>

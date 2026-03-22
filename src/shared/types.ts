@@ -78,6 +78,7 @@ export const IPC = {
   ON_DRAG_START: "ondragstart",
   SHOW_CONTEXT_MENU: "show-context-menu",
   SHOW_FOLDER_CONTEXT_MENU: "show-folder-context-menu",
+  SHOW_ARCHIVE_CONTEXT_MENU: "show-archive-context-menu",
   THUMBNAIL_GENERATED: "thumbnail-generated",
   PREVIEW_METRIC: "preview-metric",
 

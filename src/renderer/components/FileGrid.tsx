@@ -157,9 +157,12 @@ const FileCard: React.FC<{
         window.polytray.startDrag(file.path);
       }}
       onContextMenu={(e) => {
-        if (isArchiveEntry || isArchiveSummary) return;
         e.preventDefault();
-        window.polytray.showContextMenu(file.path);
+        if (isArchiveSummary || isArchiveEntry) {
+          window.polytray.showArchiveContextMenu(file.path, isArchiveSummary);
+        } else {
+          window.polytray.showContextMenu(file.path);
+        }
       }}
     >
       {!isArchiveSummary && (

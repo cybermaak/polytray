@@ -795,6 +795,14 @@ export const App: React.FC = () => {
     return unsubscribe;
   }, [handleRefreshFolderThumbnails, handleRescanFolder]);
 
+  useEffect(() => {
+    return window.polytray.onArchiveOpen((archiveVirtualPath) => {
+      setActiveFolder(archiveVirtualPath);
+      activeFolderRef.current = archiveVirtualPath;
+      void fetchFiles();
+    });
+  }, [fetchFiles]);
+
   // Keyboard: Escape
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
