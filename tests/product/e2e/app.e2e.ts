@@ -1120,10 +1120,18 @@ test("rescan specific folder triggers scan UI", async () => {
   const progressContainer = window.locator("#scan-progress");
 
   // Windows runners can complete small rescans quickly enough that the progress UI never becomes visibly non-hidden.
-  // The important regression check is that the rescan completes cleanly and leaves the grid populated for later flows.
+  // The important regression check is that the rescan completes cleanly and preserves indexed files for that folder.
   await expect(progressContainer).toHaveClass(/hidden/, { timeout: 30000 });
   await window.waitForFunction(
-    () => document.querySelectorAll(".file-card").length > 0,
+    async ({ targetFolderPath }) => {
+      const result = await window.polytray.getFiles({
+        folder: targetFolderPath,
+        limit: 100,
+        offset: 0,
+      });
+      return result.files.length > 0;
+    },
+    { targetFolderPath: folderPath },
     { timeout: 30000 },
   );
   await resetUiState();
