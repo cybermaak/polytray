@@ -85,7 +85,7 @@ Choose the smallest verification set that proves the change, but include all aff
 - CI setup changes that affect app launch or product tests
 
 Notes:
-- `npm run test:product` intentionally runs unit tests first, then rebuilds native deps for Electron, then runs E2E.
+- `npm run test:product` intentionally rebuilds `better-sqlite3` for the host Node runtime first, then runs unit tests, then rebuilds native deps for Electron, then runs E2E.
 - This sequence matters. Do not collapse it back to a plain unit+E2E chain.
 
 ### Run `npm run test:repo` when changing
@@ -107,7 +107,7 @@ Notes:
 
 - `better-sqlite3` has separate Node vs Electron rebuild needs.
 - For CI test setup, dependencies should install without running `postinstall` Electron rebuilds first.
-- Product tests should rebuild native deps for Electron only after the Node-based unit phase and before E2E launch.
+- Product tests should first rebuild `better-sqlite3` for Node before the unit phase, then rebuild native deps for Electron only after the Node-based unit phase and before E2E launch.
 - Packaging should still rebuild native deps for Electron before `electron-builder --publish never`.
 
 ## GitHub Actions Verification

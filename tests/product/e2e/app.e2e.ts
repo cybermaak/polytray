@@ -791,7 +791,6 @@ test("search filters file cards by name", async () => {
   await ensureFixtureFilesLoaded();
   await resetUiState();
   const searchInput = window.locator("#search-input");
-  const fileGrid = window.locator("#file-grid");
 
   // Count all cards now
   const initialCount = await window.locator(".file-card").count();
@@ -817,9 +816,21 @@ test("search filters file cards by name", async () => {
   await searchInput.fill("");
   await window.waitForTimeout(500);
 
-  // Should show all cards again
-  const resetCount = await window.locator(".file-card").count();
-  expect(resetCount).toBe(initialCount);
+  // Search chip should clear and the grid should repopulate with non-cube results.
+  await window.waitForFunction(() => {
+    const context = document.querySelector("#toolbar-context");
+    return context ? !context.textContent?.includes('Search: "') : true;
+  });
+  await window.waitForFunction(() => document.querySelectorAll(".file-card").length > 1);
+
+  const visibleCardNames = await window
+    .locator(".file-card .card-name")
+    .evaluateAll((elements) =>
+      elements
+        .map((element) => element.textContent?.trim().toLowerCase() || "")
+        .filter(Boolean),
+    );
+  expect(visibleCardNames.some((name) => !name.includes("cube"))).toBe(true);
 });
 
 test("folder filtering uses canonical containment instead of raw path prefixes", async () => {

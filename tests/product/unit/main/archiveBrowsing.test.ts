@@ -25,6 +25,21 @@ async function createArchiveFixture() {
   return { tempDir, archivePath };
 }
 
+async function cleanupArchiveFixture(tempDir: string) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (!['ENOTEMPTY', 'EBUSY', 'EPERM'].includes(code ?? '') || attempt === 4) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+    }
+  }
+}
+
 test('scanFolder indexes supported model files inside zip archives', async () => {
   const { tempDir, archivePath } = await createArchiveFixture();
 
@@ -42,7 +57,7 @@ test('scanFolder indexes supported model files inside zip archives', async () =>
       true,
     );
   } finally {
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    await cleanupArchiveFixture(tempDir);
   }
 });
 
@@ -59,6 +74,6 @@ test('extractMetadata reads geometry metadata from archive-backed virtual paths'
     assert.equal(metadata.faceCount, 1);
     assert.deepEqual(metadata.dimensions, { x: 2, y: 3, z: 0 });
   } finally {
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    await cleanupArchiveFixture(tempDir);
   }
 });
