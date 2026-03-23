@@ -416,9 +416,9 @@ test("archive summary card previews on click and opens contents on double click"
   await ensureFixtureFilesLoaded();
   await resetUiState();
 
-  const fixtureFolderNode = window.locator(
-    `[data-folder-path="${FIXTURE_DIR}"]`,
-  ).first();
+  const fixtureFolderNode = window.locator(".library-folder-item", {
+    has: window.locator(".library-folder-name", { hasText: "fixtures" }),
+  }).first();
   await expect(fixtureFolderNode).toBeVisible();
   await fixtureFolderNode.click({ force: true });
   await window.waitForTimeout(500);
@@ -454,9 +454,9 @@ test("archive sidebar nodes filter to archive contents and show zip provenance",
   await expect(rootToggle).toBeVisible();
   await rootToggle.click();
 
-  const fixtureFolderNode = window.locator(
-    `[data-folder-path="${FIXTURE_DIR}"]`,
-  ).first();
+  const fixtureFolderNode = window.locator(".library-folder-item", {
+    has: window.locator(".library-folder-name", { hasText: "fixtures" }),
+  }).first();
   await expect(fixtureFolderNode).toBeVisible();
   await fixtureFolderNode.click({ force: true });
   await window.waitForTimeout(500);
