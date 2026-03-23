@@ -134,6 +134,12 @@ async function ensureFixtureFilesLoaded() {
 }
 
 async function resetUiState() {
+  const scanProgress = window.locator("#scan-progress");
+  const progressClasses = (await scanProgress.getAttribute("class")) || "";
+  if (!progressClasses.includes("hidden")) {
+    await expect(scanProgress).toHaveClass(/hidden/, { timeout: 30000 });
+  }
+
   const overlay = window.locator("#settings-overlay");
   const overlayClasses = (await overlay.getAttribute("class")) || "";
   if (!overlayClasses.includes("hidden")) {
@@ -1110,8 +1116,8 @@ test("rescan specific folder triggers scan UI", async () => {
   const progressContainer = window.locator("#scan-progress");
   await expect(progressContainer).toBeVisible();
 
-  // Wait for it to finish gracefully
-  await window.waitForTimeout(2000);
+  // Wait for the rescan to actually complete so later tests don't inherit transient state.
+  await expect(progressContainer).toHaveClass(/hidden/, { timeout: 30000 });
 });
 
 test("files can be tagged from preview and found via tag search", async () => {
