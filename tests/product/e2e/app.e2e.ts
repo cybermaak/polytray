@@ -1097,27 +1097,32 @@ test("rescan specific folder triggers scan UI", async () => {
   await resetUiState();
   const folderNodes = window.locator(".library-folder-item");
   const firstNode = folderNodes.first();
+  const folderPath = await firstNode.getAttribute("data-folder-path");
+  if (!folderPath) {
+    throw new Error("Expected first folder node to expose data-folder-path");
+  }
   await firstNode.click();
-  
-  // Directly trigger the scan through the exposed API bridge to mimic the context menu
-  await window.evaluate(() => {
-    // Get the first folder from the DOM path title attribute
-    const firstPath = document.querySelector('.library-folder-name').getAttribute('title');
-    // Mimic the context menu invocation
-    window.polytray.scanFolder(firstPath, {
-      thumbnail_timeout: 20000,
-      scanning_batch_size: 50,
-      watcher_stability: 1000,
-      page_size: 500,
-      thumbnailColor: "#8888aa",
-    });
-  });
-  
+
+  // Trigger the rescan for the exact selected folder so later tests don't inherit a stale scope.
+  await window.evaluate(
+    ({ targetFolderPath }) => {
+      window.polytray.scanFolder(targetFolderPath, {
+        thumbnail_timeout: 20000,
+        scanning_batch_size: 50,
+        watcher_stability: 1000,
+        page_size: 500,
+        thumbnailColor: "#8888aa",
+      });
+    },
+    { targetFolderPath: folderPath },
+  );
+
   const progressContainer = window.locator("#scan-progress");
   await expect(progressContainer).toBeVisible();
 
   // Wait for the rescan to actually complete so later tests don't inherit transient state.
   await expect(progressContainer).toHaveClass(/hidden/, { timeout: 30000 });
+  await resetUiState();
 });
 
 test("files can be tagged from preview and found via tag search", async () => {
