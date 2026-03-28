@@ -61,6 +61,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Shared packaging logic lives in `.github/actions/package-app/action.yml`.
   - Artifact patterns were tightened to preserve Electron auto-update compatibility (`*.dmg`, `*-mac.zip`, `*.blockmap`, `latest*.yml`) while dropping unused `snap` artifacts.
   - Default CI now runs product tests only via `npm run test:product`.
+  - GitHub-hosted workflow actions are now on Node 24-native major versions (`actions/checkout@v6`, `actions/setup-node@v6`, `actions/upload-artifact@v7`), removing the previous Node 20 deprecation annotations from successful builds.
   - Windows build stability was further hardened by removing the migration test suite's dependency on the external `sqlite3` CLI; migration fixtures are now created in-process with `better-sqlite3`, so product-unit tests are cross-platform.
   - The shared setup/test flow now installs dependencies with normal `npm ci` while setting `POLYTRAY_SKIP_INSTALL_APP_DEPS=1`, so package postinstall downloads Electron normally but skips the repo's Electron-native rebuild until after Node-side unit tests.
   - `npm run test:product` now self-heals native module state locally by rebuilding `better-sqlite3` for the host Node runtime before product-unit tests, then rebuilding native deps for Electron immediately before Playwright E2E. This keeps reruns reliable after a previous Electron rebuild.
