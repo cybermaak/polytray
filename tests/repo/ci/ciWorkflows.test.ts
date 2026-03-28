@@ -38,9 +38,14 @@ test('build and release workflows share setup and packaging actions', () => {
   expectNoMatch(releaseWorkflow, /electron-builder --publish never/);
 });
 
-test('build and release workflows opt JavaScript actions into Node 24', () => {
-  expectMatch(buildWorkflow, /FORCE_JAVASCRIPT_ACTIONS_TO_NODE24:\s*true/);
-  expectMatch(releaseWorkflow, /FORCE_JAVASCRIPT_ACTIONS_TO_NODE24:\s*true/);
+test('workflow actions use Node 24-native major versions', () => {
+  expectMatch(buildWorkflow, /uses: actions\/checkout@v6/);
+  expectMatch(releaseWorkflow, /uses: actions\/checkout@v6/);
+  expectMatch(buildWorkflow, /uses: actions\/upload-artifact@v7/);
+  expectMatch(releaseWorkflow, /uses: actions\/upload-artifact@v7/);
+  expectMatch(setupAndTestAction, /uses: actions\/setup-node@v6/);
+  expectNoMatch(buildWorkflow, /FORCE_JAVASCRIPT_ACTIONS_TO_NODE24/);
+  expectNoMatch(releaseWorkflow, /FORCE_JAVASCRIPT_ACTIONS_TO_NODE24/);
 });
 
 test('setup-and-test installs dependencies normally but skips only the repo postinstall rebuild', () => {
