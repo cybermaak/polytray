@@ -38,6 +38,11 @@ test('build and release workflows share setup and packaging actions', () => {
   expectNoMatch(releaseWorkflow, /electron-builder --publish never/);
 });
 
+test('build and release workflows opt JavaScript actions into Node 24', () => {
+  expectMatch(buildWorkflow, /FORCE_JAVASCRIPT_ACTIONS_TO_NODE24:\s*true/);
+  expectMatch(releaseWorkflow, /FORCE_JAVASCRIPT_ACTIONS_TO_NODE24:\s*true/);
+});
+
 test('setup-and-test installs dependencies normally but skips only the repo postinstall rebuild', () => {
   expectMatch(setupAndTestAction, /POLYTRAY_SKIP_INSTALL_APP_DEPS:\s*["']?1["']?/);
   expectMatch(setupAndTestAction, /run: npm ci/);
