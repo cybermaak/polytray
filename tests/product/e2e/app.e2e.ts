@@ -177,20 +177,38 @@ async function resetUiState() {
     await window.waitForTimeout(300);
   }
 
-  const activeCollection = window.locator(".collection-item.active").first();
-  if (await activeCollection.count()) {
-    await activeCollection.click();
-    await window.waitForTimeout(300);
+  const dismissCollection = window.locator('#toolbar-context button[title="Remove collection filter"]').first();
+  if (await dismissCollection.count()) {
+    await dismissCollection.click();
+    await window.waitForFunction(() => {
+      const context = document.querySelector("#toolbar-context");
+      return context ? !context.textContent?.includes("Collection: ") : true;
+    });
+  } else {
+    const activeCollection = window.locator(".collection-item.active").first();
+    if (await activeCollection.count()) {
+      await activeCollection.click();
+      await window.waitForTimeout(300);
+    }
   }
 
-  const activeFolder = window.locator(".library-folder-item.active").first();
-  if (await activeFolder.count()) {
-    await activeFolder.click();
-    await window.waitForTimeout(300);
+  const dismissFolder = window.locator('#toolbar-context button[title="Remove scope filter"]').first();
+  if (await dismissFolder.count()) {
+    await dismissFolder.click();
     await window.waitForFunction(() => {
       const context = document.querySelector("#toolbar-context");
       return context ? !context.textContent?.includes("Folder: ") : true;
     });
+  } else {
+    const activeFolder = window.locator(".library-folder-item.active").first();
+    if (await activeFolder.count()) {
+      await activeFolder.click();
+      await window.waitForTimeout(300);
+      await window.waitForFunction(() => {
+        const context = document.querySelector("#toolbar-context");
+        return context ? !context.textContent?.includes("Folder: ") : true;
+      });
+    }
   }
 
   const batchActions = window.locator("#batch-actions");

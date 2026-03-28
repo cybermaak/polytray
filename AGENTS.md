@@ -118,8 +118,8 @@ Notes:
   - force-push the current local `HEAD` to `origin/ci/sandbox` without creating a local branch
   - trigger the workflow with `gh workflow run <workflow-file> --ref ci/sandbox`
   - wait for the remote run to finish and inspect failures there before touching `main`
-- Watch the sandbox run actively for up to 7 minutes.
-- If the run is still in progress after 7 minutes, stop watching and wait for the user to check and report the final result before resuming work.
+- Watch the sandbox run actively for up to 10 minutes.
+- If the run is still in progress after 10 minutes, stop watching and wait for the user to check and report the final result before resuming work.
 - Retry up to 3 remote attempts while actively fixing the issue.
 - If the very first sandbox attempt succeeds for a given Actions change, it is reasonable to push that change to `main` after local verification.
 - If the fix required multiple sandbox attempts, pause and confirm with the user before pushing to `main`.
