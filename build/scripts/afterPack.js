@@ -4,6 +4,15 @@ const path = require('path');
 
 exports.default = async function(context) {
   if (context.electronPlatformName === 'darwin') {
+    // When a real Developer ID signing identity is configured (local release
+    // flow), electron-builder will codesign the app itself. Skip the adhoc
+    // fallback so it does not interfere with Hardened Runtime / notarization.
+    const realSigning = !!((context.packager.platformSpecificBuildOptions || {}).notarize)
+      && process.env.POLYTRAY_SIGN_RELEASE === '1';
+    if (realSigning) {
+      console.log('[afterPack] Real Developer ID signing active — skipping adhoc fallback signature.');
+      return;
+    }
     const appOutDir = context.appOutDir;
     const appName = context.packager.appInfo.productFilename;
     const appPath = path.join(appOutDir, `${appName}.app`);
