@@ -28,7 +28,10 @@ if ! command -v gh >/dev/null 2>&1; then
   echo "ERROR: gh CLI not found. Install it or log in: https://cli.github.com" >&2
   exit 1
 fi
-GH_TOKEN="$(gh auth token)"
+if ! GH_TOKEN="$(gh auth token)"; then
+  echo "ERROR: 'gh auth token' failed. Run 'gh auth login' first." >&2
+  exit 1
+fi
 if [[ -z "$GH_TOKEN" ]]; then
   echo "ERROR: 'gh auth token' returned empty. Run 'gh auth login' first." >&2
   exit 1
