@@ -42,11 +42,11 @@
 
 Download the latest release for your platform:
 
-| Platform | Download |
-|----------|----------|
-| **macOS** | [`.dmg`](https://github.com/cybermaak/polytray/releases/latest) |
-| **Windows** | [`.exe` installer](https://github.com/cybermaak/polytray/releases/latest) |
-| **Linux** | [`.AppImage`](https://github.com/cybermaak/polytray/releases/latest) |
+| Platform | Download | Notes |
+|----------|----------|-------|
+| **macOS** | [`.dmg`](https://github.com/cybermaak/polytray/releases/latest) | ✅ Signed & notarized by Apple — opens without Gatekeeper warnings |
+| **Windows** | [`.exe` installer](https://github.com/cybermaak/polytray/releases/latest) | — |
+| **Linux** | [`.AppImage`](https://github.com/cybermaak/polytray/releases/latest) | — |
 
 See the [release notes](https://github.com/cybermaak/polytray/releases) for version history and changelogs.
 
