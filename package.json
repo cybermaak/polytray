@@ -23,6 +23,7 @@
     "clean": "rm -rf out dist dist-electron",
     "test:e2e": "npm run test:product:e2e",
     "release": "electron-builder --publish always",
+    "release:mac": "bash scripts/release-mac.sh",
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
     "build:linux": "electron-builder --linux",
@@ -82,7 +83,12 @@
         "dmg",
         "zip"
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true
     },
     "win": {
       "target": [
