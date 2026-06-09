@@ -11,7 +11,8 @@ produce unsigned artifacts for Linux/Windows and for quick mac smoke builds.
    `AuthKey_XXXXXXXXXX.p8` to `~/.appstoreconnect/private_keys/`.
 4. Make sure `gh` is logged in with write access: `gh auth status`.
 5. `cp .env.example .env` and fill in `APPLE_API_KEY`, `APPLE_API_KEY_ID`,
-   `APPLE_API_ISSUER` (GitHub publishing reuses your `gh` login — no token in `.env`).
+   `APPLE_API_ISSUER`, and `APPLE_TEAM_ID` (your 10-char Developer ID team).
+   GitHub publishing reuses your `gh` login — no token in `.env`.
 
 ## Cutting a release
 1. Bump `version` in `package.json` and commit.

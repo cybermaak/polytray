@@ -17,6 +17,7 @@ set -a; source .env; set +a
 : "${APPLE_API_KEY:?set APPLE_API_KEY in .env}"
 : "${APPLE_API_KEY_ID:?set APPLE_API_KEY_ID in .env}"
 : "${APPLE_API_ISSUER:?set APPLE_API_ISSUER in .env}"
+: "${APPLE_TEAM_ID:?set APPLE_TEAM_ID in .env}"
 
 if [[ ! -f "$APPLE_API_KEY" ]]; then
   echo "ERROR: APPLE_API_KEY file not found at $APPLE_API_KEY" >&2
