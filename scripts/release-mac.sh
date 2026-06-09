@@ -24,20 +24,15 @@ if [[ ! -f "$APPLE_API_KEY" ]]; then
   exit 1
 fi
 
-# Derive the GitHub token from the existing gh CLI login (not stored in .env).
+# Publishing uses the gh CLI (its own auth) — confirm it is installed & logged in.
 if ! command -v gh >/dev/null 2>&1; then
-  echo "ERROR: gh CLI not found. Install it or log in: https://cli.github.com" >&2
+  echo "ERROR: gh CLI not found. Install it: https://cli.github.com" >&2
   exit 1
 fi
-if ! GH_TOKEN="$(gh auth token)"; then
-  echo "ERROR: 'gh auth token' failed. Run 'gh auth login' first." >&2
+if ! gh auth status >/dev/null 2>&1; then
+  echo "ERROR: gh is not logged in. Run 'gh auth login' first." >&2
   exit 1
 fi
-if [[ -z "$GH_TOKEN" ]]; then
-  echo "ERROR: 'gh auth token' returned empty. Run 'gh auth login' first." >&2
-  exit 1
-fi
-export GH_TOKEN
 
 export POLYTRAY_SIGN_RELEASE=1
 
@@ -47,15 +42,53 @@ npm run build
 echo "==> Rebuilding native deps for Electron"
 npx electron-builder install-app-deps
 
-echo "==> Packaging, signing, notarizing, and publishing (mac only)"
-npx electron-builder --mac --publish always
+echo "==> Packaging, signing, notarizing, and stapling (mac only, no publish)"
+# Build locally only. We upload via `gh` below instead of electron-builder's
+# GitHub publisher, which races with the tag-triggered release workflow.
+npx electron-builder --mac --publish never
 
 echo "==> Verifying signature & notarization on built .app"
 APP=$(find dist/mac* -maxdepth 1 -name "*.app" | head -n1)
-if [[ -n "${APP:-}" ]]; then
-  codesign --verify --deep --strict --verbose=2 "$APP"
-  spctl --assess --type execute --verbose=4 "$APP" || true
-  stapler validate "$APP" || true
+if [[ -z "${APP:-}" ]]; then
+  echo "ERROR: no built .app found under dist/mac*." >&2
+  exit 1
+fi
+codesign --verify --deep --strict --verbose=2 "$APP"
+if ! spctl --assess --type execute --verbose=4 "$APP"; then
+  echo "ERROR: Gatekeeper rejected the app — not notarized. Aborting before upload." >&2
+  exit 1
+fi
+if ! stapler validate "$APP"; then
+  echo "ERROR: notarization ticket is not stapled to the app. Aborting before upload." >&2
+  exit 1
 fi
 
-echo "==> Done. Signed, notarized artifacts are in dist/ and published to GitHub."
+VERSION="$(node -p "require('./package.json').version")"
+TAG="v${VERSION}"
+
+# Collect the mac artifacts for this version.
+ARTIFACTS=(
+  "dist/Polytray-${VERSION}-arm64.dmg"
+  "dist/Polytray-${VERSION}-arm64.dmg.blockmap"
+  "dist/Polytray-${VERSION}-arm64-mac.zip"
+  "dist/Polytray-${VERSION}-arm64-mac.zip.blockmap"
+  "dist/latest-mac.yml"
+)
+for f in "${ARTIFACTS[@]}"; do
+  if [[ ! -f "$f" ]]; then
+    echo "ERROR: expected artifact missing: $f" >&2
+    exit 1
+  fi
+done
+
+# Ensure the GitHub release exists, then upload (clobbering any stale assets).
+if ! gh release view "$TAG" >/dev/null 2>&1; then
+  echo "==> Release $TAG not found — creating it"
+  gh release create "$TAG" --title "$TAG" --generate-notes
+fi
+
+echo "==> Uploading signed mac artifacts to release $TAG"
+gh release upload "$TAG" --clobber "${ARTIFACTS[@]}"
+
+echo "==> Done. Signed, notarized mac artifacts uploaded to release $TAG:"
+gh release view "$TAG" --json assets -q '.assets[].name'
