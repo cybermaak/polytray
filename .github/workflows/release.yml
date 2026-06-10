@@ -44,6 +44,9 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # Auto-build release notes from commits/PRs so the release is never
+          # empty. Curate further later with `gh release edit` if desired.
+          generate_release_notes: true
           # No mac assets here — they are published locally, signed & notarized.
           files: |
             dist/*.exe
