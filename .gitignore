@@ -338,3 +338,4 @@ tests/fixtures/
 # Apple notarization private keys — never commit
 *.p8
 build/AuthKey_*.p8
+.superpowers/
