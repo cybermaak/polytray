@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polytray — Local-first 3D model organizer for 3D printing (STL, OBJ, 3MF)</title>
+<meta name="description" content="Free, open-source desktop organizer for 3D printing model libraries. Scan folders, generate thumbnails, search fast, and preview .stl/.obj/.3mf files — fully local, no cloud, no account. macOS (signed & notarized), Windows, Linux.">
+<link rel="icon" type="image/png" href="assets/icon.png">
+<link rel="canonical" href="https://cybermaak.github.io/polytray/">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Polytray — Local-first 3D model organizer">
+<meta property="og:description" content="Scan, search, and preview your .stl/.obj/.3mf libraries — no cloud, no account. Free for macOS, Windows, and Linux.">
+<meta property="og:url" content="https://cybermaak.github.io/polytray/">
+<meta property="og:image" content="https://cybermaak.github.io/polytray/assets/social-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://cybermaak.github.io/polytray/assets/social-preview.png">
+
+<style>
+  :root {
+    --bg: #0a0a0f; --panel: #141922; --panel2: #1d2430; --line: #2c3648;
+    --text: #e8ecf4; --muted: #aab4c6; --accent: #8b9bff; --green: #9fe0b8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: radial-gradient(110% 60% at 50% 0%, #1c2433 0%, var(--bg) 55%);
+    color: var(--text); font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 24px; }
+  header { text-align: center; padding: 72px 0 40px; }
+  header img.logo { width: 96px; height: 96px; border-radius: 22px; }
+  h1 { font-size: 52px; letter-spacing: -1px; margin: 16px 0 8px; }
+  .tagline { font-size: 21px; color: var(--muted); max-width: 640px; margin: 0 auto 28px; }
+  .tagline b { color: var(--text); }
+  .badges { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 34px; }
+  .badge { font-size: 14px; padding: 6px 13px; border-radius: 999px; background: var(--panel2); color: var(--muted); border: 1px solid var(--line); }
+  .badge.signed { background: #1d3a2c; color: var(--green); border-color: #2c5a42; }
+  .downloads { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-block; padding: 13px 26px; border-radius: 12px; text-decoration: none;
+    font-weight: 600; font-size: 16px; border: 1px solid var(--line);
+    background: var(--panel2); color: var(--text); transition: background .15s, transform .15s;
+  }
+  .btn:hover { background: #273043; transform: translateY(-1px); }
+  .btn.primary { background: var(--accent); color: #0a0a14; border-color: transparent; }
+  .btn.primary:hover { background: #9dabff; }
+  .btn small { display: block; font-weight: 400; font-size: 12px; opacity: .75; }
+  .shot { margin: 56px auto 0; max-width: 980px; }
+  .shot img {
+    width: 100%; border-radius: 14px; border: 1px solid var(--line);
+    box-shadow: 0 30px 80px rgba(0,0,0,.6); display: block;
+  }
+  section.features { padding: 72px 0 24px; }
+  h2 { font-size: 28px; text-align: center; margin-bottom: 40px; letter-spacing: -.5px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+  .card h3 { font-size: 17px; margin-bottom: 8px; }
+  .card p { font-size: 14.5px; color: var(--muted); }
+  section.why { padding: 48px 0; }
+  .why-box {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 28px 30px; max-width: 760px; margin: 0 auto;
+  }
+  .why-box p { color: var(--muted); font-size: 15.5px; }
+  .why-box p + p { margin-top: 12px; }
+  .why-box b { color: var(--text); }
+  footer { text-align: center; padding: 56px 0 64px; color: #6b7589; font-size: 14px; }
+  footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <img class="logo" src="assets/icon.png" alt="Polytray icon">
+  <h1>Polytray</h1>
+  <p class="tagline">Local-first desktop organizer for your <b>.stl · .obj · .3mf</b> libraries.<br>
+  Scan folders, generate thumbnails, search fast, and inspect models — <b>without sending your files to the cloud</b>.</p>
+
+  <div class="badges">
+    <span class="badge signed">✓ macOS build signed &amp; notarized by Apple</span>
+    <span class="badge">Free &amp; open source (MIT)</span>
+    <span class="badge">No account · No telemetry</span>
+  </div>
+
+  <div class="downloads">
+    <a class="btn primary" href="https://github.com/cybermaak/polytray/releases/latest">⬇ Download for macOS<small>.dmg — signed &amp; notarized</small></a>
+    <a class="btn" href="https://github.com/cybermaak/polytray/releases/latest">Windows<small>.exe installer</small></a>
+    <a class="btn" href="https://github.com/cybermaak/polytray/releases/latest">Linux<small>.AppImage</small></a>
+  </div>
+
+  <div class="shot">
+    <img src="assets/screenshot.png" alt="Polytray browsing a 3D model library with grid thumbnails and an interactive 3D preview">
+  </div>
+</header>
+
+<section class="features wrap">
+  <h2>Built for big, messy model libraries</h2>
+  <div class="grid">
+    <div class="card"><h3>⚡ Fast scanning &amp; search</h3><p>Point Polytray at your folders; it indexes everything into a local database and keeps it fresh with file watching. Search and filter thousands of models instantly.</p></div>
+    <div class="card"><h3>🖼 Automatic thumbnails</h3><p>Background thumbnail generation for STL, OBJ, and 3MF — browse your library visually instead of guessing from filenames.</p></div>
+    <div class="card"><h3>🌀 Interactive 3D preview</h3><p>Inspect any model in an orbiting 3D viewer, see real dimensions, and compare two models side by side.</p></div>
+    <div class="card"><h3>🏷 Tags &amp; collections</h3><p>Tag files (in batches too) and group models into virtual collections — independent of where they live on disk.</p></div>
+    <div class="card"><h3>📦 Archive browsing</h3><p>Look inside .zip archives, preview the models in them, and act on them without extracting anything first.</p></div>
+    <div class="card"><h3>🔒 Local by design</h3><p>Your files never leave your machine. No uploads, no account, no subscription — just a desktop app and your folders.</p></div>
+  </div>
+</section>
+
+<section class="why wrap">
+  <h2>Why local-first?</h2>
+  <div class="why-box">
+    <p><b>Cloud model managers</b> want your STL collection on their servers — uploads, accounts, subscriptions, and your designs in someone else's hands.</p>
+    <p><b>Polytray</b> indexes your existing folders in place. It works offline, it's as fast as your disk, and your library stays exactly where it is. Delete the app and nothing is lost or held hostage.</p>
+  </div>
+</section>
+
+<footer class="wrap">
+  <p><a href="https://github.com/cybermaak/polytray">GitHub</a> · <a href="https://github.com/cybermaak/polytray/releases">Releases</a> · <a href="https://github.com/cybermaak/polytray/discussions">Discussions</a> · MIT License</p>
+</footer>
+
+</body>
+</html>
