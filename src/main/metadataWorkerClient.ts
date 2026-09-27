@@ -154,7 +154,6 @@ export class MetadataWorkerClient {
     if (this.active === pending) {
       this.clearActive(pending);
       pending.reject(new Error("Metadata extraction cancelled"));
-      for (const queued of this.queue.splice(0)) { this.clearAbort(queued); queued.reject(new Error("Metadata extraction cancelled")); }
       this.terminateChild();
     } else {
       const index = this.queue.indexOf(pending);

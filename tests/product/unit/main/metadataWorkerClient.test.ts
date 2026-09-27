@@ -37,6 +37,30 @@ test("metadata worker cancellation settles the request and terminates its owned 
   await client.shutdown();
 });
 
+test("cancelling one active scan preserves unrelated queued metadata requests", async () => {
+  const workers = [new FakeUtility(), new FakeUtility()];
+  let starts = 0;
+  const client = new MetadataWorkerClient({ spawn: () => {
+    const worker = workers[starts++];
+    setImmediate(() => worker.emit("spawn"));
+    return worker as never;
+  } });
+  const controller = new AbortController();
+  const first = client.extract({ requestId: "scan-a", fileId: 1, contentRevision: 1, filePath: "/tmp/a.obj", extension: "obj" }, { signal: controller.signal });
+  const firstSettled = first.then(() => "resolved", () => "rejected");
+  await new Promise((resolve) => setImmediate(resolve));
+  const secondRequest = { requestId: "scan-b", fileId: 2, contentRevision: 1, filePath: "/tmp/b.obj", extension: "obj" };
+  const second = client.extract(secondRequest);
+  controller.abort();
+  assert.equal(await firstSettled, "rejected");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(starts, 2);
+  assert.deepEqual(workers[1].requests, [secondRequest]);
+  workers[1].emit("message", { requestId: secondRequest.requestId, summary: { vertexCount: 8, faceCount: 6, dimensions: null } });
+  assert.deepEqual(await second, { vertexCount: 8, faceCount: 6, dimensions: null });
+  await client.shutdown();
+});
+
 test("metadata worker retries an in-flight request once after its owned process exits", async () => {
   const workers = [new FakeUtility(), new FakeUtility()];
   let starts = 0;
