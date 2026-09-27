@@ -127,6 +127,9 @@ export interface ScanProgressData {
 /** SCAN_COMPLETE event payload */
 export interface ScanCompleteData {
   totalFiles: number;
+  state?: "completed" | "partial" | "failed" | "cancelled";
+  affectedScopes?: string[];
+  retainedCount?: number;
 }
 
 /** FILES_UPDATED event payload */
