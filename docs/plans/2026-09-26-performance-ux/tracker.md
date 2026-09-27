@@ -56,21 +56,21 @@
 
 | Assignment | Worker | Worktree / branch | State |
 | --- | --- | --- | --- |
-| D03 | d01_index_repository, Luna/medium | `/Users/maak/.codex/worktrees/polytray-foundation/polytray` / `codex/perf-d03` | Implementing independent cached summaries |
+| D03 | d01_index_repository, Luna/medium | `/Users/maak/.codex/worktrees/polytray-d03/polytray` / `codex/perf-d03` | Source/reviews/checks passed; final handoff and integration pending |
 | V03 | s01_safe_scanning reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-v03` | Implementing |
 | S02 | baseline_validation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-s02` | Implementing streaming scans |
-| T03 old dispatch | Unregistered chat request | Client `eec1883f-42d5-4431-ad0b-955c2867d1b1` | Superseded for ownership; reconcile if it later registers |
+| T03 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/61df/polytray`, `74d2e9e` | Preserved unreviewed alternative; active T03 producer already integrated |
 | T01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-thumbnails/polytray` / `codex/perf-t01` | Implementing |
 | U03 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-layout/polytray` / `codex/perf-u03` | Implementing |
 | P03 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-import/polytray` / `codex/perf-p03` | Implementing |
 | P01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-slicer/polytray` / `codex/perf-p01` | Implementing |
 | Independent review | Luna/medium chat `01a0e1fe-a466-7810-9892-71009a512cc2` | Read-only exact candidate checkouts | D01/S01 boundary PASS; V03 static spec review active |
-| U03 old dispatch | Unregistered request | Client `0a22ffff-ae10-4583-a008-f381c43fc15d` | Superseded; reconcile if it later registers |
-| P01 old dispatch | Unregistered request | Client `530dfb9f-136d-417b-a4ea-610b0026ec0d` | Superseded; reconcile if it later registers |
+| U03 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/1221/polytray`, `3a3b13c` | Preserved unreviewed alternative; active owner is the registered layout chat |
+| P01 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/861a/polytray`, `b9701b5` | Preserved unreviewed alternative; active owner is the registered slicer chat |
 
 Active agents use separate dependency copies. Current dispatch baseline: `c6868e7`.
 App-level/Electron checks use a serial coordinator lane; units/builds can run concurrently.
-The three original worktree-chat requests never returned usable task IDs. Their ownership has been superseded. The working route creates a managed worktree first, then a local project chat instructed to operate exclusively in that isolated checkout. Four implementation chats and one read-only review chat are now registered, in addition to the three active subagents. All implementations have private dependency copies. P01 and P03 are explicitly allowed concurrently because their source ownership is disjoint.
+The three original worktree-chat requests never returned usable task IDs. Later repository inspection found completed draft commits in their worktrees, recorded above; they are preserved and superseded rather than silently merged. The working coordination route creates a managed worktree first, then a local project chat instructed to operate exclusively in that isolated checkout. Four implementation chats and one read-only review chat are now registered, in addition to the three subagents. All active implementations have private dependency copies. P01 and P03 are explicitly allowed concurrently because their source ownership is disjoint.
 
 The coordinator explicitly delegated D01's startup/library-change bridge and V03's preview IPC/readiness/build-entry wiring in their separate checkouts. Each wiring delta is committed separately and receives coordinator review; common-file conflicts are resolved once at integration. V03 may mechanically remove the old preview hookup from thumbnail-owned files, while preserving thumbnail behavior.
 
