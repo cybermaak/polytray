@@ -71,46 +71,6 @@ const FILES_TABLE_SQL = `
   );
 `;
 
-const SCAN_UPSERT_SQL = `
-  INSERT INTO files (
-    path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, dimensions, thumbnail, thumbnail_failed, indexed_at
-  )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  ON CONFLICT(path) DO UPDATE SET
-    name = excluded.name,
-    extension = excluded.extension,
-    directory = excluded.directory,
-    size_bytes = excluded.size_bytes,
-    modified_at = excluded.modified_at,
-    vertex_count = excluded.vertex_count,
-    face_count = excluded.face_count,
-    dimensions = excluded.dimensions,
-    thumbnail = excluded.thumbnail,
-    thumbnail_failed = excluded.thumbnail_failed,
-    indexed_at = excluded.indexed_at
-  WHERE excluded.modified_at >= files.modified_at
-`;
-
-const WATCHER_UPSERT_SQL = `
-  INSERT INTO files (
-    path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count, dimensions, thumbnail, thumbnail_failed, indexed_at
-  )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  ON CONFLICT(path) DO UPDATE SET
-    name = excluded.name,
-    extension = excluded.extension,
-    directory = excluded.directory,
-    size_bytes = excluded.size_bytes,
-    modified_at = excluded.modified_at,
-    vertex_count = excluded.vertex_count,
-    face_count = excluded.face_count,
-    dimensions = excluded.dimensions,
-    thumbnail = excluded.thumbnail,
-    thumbnail_failed = excluded.thumbnail_failed,
-    indexed_at = excluded.indexed_at
-  WHERE excluded.modified_at >= files.modified_at
-`;
-
 function toIndexedFileRecord(file: ScannedFileRecord): IndexedFileRecord {
   return {
     path: file.path,
@@ -199,95 +159,11 @@ export function createFilesTableForTests(db: Database) {
 }
 
 export function applyScannedFileRecord(db: Database, file: ScannedFileRecord) {
-  const merged = mergeScannedFileRecord(readIndexedFileRecord(db, file.path), file);
-  db.prepare(SCAN_UPSERT_SQL).run(
-    merged.path,
-    merged.name,
-    merged.ext,
-    merged.dir,
-    merged.size,
-    merged.modifiedAt,
-    merged.vertexCount,
-    merged.faceCount,
-    merged.dimensions ? JSON.stringify(merged.dimensions) : null,
-    merged.thumbnailPath,
-    merged.thumbnailFailed,
-    merged.indexedAt,
-  );
+  getLegacyRepository(db).applyLegacyScan(file);
 }
 
 export function applyWatchedFileRecord(db: Database, file: WatchedFileRecord) {
-  const merged = mergeWatchedFileRecord(readIndexedFileRecord(db, file.path), file);
-  db.prepare(WATCHER_UPSERT_SQL).run(
-    merged.path,
-    merged.name,
-    merged.ext,
-    merged.dir,
-    merged.size,
-    merged.modifiedAt,
-    merged.vertexCount,
-    merged.faceCount,
-    merged.dimensions ? JSON.stringify(merged.dimensions) : null,
-    merged.thumbnailPath,
-    merged.thumbnailFailed,
-    merged.indexedAt,
-  );
-}
-
-function readIndexedFileRecord(db: Database, filePath: string): IndexedFileRecord | null {
-  const row = db
-    .prepare(`
-      SELECT
-        path,
-        name,
-        extension,
-        directory,
-        size_bytes,
-        modified_at,
-        vertex_count,
-        face_count,
-        dimensions,
-        thumbnail,
-        thumbnail_failed,
-        indexed_at
-      FROM files
-      WHERE path = ?
-    `)
-    .get(filePath) as
-    | {
-        path: string;
-        name: string;
-        extension: string;
-        directory: string;
-        size_bytes: number;
-        modified_at: number;
-        vertex_count: number;
-        face_count: number;
-        dimensions: string | null;
-        thumbnail: string | null;
-        thumbnail_failed: number;
-        indexed_at: number;
-      }
-    | undefined;
-
-  if (!row) {
-    return null;
-  }
-
-  return {
-    path: row.path,
-    name: row.name,
-    ext: row.extension,
-    dir: row.directory,
-    size: row.size_bytes,
-    modifiedAt: row.modified_at,
-    vertexCount: row.vertex_count,
-    faceCount: row.face_count,
-    dimensions: row.dimensions ? (JSON.parse(row.dimensions) as ModelDimensions) : null,
-    thumbnailPath: row.thumbnail,
-    thumbnailFailed: row.thumbnail_failed,
-    indexedAt: row.indexed_at,
-  };
+  getLegacyRepository(db).applyLegacyWatch(file);
 }
 
 export interface RevisionedFileRecord extends FileRecord {
@@ -308,6 +184,8 @@ export interface FileIndexRepository {
   updateThumbnailState(input: ThumbnailStateUpdate): ThumbnailStateUpdateResult;
   getBrowseRevision(): number;
   getFileContentRevision(fileId: number): number | null;
+  applyLegacyScan(file: ScannedFileRecord): void;
+  applyLegacyWatch(file: WatchedFileRecord): void;
 }
 
 export interface ThumbnailStateUpdate {
@@ -338,6 +216,12 @@ export function createFileIndexRepository(
     WHERE id = ?`);
   const updateUnchangedScan = db.prepare(`UPDATE files SET
     name = ?, extension = ?, directory = ?, indexed_at = ?, scan_generation = ? WHERE id = ?`);
+  const updateFilePreservingGeneration = db.prepare(`UPDATE files SET
+    name = ?, extension = ?, directory = ?, size_bytes = ?, modified_at = ?,
+    vertex_count = ?, face_count = ?, dimensions = ?, thumbnail = ?, thumbnail_failed = ?,
+    indexed_at = ?, content_revision = ?, archive_path = ? WHERE id = ?`);
+  const updateUnchangedPreservingGeneration = db.prepare(`UPDATE files SET
+    name = ?, extension = ?, directory = ?, indexed_at = ? WHERE id = ?`);
   const deleteScopes = db.prepare('DELETE FROM file_scopes WHERE file_id = ?');
   const insertScope = db.prepare('INSERT OR IGNORE INTO file_scopes (file_id, scope_path) VALUES (?, ?)');
   const insertScopesForPath = (fileId: number, filePath: string) => {
@@ -385,7 +269,10 @@ export function createFileIndexRepository(
     };
   }
 
-  function commitWatchAddOrChange(input: Extract<WatchUpdate, { kind: 'add' | 'change' }>): IndexMutationResult {
+  function commitWatchAddOrChange(
+    input: Extract<WatchUpdate, { kind: 'add' | 'change' }>,
+    enrichment?: Pick<WatchedFileRecord, 'vertexCount' | 'faceCount' | 'dimensions' | 'thumbnailPath' | 'thumbnailFailed'>,
+  ): IndexMutationResult {
     const result = db.transaction(() => {
       const existing = findByPath.get(input.path) as (RevisionedFileRecord & {
         size_bytes: number; modified_at: number;
@@ -397,10 +284,20 @@ export function createFileIndexRepository(
           input.sizeBytes, input.modifiedAt, Date.now(), contentRevision, archivePath, 0);
         const id = Number(inserted.lastInsertRowid);
         insertScopesForPath(id, input.path);
+        if (enrichment) {
+          updateEnrichment.run(enrichment.vertexCount, enrichment.faceCount,
+            enrichment.dimensions ? JSON.stringify(enrichment.dimensions) : null,
+            id, input.path, contentRevision);
+          writeThumbnailState.run(enrichment.thumbnailPath, enrichment.thumbnailFailed, id, contentRevision);
+        }
         return makeMutation([input.path], { rows: true, stats: true, topology: true });
       }
 
       if (input.expectedContentRevision !== undefined && input.expectedContentRevision !== existing.content_revision) {
+        return { affectedPaths: [], rowsChanged: false, annotationsChanged: false, statsChanged: false,
+          topologyChanged: false, thumbnailOnly: false, browseRevision: getBrowseRevision(db) };
+      }
+      if (input.modifiedAt < existing.modified_at) {
         return { affectedPaths: [], rowsChanged: false, annotationsChanged: false, statsChanged: false,
           topologyChanged: false, thumbnailOnly: false, browseRevision: getBrowseRevision(db) };
       }
@@ -418,6 +315,12 @@ export function createFileIndexRepository(
         const contentRevision = allocateContentRevision(db);
         updateFile.run(input.name, input.extension, input.directory, input.sizeBytes, input.modifiedAt,
           0, 0, null, null, 0, Date.now(), contentRevision, archivePath, 0, existing.id);
+        if (enrichment) {
+          updateEnrichment.run(enrichment.vertexCount, enrichment.faceCount,
+            enrichment.dimensions ? JSON.stringify(enrichment.dimensions) : null,
+            existing.id, input.path, contentRevision);
+          writeThumbnailState.run(enrichment.thumbnailPath, enrichment.thumbnailFailed, existing.id, contentRevision);
+        }
       } else {
         updateUnchangedScan.run(input.name, input.extension, input.directory, Date.now(), 0, existing.id);
       }
@@ -427,7 +330,7 @@ export function createFileIndexRepository(
     return result;
   }
 
-  function applyIndexBatch(input: IndexBatch): IndexBatchResult {
+  function applyIndexBatchInternal(input: IndexBatch, preserveScanGeneration = false): IndexBatchResult {
     const inputByPath = new Map(input.records.map((record) => [record.path, record]));
     const records = [...inputByPath.values()];
     let inserted = 0;
@@ -475,13 +378,22 @@ export function createFileIndexRepository(
             unchanged++;
             continue;
           }
+          if (record.modifiedAt < existing.modified_at) {
+            unchanged++;
+            continue;
+          }
           const contentChanged = record.modifiedAt !== existing.modified_at || record.sizeBytes !== existing.size_bytes;
           const displayChanged = record.name !== existing.name || record.extension !== existing.extension
             || record.directory !== existing.directory;
           if (contentChanged) {
             const contentRevision = allocateContentRevision(db);
-            updateFile.run(record.name, record.extension, record.directory, record.sizeBytes, record.modifiedAt,
-              0, 0, null, null, 0, now, contentRevision, archivePath, input.scanGeneration, existing.id);
+            if (preserveScanGeneration) {
+              updateFilePreservingGeneration.run(record.name, record.extension, record.directory, record.sizeBytes,
+                record.modifiedAt, 0, 0, null, null, 0, now, contentRevision, archivePath, existing.id);
+            } else {
+              updateFile.run(record.name, record.extension, record.directory, record.sizeBytes, record.modifiedAt,
+                0, 0, null, null, 0, now, contentRevision, archivePath, input.scanGeneration, existing.id);
+            }
             committed.push({ id: existing.id, path: record.path, contentRevision });
             updated++;
             batchRowsChanged = true;
@@ -491,7 +403,11 @@ export function createFileIndexRepository(
             topologyChanged ||= record.directory !== existing.directory;
             changedPaths.push(record.path);
           } else if (displayChanged) {
-            updateUnchangedScan.run(record.name, record.extension, record.directory, now, input.scanGeneration, existing.id);
+            if (preserveScanGeneration) {
+              updateUnchangedPreservingGeneration.run(record.name, record.extension, record.directory, now, existing.id);
+            } else {
+              updateUnchangedScan.run(record.name, record.extension, record.directory, now, input.scanGeneration, existing.id);
+            }
             committed.push({ id: existing.id, path: record.path, contentRevision: existing.content_revision });
             updated++;
             batchRowsChanged = true;
@@ -499,7 +415,9 @@ export function createFileIndexRepository(
             topologyChanged ||= record.directory !== existing.directory;
             changedPaths.push(record.path);
           } else {
-            updateUnchangedScan.run(record.name, record.extension, record.directory, now, input.scanGeneration, existing.id);
+            if (!preserveScanGeneration) {
+              updateUnchangedScan.run(record.name, record.extension, record.directory, now, input.scanGeneration, existing.id);
+            }
             unchanged++;
             committed.push({ id: existing.id, path: record.path, contentRevision: existing.content_revision });
           }
@@ -519,6 +437,37 @@ export function createFileIndexRepository(
     };
     notify(mutation, changedPaths);
     return { inserted, updated, unchanged, browseRevision, committed };
+  }
+
+  function applyIndexBatch(input: IndexBatch): IndexBatchResult {
+    return applyIndexBatchInternal(input);
+  }
+
+  function applyLegacyScan(file: ScannedFileRecord) {
+    const result = applyIndexBatchInternal({
+      scanGeneration: 0,
+      records: [{
+        path: file.path, name: file.name, extension: file.ext, directory: file.dir,
+        sizeBytes: file.size, modifiedAt: file.mtime, scanGeneration: 0,
+      }],
+    }, true);
+    const identity = result.committed.find((entry) => entry.path === file.path);
+    if (!identity) return;
+    applyMetadataResult({
+      fileId: identity.id, path: identity.path, expectedContentRevision: identity.contentRevision,
+      vertexCount: file.vertexCount, faceCount: file.faceCount,
+      dimensions: file.dimensions ? JSON.stringify(file.dimensions) : null,
+    });
+  }
+
+  function applyLegacyWatch(file: WatchedFileRecord) {
+    commitWatchAddOrChange({
+      kind: 'change', path: file.path, name: file.name, extension: file.ext, directory: file.dir,
+      sizeBytes: file.size, modifiedAt: file.modifiedAt, archivePath: parseArchiveEntryPath(file.path)?.archivePath ?? null,
+    }, {
+      vertexCount: file.vertexCount, faceCount: file.faceCount, dimensions: file.dimensions,
+      thumbnailPath: file.thumbnailPath, thumbnailFailed: file.thumbnailFailed,
+    });
   }
 
   function applyWatchUpdate(input: WatchUpdate): IndexMutationResult {
@@ -667,5 +616,18 @@ export function createFileIndexRepository(
     updateThumbnailState,
     getBrowseRevision: () => getBrowseRevision(db),
     getFileContentRevision,
+    applyLegacyScan,
+    applyLegacyWatch,
   };
+}
+
+const legacyRepositories = new WeakMap<Database, FileIndexRepository>();
+
+function getLegacyRepository(db: Database): FileIndexRepository {
+  let repository = legacyRepositories.get(db);
+  if (!repository) {
+    repository = createFileIndexRepository(db);
+    legacyRepositories.set(db, repository);
+  }
+  return repository;
 }

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import {
   createFileIndexRepository,
+  applyScannedFileRecord,
+  applyWatchedFileRecord,
   type CommittedFileMutation,
   mergeScannedFileRecord,
   mergeWatchedFileRecord,
@@ -289,6 +291,73 @@ test('thumbnail updates are revision guarded and do not advance browse revision'
     assert.equal(changed.rowsChanged, true);
     assert.equal(stale.status, 'stale');
     assert.equal((db.prepare('SELECT thumbnail FROM files WHERE id = ?').get(row.id) as { thumbnail: string | null }).thumbnail, null);
+  } finally {
+    db.close();
+  }
+});
+
+test('legacy scan wrapper updates revision and scope rows while preserving unchanged cache and annotations', () => {
+  const db = createRepositoryDatabase();
+  try {
+    const scanned = {
+      path: '/models/a.stl', name: 'a', ext: 'stl', dir: '/models', size: 100, mtime: 200,
+      vertexCount: 12, faceCount: 6, dimensions: { x: 1, y: 2, z: 3 }, indexedAt: 10,
+    };
+    applyScannedFileRecord(db, scanned);
+    const first = db.prepare('SELECT id, content_revision FROM files WHERE path = ?').get(scanned.path) as { id: number; content_revision: number };
+    assert.ok(first.content_revision > 1);
+    assert.deepEqual(db.prepare('SELECT scope_path FROM file_scopes WHERE file_id = ? ORDER BY scope_path').all(first.id), [
+      { scope_path: '/' }, { scope_path: '/models' },
+    ]);
+
+    db.prepare("UPDATE files SET tags = 'keep-tag', notes = 'keep-note', print_status = 'Testing', thumbnail = '/cached.png', scan_generation = 42").run();
+    applyScannedFileRecord(db, scanned);
+    const unchanged = db.prepare('SELECT content_revision, tags, notes, print_status, thumbnail, scan_generation FROM files WHERE id = ?').get(first.id) as Record<string, unknown>;
+    assert.deepEqual(unchanged, {
+      content_revision: first.content_revision, tags: 'keep-tag', notes: 'keep-note',
+      print_status: 'Testing', thumbnail: '/cached.png', scan_generation: 42,
+    });
+
+    applyScannedFileRecord(db, { ...scanned, size: 120, vertexCount: 15 });
+    const changed = db.prepare('SELECT content_revision, tags, notes, print_status, thumbnail, vertex_count FROM files WHERE id = ?').get(first.id) as Record<string, unknown>;
+    assert.ok(Number(changed.content_revision) > first.content_revision);
+    assert.deepEqual({ tags: changed.tags, notes: changed.notes, print_status: changed.print_status, thumbnail: changed.thumbnail, vertex_count: changed.vertex_count }, {
+      tags: 'keep-tag', notes: 'keep-note', print_status: 'Testing', thumbnail: null, vertex_count: 15,
+    });
+    applyScannedFileRecord(db, { ...scanned, size: 1, mtime: 150, vertexCount: 1, faceCount: 1 });
+    const afterStale = db.prepare('SELECT size_bytes, modified_at, content_revision, vertex_count FROM files WHERE id = ?').get(first.id) as Record<string, number>;
+    assert.deepEqual(afterStale, {
+      size_bytes: 120, modified_at: 200, content_revision: changed.content_revision, vertex_count: 15,
+    });
+    assert.ok(Number((db.prepare('SELECT browse_revision FROM library_revisions WHERE singleton = 1').get() as { browse_revision: number }).browse_revision) > 0);
+  } finally {
+    db.close();
+  }
+});
+
+test('legacy watcher wrapper routes archive records through revisioned scopes and annotations', () => {
+  const db = createRepositoryDatabase();
+  try {
+    const watched = {
+      path: '/models/kits.zip::entry::set/a.stl', name: 'a', ext: 'stl', dir: '/models/kits.zip::entry::set',
+      size: 100, modifiedAt: 200, vertexCount: 12, faceCount: 6, dimensions: { x: 1, y: 2, z: 3 },
+      thumbnailPath: '/cache/a.png', thumbnailFailed: 0, indexedAt: 10,
+    };
+    applyWatchedFileRecord(db, watched);
+    const first = db.prepare('SELECT id, content_revision, archive_path FROM files WHERE path = ?').get(watched.path) as {
+      id: number; content_revision: number; archive_path: string | null;
+    };
+    assert.equal(first.archive_path, '/models/kits.zip');
+    assert.ok(first.content_revision > 1);
+    assert.ok((db.prepare('SELECT COUNT(*) AS count FROM file_scopes WHERE file_id = ?').get(first.id) as { count: number }).count >= 5);
+
+    db.prepare("UPDATE files SET tags = 'tag', notes = 'note', print_status = 'Testing'").run();
+    applyWatchedFileRecord(db, { ...watched, modifiedAt: 200, size: 100, vertexCount: 25 });
+    const current = db.prepare('SELECT content_revision, tags, notes, print_status, vertex_count, thumbnail FROM files WHERE id = ?').get(first.id) as Record<string, unknown>;
+    assert.ok(Number(current.content_revision) > first.content_revision);
+    assert.deepEqual({ tags: current.tags, notes: current.notes, print_status: current.print_status, vertex_count: current.vertex_count, thumbnail: current.thumbnail }, {
+      tags: 'tag', notes: 'note', print_status: 'Testing', vertex_count: 25, thumbnail: '/cache/a.png',
+    });
   } finally {
     db.close();
   }
