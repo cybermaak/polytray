@@ -70,12 +70,18 @@ export type MetadataImportCommitResult =
   | { status: "cancelled" }
   | { status: "failed"; message: string };
 
+export type MetadataImportRecoveryResult =
+  | { status: "none" }
+  | { status: "aborted"; transactionId: string }
+  | { status: "roll-forward"; rendererState: StagedMetadataRestore }
+  | { status: "blocked"; transactionId: string | null; message: string };
+
 export interface MetadataBackupService {
   exportMetadata(snapshot: MetadataBackupSnapshot): Promise<MetadataBackupExportResult>;
-  previewImport(input: Uint8Array, currentRendererRevision: number): Promise<MetadataImportPlan>;
+  previewImport(input: Uint8Array, currentSnapshot: MetadataBackupSnapshot): Promise<MetadataImportPlan>;
   commitImport(transactionId: string): Promise<MetadataImportCommitResult>;
   acknowledgeImport(transactionId: string, rendererRevision: number): Promise<void>;
-  reconcileImport(transactionId: string): Promise<StagedMetadataRestore | null>;
+  reconcileImport(transactionId?: string): Promise<MetadataImportRecoveryResult>;
   cancelImport(transactionId: string): Promise<void>;
 }
 
