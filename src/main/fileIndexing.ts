@@ -201,10 +201,11 @@ export type ThumbnailStateUpdateResult =
   | { status: 'missing' };
 
 /** Prepared repository for all indexed-file writes. Notifications run after the transaction commits. */
-export function createFileIndexRepository(
+function createPreparedFileIndexRepository(
   db: Database,
   onMutation?: (mutation: CommittedFileMutation) => void,
 ): FileIndexRepository {
+  let groupedMutations: CommittedFileMutation[] | null = null;
   const insertFile = db.prepare(`INSERT INTO files (
     path, name, extension, directory, size_bytes, modified_at, vertex_count, face_count,
     dimensions, thumbnail, thumbnail_failed, indexed_at, content_revision, archive_path, scan_generation
@@ -249,7 +250,40 @@ export function createFileIndexRepository(
   const findBatch = db.prepare(`SELECT * FROM files WHERE path IN (${Array.from({ length: batchSize }, () => '?').join(',')})`);
 
   function notify(result: IndexMutationResult, paths: string[]) {
-    if (paths.length > 0) onMutation?.({ ...result, paths: [...new Set(paths)] });
+    if (paths.length === 0) return;
+    const mutation = { ...result, paths: [...new Set(paths)] };
+    if (groupedMutations) {
+      groupedMutations.push(mutation);
+    } else {
+      onMutation?.(mutation);
+    }
+  }
+
+  function groupMutations<T>(operation: () => T): T {
+    const owner = groupedMutations === null;
+    if (owner) groupedMutations = [];
+    try {
+      return operation();
+    } finally {
+      if (owner) {
+        const mutations = groupedMutations ?? [];
+        groupedMutations = null;
+        if (mutations.length > 0) {
+          const affectedPaths = [...new Set(mutations.flatMap((mutation) => mutation.affectedPaths))];
+          const paths = [...new Set(mutations.flatMap((mutation) => mutation.paths))];
+          onMutation?.({
+            affectedPaths,
+            paths,
+            rowsChanged: mutations.some((mutation) => mutation.rowsChanged),
+            annotationsChanged: mutations.some((mutation) => mutation.annotationsChanged),
+            statsChanged: mutations.some((mutation) => mutation.statsChanged),
+            topologyChanged: mutations.some((mutation) => mutation.topologyChanged),
+            thumbnailOnly: mutations.every((mutation) => mutation.thumbnailOnly),
+            browseRevision: mutations[mutations.length - 1].browseRevision,
+          });
+        }
+      }
+    }
   }
 
   function makeMutation(paths: string[], flags: { rows?: boolean; annotations?: boolean; stats?: boolean; topology?: boolean; thumbnailOnly?: boolean }): IndexMutationResult {
@@ -444,19 +478,21 @@ export function createFileIndexRepository(
   }
 
   function applyLegacyScan(file: ScannedFileRecord) {
-    const result = applyIndexBatchInternal({
-      scanGeneration: 0,
-      records: [{
-        path: file.path, name: file.name, extension: file.ext, directory: file.dir,
-        sizeBytes: file.size, modifiedAt: file.mtime, scanGeneration: 0,
-      }],
-    }, true);
-    const identity = result.committed.find((entry) => entry.path === file.path);
-    if (!identity) return;
-    applyMetadataResult({
-      fileId: identity.id, path: identity.path, expectedContentRevision: identity.contentRevision,
-      vertexCount: file.vertexCount, faceCount: file.faceCount,
-      dimensions: file.dimensions ? JSON.stringify(file.dimensions) : null,
+    groupMutations(() => {
+      const result = applyIndexBatchInternal({
+        scanGeneration: 0,
+        records: [{
+          path: file.path, name: file.name, extension: file.ext, directory: file.dir,
+          sizeBytes: file.size, modifiedAt: file.mtime, scanGeneration: 0,
+        }],
+      }, true);
+      const identity = result.committed.find((entry) => entry.path === file.path);
+      if (!identity) return;
+      applyMetadataResult({
+        fileId: identity.id, path: identity.path, expectedContentRevision: identity.contentRevision,
+        vertexCount: file.vertexCount, faceCount: file.faceCount,
+        dimensions: file.dimensions ? JSON.stringify(file.dimensions) : null,
+      });
     });
   }
 
@@ -621,13 +657,58 @@ export function createFileIndexRepository(
   };
 }
 
-const legacyRepositories = new WeakMap<Database, FileIndexRepository>();
+interface SharedFileIndexRepository {
+  repository: FileIndexRepository;
+  observers: Map<(mutation: CommittedFileMutation) => void, { factoryRegistration: boolean; subscriptions: number }>;
+}
+
+const sharedRepositories = new WeakMap<Database, SharedFileIndexRepository>();
+
+function getSharedRepository(db: Database): SharedFileIndexRepository {
+  let shared = sharedRepositories.get(db);
+  if (!shared) {
+    const observers = new Map<(mutation: CommittedFileMutation) => void, { factoryRegistration: boolean; subscriptions: number }>();
+    const repository = createPreparedFileIndexRepository(db, (mutation) => {
+      for (const observer of observers.keys()) observer(mutation);
+    });
+    shared = { repository, observers };
+    sharedRepositories.set(db, shared);
+  }
+  return shared;
+}
+
+/** Returns one prepared repository per database handle and optionally registers an observer. */
+export function createFileIndexRepository(
+  db: Database,
+  onMutation?: (mutation: CommittedFileMutation) => void,
+): FileIndexRepository {
+  const shared = getSharedRepository(db);
+  if (onMutation) {
+    const registration = shared.observers.get(onMutation) ?? { factoryRegistration: false, subscriptions: 0 };
+    registration.factoryRegistration = true;
+    shared.observers.set(onMutation, registration);
+  }
+  return shared.repository;
+}
+
+/** Registers an idempotent post-commit observer on the shared repository for this database. */
+export function subscribeToFileIndexMutations(
+  db: Database,
+  observer: (mutation: CommittedFileMutation) => void,
+): () => void {
+  const shared = getSharedRepository(db);
+  const registration = shared.observers.get(observer) ?? { factoryRegistration: false, subscriptions: 0 };
+  registration.subscriptions++;
+  shared.observers.set(observer, registration);
+  let active = true;
+  return () => {
+    if (!active) return;
+    active = false;
+    registration.subscriptions--;
+    if (!registration.factoryRegistration && registration.subscriptions === 0) shared.observers.delete(observer);
+  };
+}
 
 function getLegacyRepository(db: Database): FileIndexRepository {
-  let repository = legacyRepositories.get(db);
-  if (!repository) {
-    repository = createFileIndexRepository(db);
-    legacyRepositories.set(db, repository);
-  }
-  return repository;
+  return createFileIndexRepository(db);
 }

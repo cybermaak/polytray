@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import { backfillFileScopes, enumerateFileScopes, isScopeBackfillComplete } from '../../../../src/main/fileScopes';
+import { backfillFileScopes, canonicalizeScopePath, enumerateFileScopes, enumerateFileScopesForPlatform, isScopeBackfillComplete } from '../../../../src/main/fileScopes';
 import Database from 'better-sqlite3';
 import { MIGRATIONS } from '../../../../src/main/database';
+import { isPathContained } from '../../../../src/main/pathContainment';
 
 test('native scopes contain canonical ancestors without sibling-prefix matches', () => {
   const scopes = enumerateFileScopes('/models/library-2/part/model.stl');
@@ -36,6 +37,32 @@ test('archive subfolder scopes do not include sibling virtual folders', () => {
 
   assert.equal(scopes.includes('/models/kits.zip::entry::catalogue'), false);
   assert.equal(scopes.includes('/models/kits.zip::entry::catalogue-v2'), true);
+});
+
+test('archive scope aliases normalize dot segments exactly like virtual containment', () => {
+  const scope = canonicalizeScopePath('/tmp/kits.zip::entry::a/../parts');
+  const memberScopes = enumerateFileScopes('/tmp/kits.zip::entry::parts/model.stl');
+  const aliasMemberScopes = enumerateFileScopes('/tmp/kits.zip::entry::parts/unused/../model.stl');
+
+  assert.equal(isPathContained('/tmp/kits.zip::entry::a/../parts', '/tmp/kits.zip::entry::parts/model.stl'), true);
+  assert.equal(scope, '/tmp/kits.zip::entry::parts');
+  assert.equal(memberScopes.includes(scope), true);
+  assert.equal(aliasMemberScopes.includes(scope), true);
+});
+
+test('Windows native scope keys ignore case while archive headers and members retain their comparison semantics', () => {
+  const upperScopes = enumerateFileScopesForPlatform('C:\\Models\\kits.zip::entry::Parts/model.stl', 'win32');
+  const lowerScopes = enumerateFileScopesForPlatform('c:\\models\\kits.zip::entry::Parts/model.stl', 'win32');
+
+  assert.deepEqual(upperScopes.slice(0, 2), lowerScopes.slice(0, 2));
+  assert.notEqual(
+    canonicalizeScopePath('C:\\Models\\kits.zip::entry::Parts', 'win32'),
+    canonicalizeScopePath('c:\\models\\kits.zip::entry::Parts', 'win32'),
+  );
+  assert.notEqual(
+    canonicalizeScopePath('C:\\Models\\kits.zip::entry::Parts', 'win32'),
+    canonicalizeScopePath('C:\\Models\\kits.zip::entry::parts', 'win32'),
+  );
 });
 
 test('Windows scope enumeration follows native path roots on Windows', { skip: process.platform !== 'win32' }, () => {

@@ -6,6 +6,7 @@ import {
   applyScannedFileRecord,
   applyWatchedFileRecord,
   type CommittedFileMutation,
+  subscribeToFileIndexMutations,
   mergeScannedFileRecord,
   mergeWatchedFileRecord,
   type IndexedFileRecord,
@@ -358,6 +359,44 @@ test('legacy watcher wrapper routes archive records through revisioned scopes an
     assert.deepEqual({ tags: current.tags, notes: current.notes, print_status: current.print_status, vertex_count: current.vertex_count, thumbnail: current.thumbnail }, {
       tags: 'tag', notes: 'note', print_status: 'Testing', vertex_count: 25, thumbnail: '/cache/a.png',
     });
+  } finally {
+    db.close();
+  }
+});
+
+test('shared repository observer receives each legacy wrapper commit once after the write', () => {
+  const db = createRepositoryDatabase();
+  try {
+    const received: Array<{ mutation: CommittedFileMutation; vertexCount: number; thumbnail: string | null }> = [];
+    const observer = (mutation: CommittedFileMutation) => {
+      const row = db.prepare('SELECT vertex_count, thumbnail FROM files WHERE path = ?').get(mutation.affectedPaths[0]) as {
+        vertex_count: number; thumbnail: string | null;
+      };
+      assert.ok(row);
+      assert.equal(row.vertex_count, 20);
+      received.push({ mutation, vertexCount: row.vertex_count, thumbnail: row.thumbnail });
+    };
+    const first = createFileIndexRepository(db, observer);
+    const second = createFileIndexRepository(db, observer);
+    const unsubscribe = subscribeToFileIndexMutations(db, observer);
+    const unsubscribeDuplicate = subscribeToFileIndexMutations(db, observer);
+    assert.equal(first, second);
+
+    applyScannedFileRecord(db, {
+      path: '/models/a.stl', name: 'a', ext: 'stl', dir: '/models', size: 100, mtime: 200,
+      vertexCount: 20, faceCount: 10, dimensions: null, indexedAt: 10,
+    });
+    assert.equal(received.length, 1);
+    assert.equal(received[0].thumbnail, null);
+    applyWatchedFileRecord(db, {
+      path: '/models/a.stl', name: 'a', ext: 'stl', dir: '/models', size: 100, modifiedAt: 200,
+      vertexCount: 20, faceCount: 10, dimensions: null, thumbnailPath: '/cache/a.png', thumbnailFailed: 0, indexedAt: 11,
+    });
+    assert.equal(received.length, 2);
+    assert.equal(received[1].thumbnail, '/cache/a.png');
+    assert.deepEqual(received.map((event) => event.mutation.affectedPaths), [['/models/a.stl'], ['/models/a.stl']]);
+    unsubscribe();
+    unsubscribeDuplicate();
   } finally {
     db.close();
   }

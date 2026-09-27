@@ -2,15 +2,47 @@ import path from 'path';
 import type { Database } from 'better-sqlite3';
 import {
   ARCHIVE_ENTRY_SEPARATOR,
+  normalizeArchiveEntryPath,
   parseArchiveEntryPath,
 } from '../shared/archivePaths';
 
-function nativeAncestors(directory: string) {
+export type ScopePlatform = 'win32' | 'posix';
+
+function pathApi(platform: ScopePlatform) {
+  return platform === 'win32' ? path.win32 : path;
+}
+
+function normalizeNativeScope(value: string, platform: ScopePlatform) {
+  const normalized = pathApi(platform).resolve(value);
+  return platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function normalizeArchiveHeader(value: string, platform: ScopePlatform) {
+  // Archive-header equality intentionally follows isPathContained's case-sensitive resolved-path comparison.
+  return pathApi(platform).resolve(value);
+}
+
+function normalizeVirtualEntry(value: string) {
+  const normalized = path.posix.normalize(normalizeArchiveEntryPath(value));
+  return normalized === '.' ? '' : normalized;
+}
+
+function parseArchiveScope(value: string): { archivePath: string; entryPath: string } | null {
+  const separatorIndex = value.indexOf(ARCHIVE_ENTRY_SEPARATOR);
+  if (separatorIndex <= 0) return null;
+  return {
+    archivePath: value.slice(0, separatorIndex),
+    entryPath: normalizeVirtualEntry(value.slice(separatorIndex + ARCHIVE_ENTRY_SEPARATOR.length)),
+  };
+}
+
+function nativeAncestors(directory: string, platform: ScopePlatform, normalizeCase = true) {
+  const api = pathApi(platform);
   const scopes: string[] = [];
-  let current = path.resolve(directory);
+  let current = api.resolve(directory);
   while (true) {
-    scopes.push(current);
-    const parent = path.dirname(current);
+    scopes.push(normalizeCase ? normalizeNativeScope(current, platform) : current);
+    const parent = api.dirname(current);
     if (parent === current) break;
     current = parent;
   }
@@ -19,13 +51,19 @@ function nativeAncestors(directory: string) {
 
 /** Enumerates exactly the canonical scope keys which contain an indexed file. */
 export function enumerateFileScopes(filePath: string): string[] {
-  const archive = parseArchiveEntryPath(filePath);
-  if (!archive) return nativeAncestors(path.dirname(path.resolve(filePath)));
+  return enumerateFileScopesForPlatform(filePath, process.platform === 'win32' ? 'win32' : 'posix');
+}
 
-  const canonicalArchivePath = path.resolve(archive.archivePath);
+export function enumerateFileScopesForPlatform(filePath: string, platform: ScopePlatform): string[] {
+  const api = pathApi(platform);
+  const archive = parseArchiveEntryPath(filePath);
+  if (!archive) return nativeAncestors(api.dirname(api.resolve(filePath)), platform);
+
+  const canonicalArchivePath = normalizeArchiveHeader(archive.archivePath, platform);
   const virtualRoot = `${canonicalArchivePath}${ARCHIVE_ENTRY_SEPARATOR}`;
-  const scopes = nativeAncestors(canonicalArchivePath);
-  const parts = archive.entryPath.split('/');
+  const scopes = nativeAncestors(canonicalArchivePath, platform);
+  const normalizedEntryPath = normalizeVirtualEntry(archive.entryPath);
+  const parts = normalizedEntryPath.split('/');
   parts.pop();
   let virtual = virtualRoot;
   scopes.push(virtual);
@@ -37,10 +75,10 @@ export function enumerateFileScopes(filePath: string): string[] {
 }
 
 /** Canonicalizes a folder key using the same native and virtual rules as membership. */
-export function canonicalizeScopePath(scopePath: string): string {
-  const archive = parseArchiveEntryPath(scopePath);
-  if (!archive) return path.resolve(scopePath);
-  const virtualRoot = `${path.resolve(archive.archivePath)}${ARCHIVE_ENTRY_SEPARATOR}`;
+export function canonicalizeScopePath(scopePath: string, platform: ScopePlatform = process.platform === 'win32' ? 'win32' : 'posix'): string {
+  const archive = parseArchiveScope(scopePath);
+  if (!archive) return normalizeNativeScope(scopePath, platform);
+  const virtualRoot = `${normalizeArchiveHeader(archive.archivePath, platform)}${ARCHIVE_ENTRY_SEPARATOR}`;
   return archive.entryPath ? `${virtualRoot}${archive.entryPath}` : virtualRoot;
 }
 
