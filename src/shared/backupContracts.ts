@@ -23,6 +23,8 @@ export interface MetadataBackupV1 {
   exportedAt: string;
   appVersion: string;
   annotations: Array<{ path: string; tags: string[]; notes: string | null; printStatus?: string }>;
+  /** Unresolved annotations kept separate so they can overlap indexed paths without data loss. */
+  pendingAnnotations: Array<{ path: string; tags: string[]; notes: string | null; printStatus?: string }>;
   collections: Array<{ id: string; name: string; paths: string[] }>;
   libraryRoots: string[];
   preferences: Partial<Pick<AppSettings, "lightMode" | "gridSize" | "autoScan" | "accentColor" | "previewColor" | "thumbnailColor" | "thumbQuality" | "showGrid" | "watch">>;
