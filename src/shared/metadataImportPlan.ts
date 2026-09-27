@@ -1,6 +1,7 @@
+import type { MetadataImportAnnotationUpdate, MetadataImportPlan } from './backupContracts';
 import { canonicalizeBackupPath, type MetadataBackupAnnotation, validateMetadataBackupV1 } from './metadataBackup';
 import { normalizeFileTags } from './fileTags';
-import { DEFAULT_APP_SETTINGS, normalizeAppSettings } from './settings';
+import { normalizeAppSettings } from './settings';
 
 export interface ImportRendererState {
   libraryRoots: string[];
@@ -8,9 +9,10 @@ export interface ImportRendererState {
   preferences: Record<string, unknown>;
 }
 export interface ImportCurrentState {
+  /** D01 browseRevision advances for indexed annotation mutations. */
   databaseBrowseRevision: number;
-  databaseAnnotationRevision: number;
   rendererRevision: number;
+  /** Must include every indexed file row, including rows with no annotation values. */
   annotations: MetadataBackupAnnotation[];
   pendingAnnotations: MetadataBackupAnnotation[];
   rendererState: ImportRendererState;
@@ -18,31 +20,8 @@ export interface ImportCurrentState {
 export interface MetadataImportPlanInput {
   backup: unknown;
   current: ImportCurrentState;
-  planId?: string;
+  transactionId?: string;
   options?: { replaceSettings?: boolean; replaceRoots?: boolean };
-}
-export interface PlannedAnnotation { path: string; before: MetadataBackupAnnotation | null; after: MetadataBackupAnnotation; source: 'matched' | 'unmatched-pending' | 'pending'; changed: boolean }
-export interface MetadataImportPlan {
-  planId: string;
-  inputFingerprint: string;
-  databaseBrowseRevision: number;
-  databaseAnnotationRevision: number;
-  rendererRevision: number;
-  matched: PlannedAnnotation[];
-  unmatchedPending: MetadataBackupAnnotation[];
-  pendingAnnotations: PlannedAnnotation[];
-  annotations: PlannedAnnotation[];
-  unchanged: PlannedAnnotation[];
-  changed: PlannedAnnotation[];
-  annotationConflicts: Array<{ path: string; field: 'notes' | 'printStatus'; existing: string; incoming: string }>;
-  collections: ImportRendererState['collections'];
-  collectionIdRemaps: Array<{ oldId: string; newId: string; name: string }>;
-  rendererChanges: {
-    settings: { before: Record<string, unknown>; after: Record<string, unknown> };
-    roots: { before: string[]; after: string[] };
-    collections: { before: ImportRendererState['collections']; after: ImportRendererState['collections'] };
-  };
-  options: { replaceSettings: boolean; replaceRoots: boolean };
 }
 
 const PORTABLE_KEYS = ['lightMode','gridSize','autoScan','accentColor','previewColor','thumbnailColor','thumbQuality','showGrid','watch'] as const;
@@ -59,98 +38,174 @@ function fingerprint(value: string): string {
   const fourth = hash(`${first}:${second}:${third}:${value}`);
   return `${first}${second}${third}${fourth}`;
 }
-function portablePreferences(value: Record<string, unknown>): Record<string, unknown> {
-  const normalized = normalizeAppSettings({ ...DEFAULT_APP_SETTINGS, ...value });
-  return Object.fromEntries(PORTABLE_KEYS.map(key => [key, normalized[key]]));
-}
 function normalizedAnnotation(record: MetadataBackupAnnotation): MetadataBackupAnnotation {
-  return { path: canonicalizeBackupPath(record.path), tags: normalizeFileTags(record.tags), notes: record.notes?.trim() || null, ...(record.printStatus !== undefined ? { printStatus: record.printStatus.trim() } : {}) };
+  return {
+    path: canonicalizeBackupPath(record.path),
+    tags: normalizeFileTags(record.tags),
+    notes: record.notes?.trim() || null,
+    ...(record.printStatus !== undefined ? { printStatus: record.printStatus.trim() } : {}),
+  };
 }
 function same(a: unknown, b: unknown) { return stable(a) === stable(b); }
+function completeCurrentSettings(raw: Record<string, unknown>): Record<string, unknown> {
+  // Keep local-only/future fields (such as slicer paths and panel widths), while
+  // normalizing every key owned by AppSettings.
+  return { ...raw, ...normalizeAppSettings(raw) };
+}
+function importedSettingsOverlay(settings: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(PORTABLE_KEYS.filter(key => Object.prototype.hasOwnProperty.call(settings, key)).map(key => [key, settings[key]]));
+}
 
-function mergeAnnotation(incomingRaw: MetadataBackupAnnotation, existingRaw: MetadataBackupAnnotation | undefined,
-  conflicts: MetadataImportPlan['annotationConflicts']): PlannedAnnotation {
+function mergeAnnotation(existingRaw: MetadataBackupAnnotation | null, incomingRaw: MetadataBackupAnnotation,
+  path: string, conflicts: MetadataImportPlan['annotationConflicts']): MetadataBackupAnnotation {
   const incoming = normalizedAnnotation(incomingRaw);
-  const existing = existingRaw ? normalizedAnnotation(existingRaw) : undefined;
-  if (!existing) return { path: incoming.path, before: null, after: incoming, source: 'matched', changed: true };
-  const after: MetadataBackupAnnotation = { path: existing.path, tags: normalizeFileTags([...existing.tags, ...incoming.tags]), notes: existing.notes, ...(existing.printStatus !== undefined ? { printStatus: existing.printStatus } : {}) };
+  const existing = existingRaw ? normalizedAnnotation(existingRaw) : null;
+  if (!existing) return incoming;
+  const after: MetadataBackupAnnotation = {
+    path,
+    tags: normalizeFileTags([...existing.tags, ...incoming.tags]),
+    notes: existing.notes,
+    ...(existing.printStatus !== undefined ? { printStatus: existing.printStatus } : {}),
+  };
   if (!existing.notes && incoming.notes) after.notes = incoming.notes;
-  else if (existing.notes && incoming.notes && existing.notes !== incoming.notes) conflicts.push({ path: incoming.path, field: 'notes', existing: existing.notes, incoming: incoming.notes });
+  else if (existing.notes && incoming.notes && existing.notes !== incoming.notes) {
+    conflicts.push({ path, field: 'notes', existing: existing.notes, incoming: incoming.notes });
+  }
   const currentStatus = existing.printStatus;
   const importedStatus = incoming.printStatus;
   if ((!currentStatus || currentStatus === 'Not Printed') && importedStatus && importedStatus !== 'Not Printed') after.printStatus = importedStatus;
-  else if (currentStatus && currentStatus !== 'Not Printed' && importedStatus && importedStatus !== currentStatus) conflicts.push({ path: incoming.path, field: 'printStatus', existing: currentStatus, incoming: importedStatus });
-  return { path: incoming.path, before: existing, after, source: 'matched', changed: !same(existing, after) };
+  else if (currentStatus && currentStatus !== 'Not Printed' && importedStatus && importedStatus !== currentStatus) {
+    conflicts.push({ path, field: 'printStatus', existing: currentStatus, incoming: importedStatus });
+  }
+  return after;
+}
+
+function normalizeCollection(collection: ImportRendererState['collections'][number]) {
+  return {
+    id: collection.id,
+    name: collection.name.trim(),
+    paths: [...new Set(collection.paths.map(canonicalizeBackupPath))],
+  };
 }
 
 export function createMetadataImportPlan(input: MetadataImportPlanInput): MetadataImportPlan {
   const backup = validateMetadataBackupV1(input.backup);
   const current = input.current;
-  const currentByPath = new Map<string, MetadataBackupAnnotation>();
-  for (const annotation of current.annotations) currentByPath.set(canonicalizeBackupPath(annotation.path), normalizedAnnotation(annotation));
-  const conflicts: MetadataImportPlan['annotationConflicts'] = [];
-  const planned = backup.annotations.map(annotation => mergeAnnotation(annotation, currentByPath.get(canonicalizeBackupPath(annotation.path)), conflicts));
-  const matchedPaths = new Set(currentByPath.keys());
-  const matchedPlans = planned.filter(item => matchedPaths.has(item.path));
-  const unmatchedPending = [...backup.annotations, ...backup.pendingAnnotations]
-    .filter(annotation => !matchedPaths.has(canonicalizeBackupPath(annotation.path)))
-    .map(normalizedAnnotation);
-  const pendingCurrent = new Map(current.pendingAnnotations.map(annotation => [canonicalizeBackupPath(annotation.path), normalizedAnnotation(annotation)]));
-  const pendingPlans: PlannedAnnotation[] = backup.pendingAnnotations.map(incoming => {
-    const path = canonicalizeBackupPath(incoming.path);
-    const previous = pendingCurrent.get(path);
-    return { ...mergeAnnotation(incoming, previous, conflicts), source: 'pending' as const };
-  });
-  for (const incoming of backup.annotations.filter(annotation => !matchedPaths.has(canonicalizeBackupPath(annotation.path)))) {
-    const path = canonicalizeBackupPath(incoming.path);
-    pendingPlans.push({ ...mergeAnnotation(incoming, pendingCurrent.get(path), conflicts), source: 'unmatched-pending' });
+  const indexed = new Map<string, MetadataBackupAnnotation>();
+  for (const annotation of current.annotations) {
+    const normalized = normalizedAnnotation(annotation);
+    indexed.set(normalized.path, normalized);
+  }
+  const pending = new Map<string, MetadataBackupAnnotation>();
+  for (const annotation of current.pendingAnnotations) {
+    const normalized = normalizedAnnotation(annotation);
+    pending.set(normalized.path, normalized);
   }
 
-  const beforeCollections = current.rendererState.collections.map(c => ({ id:c.id, name:c.name.trim(), paths:[...new Set(c.paths.map(canonicalizeBackupPath))].sort() }));
-  const afterCollections = beforeCollections.map(c => ({ ...c, paths:[...c.paths] }));
+  const updates = new Map<string, MetadataImportAnnotationUpdate>();
+  const conflicts: MetadataImportPlan['annotationConflicts'] = [];
+  const applySource = (source: 'annotations' | 'pendingAnnotations', records: MetadataBackupAnnotation[]) => {
+    for (const raw of records) {
+      const incoming = normalizedAnnotation(raw);
+      const path = incoming.path;
+      const destination = indexed.has(path) ? 'indexed' : 'pending';
+      const existing = destination === 'indexed' ? indexed.get(path)! : pending.get(path) ?? null;
+      const previous = updates.get(path);
+      const before = previous ? previous.before : existing;
+      const mergeBase = previous?.after ?? existing;
+      const after = mergeAnnotation(mergeBase, incoming, path, conflicts);
+      const sources = previous ? [...previous.sources] : [];
+      if (!sources.includes(source)) sources.push(source);
+      updates.set(path, {
+        path,
+        destination,
+        before,
+        after,
+        sources,
+        changed: !same(before, after),
+      });
+    }
+  };
+  // Source order is part of the merge contract: current row, then indexed backup,
+  // then pending backup. Existing nonempty values win all note/status conflicts.
+  applySource('annotations', backup.annotations);
+  applySource('pendingAnnotations', backup.pendingAnnotations);
+
+  const allUpdates = [...updates.values()];
+  const annotationUpdates = allUpdates.filter(update => update.destination === 'indexed');
+  const pendingAnnotationUpdates = allUpdates.filter(update => update.destination === 'pending');
+  const changedAnnotationUpdates = allUpdates.filter(update => update.changed);
+  const unchangedAnnotationUpdates = allUpdates.filter(update => !update.changed);
+
+  const collectionsBefore = current.rendererState.collections.map(normalizeCollection);
+  const collectionsAfter = collectionsBefore.map(collection => ({ ...collection, paths: [...collection.paths] }));
+  const collectionsById = new Map(collectionsAfter.map(collection => [collection.id, collection]));
   const remaps: MetadataImportPlan['collectionIdRemaps'] = [];
+  const mergePaths = (target: typeof collectionsAfter[number], importedPaths: string[]) => {
+    target.paths = [...new Set([...target.paths, ...importedPaths.map(canonicalizeBackupPath)])];
+  };
   for (const imported of backup.collections) {
-    const sameId = afterCollections.find(c => c.id === imported.id);
-    if (sameId?.name === imported.name) {
-      const target = sameId;
-      target.paths = [...new Set([...target.paths, ...imported.paths.map(canonicalizeBackupPath)])].sort();
+    const existing = collectionsById.get(imported.id);
+    if (existing?.name === imported.name) {
+      mergePaths(existing, imported.paths);
       continue;
     }
     let id = imported.id;
-    if (sameId && sameId.name !== imported.name) {
-      id = `import-${hash(`${backup.exportedAt}|${backup.appVersion}|${imported.id}|${imported.name}`)}`;
-      while (afterCollections.some(c => c.id === id)) id = `import-${hash(`${id}|${imported.name}`)}`;
+    if (existing && existing.name !== imported.name) {
+      const baseId = `import-${hash(`${backup.exportedAt}|${backup.appVersion}|${imported.id}|${imported.name}`)}`;
+      id = baseId;
+      let collision = 0;
+      while (collectionsById.has(id) && collectionsById.get(id)!.name !== imported.name) {
+        id = `import-${hash(`${baseId}|${++collision}`)}`;
+      }
       remaps.push({ oldId: imported.id, newId: id, name: imported.name });
+      const remapped = collectionsById.get(id);
+      if (remapped) {
+        mergePaths(remapped, imported.paths);
+        continue;
+      }
     }
-    afterCollections.push({ id, name: imported.name, paths: [...new Set(imported.paths.map(canonicalizeBackupPath))].sort() });
+    const added = { id, name: imported.name, paths: [...new Set(imported.paths.map(canonicalizeBackupPath))] };
+    collectionsAfter.push(added);
+    collectionsById.set(id, added);
   }
-  afterCollections.sort((a,b) => a.id.localeCompare(b.id));
-  const beforeSettings = portablePreferences(current.rendererState.preferences);
-  const importedSettings = portablePreferences({ ...beforeSettings, ...(backup.preferences as Record<string, unknown>) });
-  const beforeRoots = [...new Set(current.rendererState.libraryRoots.map(canonicalizeBackupPath))].sort();
-  const inputFingerprint = fingerprint(stable({ backup, current }));
+
+  const settingsBefore = completeCurrentSettings(current.rendererState.preferences);
+  const settingsAfter = input.options?.replaceSettings
+    ? { ...settingsBefore, ...normalizeAppSettings({ ...settingsBefore, ...importedSettingsOverlay(backup.preferences as Record<string, unknown>) }) }
+    : settingsBefore;
+  const rootsBefore = [...new Set(current.rendererState.libraryRoots.map(canonicalizeBackupPath))];
+  const rootsAfter = input.options?.replaceRoots ? [...new Set(backup.libraryRoots)] : [...rootsBefore];
+  const inputRevision = fingerprint(stable({ backup, current }));
+
   return {
-    planId: input.planId ?? `plan-${inputFingerprint}`,
-    inputFingerprint,
-    databaseBrowseRevision: current.databaseBrowseRevision,
-    databaseAnnotationRevision: current.databaseAnnotationRevision,
-    rendererRevision: current.rendererRevision,
-    matched: matchedPlans, unmatchedPending, pendingAnnotations: pendingPlans,
-    annotations: matchedPlans,
-    unchanged: [...matchedPlans, ...pendingPlans].filter(item => !item.changed),
-    changed: [...matchedPlans, ...pendingPlans].filter(item => item.changed),
+    transactionId: input.transactionId ?? `plan-${inputRevision}`,
+    inputRevision,
+    currentBrowseRevision: current.databaseBrowseRevision,
+    currentRendererRevision: current.rendererRevision,
+    matchedAnnotationCount: annotationUpdates.length,
+    changedAnnotationCount: changedAnnotationUpdates.length,
+    pendingAnnotationCount: pendingAnnotationUpdates.length,
+    conflictCount: conflicts.length,
+    unmatchedPaths: pendingAnnotationUpdates.map(update => update.path),
+    annotationUpdates,
+    pendingAnnotationUpdates,
+    changedAnnotationUpdates,
+    unchangedAnnotationUpdates,
     annotationConflicts: conflicts,
-    collections: afterCollections, collectionIdRemaps: remaps,
-    rendererChanges: {
-      settings: { before: beforeSettings, after: input.options?.replaceSettings ? { ...beforeSettings, ...importedSettings } : beforeSettings },
-      roots: { before: beforeRoots, after: input.options?.replaceRoots ? [...new Set(backup.libraryRoots)].sort() : beforeRoots },
-      collections: { before: beforeCollections, after: afterCollections },
-    },
-    options: { replaceSettings: input.options?.replaceSettings ?? false, replaceRoots: input.options?.replaceRoots ?? false },
+    collectionIdRemaps: remaps,
+    collectionsBefore,
+    collectionsAfter,
+    settingsBefore,
+    settingsAfter,
+    rootsBefore,
+    rootsAfter,
+    replaceSettings: input.options?.replaceSettings ?? false,
+    replaceRoots: input.options?.replaceRoots ?? false,
   };
 }
 
-export function isMetadataImportPlanCurrent(plan: MetadataImportPlan, revisions: { databaseBrowseRevision: number; databaseAnnotationRevision: number; rendererRevision: number }): boolean {
-  return plan.databaseBrowseRevision === revisions.databaseBrowseRevision &&
-    plan.databaseAnnotationRevision === revisions.databaseAnnotationRevision && plan.rendererRevision === revisions.rendererRevision;
+export function isMetadataImportPlanCurrent(plan: MetadataImportPlan, revisions: { browseRevision: number; rendererRevision: number }): boolean {
+  return plan.currentBrowseRevision === revisions.browseRevision &&
+    plan.currentRendererRevision === revisions.rendererRevision;
 }

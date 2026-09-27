@@ -43,17 +43,38 @@ export type MetadataBackupExportResult =
   | { status: "cancelled" }
   | { status: "failed"; code: "invalid-snapshot" | "write-failed"; message: string };
 
+export interface MetadataImportAnnotationUpdate {
+  path: string;
+  destination: "indexed" | "pending";
+  before: MetadataBackupV1["annotations"][number] | null;
+  after: MetadataBackupV1["annotations"][number];
+  sources: Array<"annotations" | "pendingAnnotations">;
+  changed: boolean;
+}
+
+/** Single canonical update plan shared by preview, P04, and U06. Pending rows are upserts only. */
 export interface MetadataImportPlan {
   transactionId: string;
   inputRevision: string;
+  currentBrowseRevision: number;
   currentRendererRevision: number;
   matchedAnnotationCount: number;
   changedAnnotationCount: number;
   pendingAnnotationCount: number;
   conflictCount: number;
   unmatchedPaths: string[];
+  annotationUpdates: MetadataImportAnnotationUpdate[];
+  pendingAnnotationUpdates: MetadataImportAnnotationUpdate[];
+  changedAnnotationUpdates: MetadataImportAnnotationUpdate[];
+  unchangedAnnotationUpdates: MetadataImportAnnotationUpdate[];
   annotationConflicts: Array<{ path: string; field: "notes" | "printStatus"; existing: string; incoming: string }>;
   collectionIdRemaps: Array<{ oldId: string; newId: string; name: string }>;
+  collectionsBefore: MetadataBackupV1["collections"];
+  collectionsAfter: MetadataBackupV1["collections"];
+  settingsBefore: Record<string, unknown>;
+  settingsAfter: Record<string, unknown>;
+  rootsBefore: string[];
+  rootsAfter: string[];
   replaceSettings: boolean;
   replaceRoots: boolean;
 }
