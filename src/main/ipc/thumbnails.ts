@@ -11,6 +11,8 @@ import fs from "fs";
 import { IPC } from "../../shared/types";
 import { DEFAULT_APP_SETTINGS, toRuntimeSettings } from "../../shared/settings";
 import { isPathContained } from "../pathContainment";
+import { createFileIndexRepository } from "../fileIndexing";
+import { createThumbnailIdentity } from "../thumbnailIdentity";
 import {
   parseExtension,
   parseFilePath,
@@ -61,14 +63,19 @@ export function registerThumbnailHandlers(
         "manual",
       );
       const db = getDb();
+      const repository = createFileIndexRepository(db);
+      const current = repository.getFileIdentityByPath(filePath);
+      if (!current) return null;
       if (thumbnailPath) {
-        db.prepare(
-          "UPDATE files SET thumbnail = ?, thumbnail_failed = 0 WHERE path = ?",
-        ).run(thumbnailPath, filePath);
+        const update = repository.updateThumbnailState({ fileId: current.id, expectedContentRevision: current.contentRevision, thumbnailPath, thumbnailFailed: 0 });
+        if (update.status === "updated") {
+          const normalizedSettings = settings ? parseRuntimeSettings(settings) : toRuntimeSettings(DEFAULT_APP_SETTINGS);
+          const { identity } = createThumbnailIdentity(current.path, current.contentRevision, normalizedSettings.thumbnailColor, Number(normalizedSettings.thumbQuality ?? 256) as 128 | 256 | 512);
+          const target = getMainWindow();
+          if (target && !target.isDestroyed()) target.webContents.send(IPC.THUMBNAIL_READY, { fileId: current.id, thumbnailPath, identity, contentRevision: current.contentRevision });
+        }
       } else {
-        db.prepare("UPDATE files SET thumbnail_failed = 1 WHERE path = ?").run(
-          filePath,
-        );
+        repository.updateThumbnailState({ fileId: current.id, expectedContentRevision: current.contentRevision, thumbnailPath: null, thumbnailFailed: 1 });
       }
       return thumbnailPath;
     },
