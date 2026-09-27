@@ -115,6 +115,12 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
     expect(heartbeat.samples).toBeGreaterThan(0);
     expect(heartbeat.maxGapMs).not.toBeNull();
     expect(heartbeat.maxGapMs!).toBeLessThanOrEqual(250);
+    console.info('[S02 scan metrics]', JSON.stringify({
+      firstQueryableBatchMs: proof.elapsedMs,
+      indexedAtFirstQuery: proof.indexed,
+      mainHeartbeatMaxGapMs: heartbeat.maxGapMs,
+      mainHeartbeatSamples: heartbeat.samples,
+    }));
   } finally {
     if (isolated) {
       if (releasePath && !fs.existsSync(releasePath)) fs.writeFileSync(releasePath, 'release');
