@@ -11,6 +11,7 @@ import {
   mergeWatchedFileRecord,
   type IndexedFileRecord,
 } from '../../../../src/main/fileIndexing';
+import { enumerateFileScopes } from '../../../../src/main/fileScopes';
 import Database from 'better-sqlite3';
 import { MIGRATIONS } from '../../../../src/main/database';
 
@@ -180,7 +181,9 @@ test('index batches preserve annotations and maintain scopes with the file row',
     const row = db.prepare('SELECT tags, notes, print_status, name FROM files WHERE path = ?').get(record.path) as Record<string, string>;
     assert.deepEqual(row, { tags: 'favorite', notes: 'keep', print_status: 'Testing', name: 'renamed' });
     assert.equal((db.prepare('SELECT thumbnail FROM files WHERE path = ?').get(record.path) as { thumbnail: string }).thumbnail, '/cache.png');
-    assert.deepEqual(db.prepare('SELECT scope_path FROM file_scopes').all(), [{ scope_path: '/' }, { scope_path: '/models' }]);
+    const actualScopes = (db.prepare('SELECT scope_path FROM file_scopes').all() as Array<{ scope_path: string }>)
+      .map((row) => row.scope_path).sort();
+    assert.deepEqual(actualScopes, enumerateFileScopes(record.path).sort());
 
     repository.applyIndexBatch({ scanGeneration: 9, records: [{ ...record, sizeBytes: 120, name: 'renamed', scanGeneration: 9 }] });
     const changed = db.prepare('SELECT tags, notes, print_status, thumbnail, content_revision FROM files WHERE path = ?').get(record.path) as Record<string, unknown>;
@@ -287,8 +290,7 @@ test('late index chunk failure notifies committed rows only and leaves the faile
     const notifications: CommittedFileMutation[] = [];
     const repository = createFileIndexRepository(db, (mutation) => notifications.push(mutation));
     db.exec(`CREATE TRIGGER reject_late_scope BEFORE INSERT ON file_scopes
-      WHEN NEW.scope_path = '/models'
-        AND (SELECT path FROM files WHERE id = NEW.file_id) = '/models/250.stl'
+      WHEN (SELECT path FROM files WHERE id = NEW.file_id) = '/models/250.stl'
       BEGIN SELECT RAISE(ABORT, 'forced late scope failure'); END`);
     const records = Array.from({ length: 251 }, (_, index) => ({
       path: `/models/${String(index).padStart(3, '0')}.stl`, name: String(index), extension: 'stl', directory: '/models',
@@ -460,9 +462,9 @@ test('legacy scan wrapper updates revision and scope rows while preserving uncha
     applyScannedFileRecord(db, scanned);
     const first = db.prepare('SELECT id, content_revision FROM files WHERE path = ?').get(scanned.path) as { id: number; content_revision: number };
     assert.ok(first.content_revision > 1);
-    assert.deepEqual(db.prepare('SELECT scope_path FROM file_scopes WHERE file_id = ? ORDER BY scope_path').all(first.id), [
-      { scope_path: '/' }, { scope_path: '/models' },
-    ]);
+    const scopes = (db.prepare('SELECT scope_path FROM file_scopes WHERE file_id = ?').all(first.id) as Array<{ scope_path: string }>)
+      .map((row) => row.scope_path).sort();
+    assert.deepEqual(scopes, enumerateFileScopes(scanned.path).sort());
 
     db.prepare("UPDATE files SET tags = 'keep-tag', notes = 'keep-note', print_status = 'Testing', thumbnail = '/cached.png', scan_generation = 42").run();
     applyScannedFileRecord(db, scanned);

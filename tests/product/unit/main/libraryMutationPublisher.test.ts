@@ -6,7 +6,6 @@ import { createLibraryMutationPublisher } from '../../../../src/main/libraryMuta
 function mutation(overrides: Partial<CommittedFileMutation> = {}): CommittedFileMutation {
   return {
     affectedPaths: ['/models/a.stl'],
-    paths: ['/models/a.stl'],
     rowsChanged: true,
     annotationsChanged: false,
     statsChanged: true,
@@ -35,11 +34,11 @@ test('publisher sends the first mutation immediately and coalesces later changes
 
   publisher.publish(mutation());
   publisher.publish(mutation({
-    affectedPaths: ['/models/b.stl'], paths: ['/models/b.stl'],
+    affectedPaths: ['/models/b.stl'],
     rowsChanged: true, statsChanged: false, topologyChanged: true, browseRevision: 2,
   }));
   publisher.publish(mutation({
-    affectedPaths: ['/models/a.stl'], paths: ['/models/a.stl'],
+    affectedPaths: ['/models/a.stl'],
     rowsChanged: false, statsChanged: false, topologyChanged: false, thumbnailOnly: true, browseRevision: 2,
   }));
   assert.equal(sent.length, 1);
@@ -71,7 +70,7 @@ test('publisher flushes terminal changes immediately and discards pending work o
   });
 
   publisher.publish(mutation());
-  publisher.publish(mutation({ browseRevision: 2, paths: ['/models/b.stl'], affectedPaths: ['/models/b.stl'] }));
+  publisher.publish(mutation({ browseRevision: 2, affectedPaths: ['/models/b.stl'] }));
   publisher.flush();
   assert.equal(sent.length, 2);
   assert.deepEqual(sent[1].affectedPaths, ['/models/b.stl']);
@@ -98,9 +97,9 @@ test('a delayed timer does not cause a second same-time publish when a new mutat
   });
 
   publisher.publish(mutation());
-  publisher.publish(mutation({ paths: ['/models/b.stl'], affectedPaths: ['/models/b.stl'], browseRevision: 2 }));
+  publisher.publish(mutation({ affectedPaths: ['/models/b.stl'], browseRevision: 2 }));
   now = 250;
-  publisher.publish(mutation({ paths: ['/models/c.stl'], affectedPaths: ['/models/c.stl'], browseRevision: 3 }));
+  publisher.publish(mutation({ affectedPaths: ['/models/c.stl'], browseRevision: 3 }));
 
   assert.equal(sent.length, 2);
   assert.deepEqual(sent[1].affectedPaths, ['/models/b.stl', '/models/c.stl']);

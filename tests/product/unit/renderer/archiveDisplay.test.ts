@@ -25,6 +25,8 @@ function createFile(overrides: Partial<FileRecord>): FileRecord {
     tags: overrides.tags ?? null,
     notes: overrides.notes ?? null,
     dimensions: overrides.dimensions ?? null,
+    content_revision: overrides.content_revision ?? 1,
+    archive_path: overrides.archive_path ?? null,
   };
 }
 

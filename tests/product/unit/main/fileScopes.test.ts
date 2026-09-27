@@ -8,19 +8,19 @@ import { MIGRATIONS } from '../../../../src/main/database';
 import { isPathContained } from '../../../../src/main/pathContainment';
 
 test('native scopes contain canonical ancestors without sibling-prefix matches', () => {
-  const scopes = enumerateFileScopes('/models/library-2/part/model.stl');
+  const scopes = enumerateFileScopesForPlatform('/models/library-2/part/model.stl', 'posix');
 
   assert.deepEqual(scopes, [
-    path.resolve('/'),
-    path.resolve('/models'),
-    path.resolve('/models/library-2'),
-    path.resolve('/models/library-2/part'),
+    '/',
+    '/models',
+    '/models/library-2',
+    '/models/library-2/part',
   ]);
-  assert.equal(scopes.includes(path.resolve('/models/library')), false);
+  assert.equal(scopes.includes('/models/library'), false);
 });
 
 test('archive entry scopes include its physical archive ancestry and virtual ancestors', () => {
-  const scopes = enumerateFileScopes('/models/kits.zip::entry::set\\large\\part.3mf');
+  const scopes = enumerateFileScopesForPlatform('/models/kits.zip::entry::set\\large\\part.3mf', 'posix');
 
   assert.deepEqual(scopes, [
     path.resolve('/'),
@@ -33,16 +33,16 @@ test('archive entry scopes include its physical archive ancestry and virtual anc
 });
 
 test('archive subfolder scopes do not include sibling virtual folders', () => {
-  const scopes = enumerateFileScopes('/models/kits.zip::entry::catalogue-v2/a.stl');
+  const scopes = enumerateFileScopesForPlatform('/models/kits.zip::entry::catalogue-v2/a.stl', 'posix');
 
   assert.equal(scopes.includes('/models/kits.zip::entry::catalogue'), false);
   assert.equal(scopes.includes('/models/kits.zip::entry::catalogue-v2'), true);
 });
 
 test('archive scope aliases normalize dot segments exactly like virtual containment', () => {
-  const scope = canonicalizeScopePath('/tmp/kits.zip::entry::a/../parts');
-  const memberScopes = enumerateFileScopes('/tmp/kits.zip::entry::parts/model.stl');
-  const aliasMemberScopes = enumerateFileScopes('/tmp/kits.zip::entry::parts/unused/../model.stl');
+  const scope = canonicalizeScopePath('/tmp/kits.zip::entry::a/../parts', 'posix');
+  const memberScopes = enumerateFileScopesForPlatform('/tmp/kits.zip::entry::parts/model.stl', 'posix');
+  const aliasMemberScopes = enumerateFileScopesForPlatform('/tmp/kits.zip::entry::parts/unused/../model.stl', 'posix');
 
   assert.equal(isPathContained('/tmp/kits.zip::entry::a/../parts', '/tmp/kits.zip::entry::parts/model.stl'), true);
   assert.equal(scope, '/tmp/kits.zip::entry::parts');
@@ -65,9 +65,20 @@ test('Windows native scope keys ignore case while archive headers and members re
   );
 });
 
-test('Windows scope enumeration follows native path roots on Windows', { skip: process.platform !== 'win32' }, () => {
+test('Windows drive and UNC scopes are canonicalized on every host', () => {
+  const drive = enumerateFileScopesForPlatform('C:\\Models\\Kit\\part.stl', 'win32');
+  assert.deepEqual(drive, ['c:\\', 'c:\\models', 'c:\\models\\kit']);
+
+  const unc = enumerateFileScopesForPlatform('\\\\SERVER\\Share\\Models\\part.stl', 'win32');
+  assert.deepEqual(unc, [
+    path.win32.resolve('\\\\server\\share\\').toLowerCase(),
+    path.win32.resolve('\\\\server\\share\\models').toLowerCase(),
+  ]);
+});
+
+test('native Windows scope enumeration stores lowercase native ancestor keys', { skip: process.platform !== 'win32' }, () => {
   const scopes = enumerateFileScopes('C:\\Models\\Kit\\part.stl');
-  assert.deepEqual(scopes, ['C:\\', 'C:\\Models', 'C:\\Models\\Kit']);
+  assert.deepEqual(scopes, ['c:\\', 'c:\\models', 'c:\\models\\kit']);
 });
 
 test('scope backfill resumes in bounded batches and ignores rows deleted before their batch', () => {

@@ -14,6 +14,8 @@ export interface FileRecord {
   thumbnail: string | null;
   thumbnail_failed: number;
   indexed_at: number;
+  content_revision: number;
+  archive_path: string | null;
 }
 
 export interface ModelDimensions {
@@ -94,6 +96,7 @@ export const IPC = {
   PREVIEW_PARSE_PORT: "preview-parse-port",
   GET_MAIN_WINDOW_VISIBILITY: "get-main-window-visibility",
   MAIN_WINDOW_VISIBILITY: "main-window-visibility",
+  LIBRARY_CHANGED: "library-changed",
 } as const;
 
 // ── IPC Payload Types (single source of truth) ──────────────────────

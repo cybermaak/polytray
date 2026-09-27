@@ -16,6 +16,7 @@ import type {
   SerializedMesh,
   RuntimeSettingsData,
   UpdateFileMetadataData,
+  IndexMutationResult,
 } from "../shared/types";
 
 export type { FileRecord };
@@ -70,6 +71,7 @@ interface PolytrayAPI {
   onScanProgress: (callback: (data: ScanProgressData) => void) => () => void;
   onScanComplete: (callback: (data: ScanCompleteData) => void) => () => void;
   onFilesUpdated: (callback: (data: FilesUpdatedData) => void) => () => void;
+  onLibraryChanged: (callback: (data: IndexMutationResult) => void) => () => void;
   onFileIndexed: (callback: (data: FileIndexedData) => void) => () => void;
   onThumbnailReady: (
     callback: (data: ThumbnailReadyData) => void,

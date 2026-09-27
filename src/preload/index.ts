@@ -16,6 +16,7 @@ import {
   MainWindowVisibilityData,
   RuntimeSettingsData,
   UpdateFileMetadataData,
+  IndexMutationResult,
 } from "../shared/types";
 
 function onChannel<T>(channel: string, callback: (data: T) => void) {
@@ -129,6 +130,8 @@ contextBridge.exposeInMainWorld("polytray", {
     onChannel<ScanCompleteData>(IPC.SCAN_COMPLETE, cb),
   onFilesUpdated: (cb: (data: FilesUpdatedData) => void) =>
     onChannel<FilesUpdatedData>(IPC.FILES_UPDATED, cb),
+  onLibraryChanged: (cb: (data: IndexMutationResult) => void) =>
+    onChannel<IndexMutationResult>(IPC.LIBRARY_CHANGED, cb),
   onFileIndexed: (cb: (data: FileIndexedData) => void) =>
     onChannel<FileIndexedData>(IPC.FILE_INDEXED, cb),
   onThumbnailReady: (cb: (data: ThumbnailReadyData) => void) =>

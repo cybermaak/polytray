@@ -172,9 +172,7 @@ export interface RevisionedFileRecord extends FileRecord {
   archive_path: string | null;
 }
 
-export interface CommittedFileMutation extends IndexMutationResult {
-  paths: string[];
-}
+export type CommittedFileMutation = IndexMutationResult;
 
 export interface FileIndexRepository {
   applyIndexBatch(input: IndexBatch): IndexBatchResult;
@@ -279,7 +277,7 @@ function createPreparedFileIndexRepository(
 
   function notify(result: IndexMutationResult, paths: string[]) {
     if (paths.length === 0) return;
-    const mutation = { ...result, paths: [...new Set(paths)] };
+    const mutation = { ...result, affectedPaths: [...new Set(paths)] };
     if (groupedMutations) {
       groupedMutations.push(mutation);
     } else {
@@ -298,10 +296,8 @@ function createPreparedFileIndexRepository(
         groupedMutations = null;
         if (mutations.length > 0) {
           const affectedPaths = [...new Set(mutations.flatMap((mutation) => mutation.affectedPaths))];
-          const paths = [...new Set(mutations.flatMap((mutation) => mutation.paths))];
           onMutation?.({
             affectedPaths,
-            paths,
             rowsChanged: mutations.some((mutation) => mutation.rowsChanged),
             annotationsChanged: mutations.some((mutation) => mutation.annotationsChanged),
             statsChanged: mutations.some((mutation) => mutation.statsChanged),

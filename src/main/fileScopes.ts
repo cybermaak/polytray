@@ -9,7 +9,7 @@ import {
 export type ScopePlatform = 'win32' | 'posix';
 
 function pathApi(platform: ScopePlatform) {
-  return platform === 'win32' ? path.win32 : path;
+  return platform === 'win32' ? path.win32 : path.posix;
 }
 
 function normalizeNativeScope(value: string, platform: ScopePlatform) {

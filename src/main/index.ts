@@ -6,7 +6,9 @@ import { initThumbnailService } from "./thumbnails";
 import fs from "fs";
 import { getThumbnailDir } from "./thumbnails";
 import { toAllowedLocalFileUrl } from "./localFileProtocol";
-import { IPC, type MainWindowVisibilityData } from "../shared/types";
+import { IPC, type IndexMutationResult, type MainWindowVisibilityData } from "../shared/types";
+import { createFileIndexRuntime, type FileIndexRuntime } from "./fileIndexRuntime";
+import { createLibraryMutationPublisher, type LibraryMutationPublisher } from "./libraryMutationPublisher";
 
 // IPC handler modules
 import { registerLibraryHandlers } from "./ipc/library";
@@ -94,6 +96,8 @@ if (fs.existsSync(portableDataDir)) {
 let mainWindow: BrowserWindow | null = null;
 let thumbnailWindow: BrowserWindow | null = null;
 let mainWindowVisibilityRevision = 0;
+let fileIndexRuntime: FileIndexRuntime | null = null;
+let libraryMutationPublisher: LibraryMutationPublisher | null = null;
 
 function readMainWindowVisibility(target: BrowserWindow): MainWindowVisibilityData {
   return {
@@ -257,9 +261,33 @@ app.whenReady().then(() => {
   });
 
   initDatabase();
+  libraryMutationPublisher = createLibraryMutationPublisher({
+    send: (mutation: IndexMutationResult) => {
+      if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+      mainWindow.webContents.send(IPC.LIBRARY_CHANGED, mutation);
+    },
+  });
+  fileIndexRuntime = createFileIndexRuntime(getDb(), {
+    onMutation: (mutation) => libraryMutationPublisher?.publish(mutation),
+    onProgress: (progress) => {
+      log.info("[FileIndex] scope backfill", progress);
+      if (progress.status === "failed") log.error("[FileIndex] scope backfill failed", progress.error);
+    },
+  });
   createWindow();
+  setImmediate(() => {
+    void fileIndexRuntime?.startBackfill().catch((error) => {
+      log.error("[FileIndex] scope backfill failed", error);
+    });
+  });
   createThumbnailWindow();
   registerIpcHandlers();
+
+  app.once("will-quit", () => {
+    void fileIndexRuntime?.dispose();
+    libraryMutationPublisher?.flush();
+    libraryMutationPublisher?.dispose();
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

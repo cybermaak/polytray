@@ -17,7 +17,6 @@ export interface LibraryMutationPublisher {
 function mergeMutations(left: CommittedFileMutation, right: CommittedFileMutation): CommittedFileMutation {
   return {
     affectedPaths: [...new Set([...left.affectedPaths, ...right.affectedPaths])],
-    paths: [...new Set([...left.paths, ...right.paths])],
     rowsChanged: left.rowsChanged || right.rowsChanged,
     annotationsChanged: left.annotationsChanged || right.annotationsChanged,
     statsChanged: left.statsChanged || right.statsChanged,
