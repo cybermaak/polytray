@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import * as unzipper from "unzipper";
 import { EXT_SET } from "../shared/types";
+import type { DiscoveryEvent, DiscoveredModel } from "../shared/backgroundJobs";
 import {
   ARCHIVE_EXT_SET,
   createArchiveEntryPath,
@@ -10,6 +11,7 @@ import {
   getArchiveEntryExtension,
   isSupportedArchiveEntry,
 } from "../shared/archivePaths";
+import { isPathContained } from './pathContainment';
 import { ScanScope, ScanTerminalState } from "./scanCoverage";
 
 interface ScannedFile {
@@ -19,6 +21,99 @@ interface ScannedFile {
   dir: string;
   size: number;
   mtime: number;
+}
+
+/**
+ * unzipper.Open.file leaves its central-directory ReadStream alive after the
+ * directory records have been parsed (notably for an empty archive). Keep
+ * ownership of those lazy streams so cancellation cannot outlive the scan.
+ */
+async function openArchiveDirectory(archivePath: string) {
+  const streams = new Set<fs.ReadStream>();
+  let rejectStreamError!: (error: Error) => void;
+  let streamErrorObserved = false;
+  const firstStreamError = new Promise<never>((_resolve, reject) => { rejectStreamError = reject; });
+  // The stream failure may arrive after parsing succeeds. Keep the promise
+  // observed even once the race below has already settled.
+  void firstStreamError.catch(() => undefined);
+  const source = {
+    size: async () => (await fs.promises.stat(archivePath)).size,
+    stream: (start: number, length?: number) => {
+      const end = length ? start + length : undefined;
+      const stream = fs.createReadStream(archivePath, { start, end });
+      streams.add(stream);
+      stream.on('error', (error: Error) => {
+        if (streamErrorObserved) return;
+        streamErrorObserved = true;
+        rejectStreamError(error);
+      });
+      return stream;
+    },
+  };
+
+  let closePromise: Promise<void> | undefined;
+  const close = () => {
+    if (closePromise) return closePromise;
+    closePromise = Promise.all([...streams].map((stream) => new Promise<void>((resolve) => {
+      if (stream.closed) {
+        resolve();
+        return;
+      }
+      stream.once('close', resolve);
+      stream.destroy();
+      if (stream.closed) resolve();
+    }))).then(() => undefined);
+    return closePromise;
+  };
+
+  try {
+    const parseDirectory = unzipper.Open.custom(source);
+    // unzipper's PullStream does not forward source errors from the central
+    // directory stream. Race it explicitly so a failed read cannot hang.
+    const directory = await Promise.race([parseDirectory, firstStreamError]);
+    await Promise.race([close(), firstStreamError]);
+    return { directory, close };
+  } catch (error) {
+    await close();
+    throw error;
+  }
+}
+
+function isolatedScanHold(rootPath: string, scopePath: string) {
+  if (process.env.POLYTRAY_ISOLATED_TEST !== '1') return null;
+  const configuredScope = process.env.POLYTRAY_SCAN_TEST_HOLD_PATH;
+  const releasePath = process.env.POLYTRAY_SCAN_TEST_RELEASE_PATH;
+  const reachedPath = process.env.POLYTRAY_SCAN_TEST_REACHED_PATH;
+  const scratchDir = process.env.POLYTRAY_PERF_SCRATCH;
+  if (!configuredScope || !releasePath || !reachedPath || !scratchDir || !path.isAbsolute(scratchDir)) return null;
+  if (![configuredScope, releasePath, reachedPath].every((value) => path.isAbsolute(value))) return null;
+  if (![configuredScope, releasePath, reachedPath].every((value) => isPathContained(scratchDir, value))) return null;
+  if (path.resolve(configuredScope) !== path.resolve(scopePath)) return null;
+  if (!path.isAbsolute(rootPath)) return null;
+  return { releasePath, reachedPath };
+}
+
+async function waitForIsolatedScanRelease(
+  hold: { releasePath: string; reachedPath: string },
+  signal?: AbortSignal,
+) {
+  await fs.promises.mkdir(path.dirname(hold.reachedPath), { recursive: true });
+  await fs.promises.writeFile(hold.reachedPath, 'held');
+  if (signal?.aborted || fs.existsSync(hold.releasePath)) return;
+  let watcher: ReturnType<typeof fs.promises.watch> | undefined;
+  try {
+    watcher = fs.promises.watch(path.dirname(hold.releasePath), { signal, persistent: false });
+    if (fs.existsSync(hold.releasePath)) {
+      await watcher.return?.();
+      return;
+    }
+    for await (const _event of watcher) {
+      if (signal?.aborted || fs.existsSync(hold.releasePath)) return;
+    }
+  } catch (error: unknown) {
+    if (signal?.aborted) return;
+    throw error;
+  }
 }
 
 /**
@@ -36,115 +131,143 @@ export interface ScanDiscovery {
   errors: Array<{ scopePath: string; phase: string; reason: string }>;
 }
 
+/** Stream records and positive/negative scope proof without collecting the file list. */
+export async function* streamDiscoverFolder(
+  rootPath: string,
+  signal?: AbortSignal,
+  generation = Date.now(),
+): AsyncGenerator<DiscoveryEvent> {
+  const cancelled = () => Boolean(signal?.aborted);
+  const scopeError = (scopePath: string, code: string, reason: string, kind: 'directory' | 'archive' = 'directory'): DiscoveryEvent => ({
+    type: 'scope-error', rootPath, scopePath, phase: 'discovery', code, reason, kind,
+  });
+
+  async function* walkDir(dirPath: string): AsyncGenerator<DiscoveryEvent> {
+    if (cancelled()) return;
+    const hold = isolatedScanHold(rootPath, dirPath);
+    if (hold) await waitForIsolatedScanRelease(hold, signal);
+    if (cancelled()) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+      if (cancelled()) return;
+    } catch (error: unknown) {
+      if (cancelled()) return;
+      const reason = (error as Error)?.message ?? String(error);
+      console.warn(`Cannot read directory ${dirPath}:`, reason);
+      yield scopeError(dirPath, 'READDIR_FAILED', reason);
+      return;
+    }
+
+    for (const entry of entries) {
+      if (cancelled()) return;
+      const fullPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'fixtures' && dirPath.includes(path.sep + 'tests')) {
+          yield scopeError(fullPath, 'SCOPE_EXCLUDED', 'directory excluded by scan policy');
+          continue;
+        }
+        yield* walkDir(fullPath);
+        if (cancelled()) return;
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name).toLowerCase().slice(1);
+        if (EXT_SET.has(ext)) {
+          try {
+            const stat = await fs.promises.stat(fullPath);
+            if (cancelled()) return;
+            const file: DiscoveredModel = {
+              path: fullPath,
+              directory: dirPath,
+              archivePath: null,
+              name: path.basename(entry.name, `.${ext}`),
+              extension: ext,
+              sizeBytes: stat.size,
+              modifiedAt: Math.floor(stat.mtimeMs),
+            };
+            yield { type: 'file', rootPath, scopePath: dirPath, file };
+          } catch (error: unknown) {
+            if (cancelled()) return;
+            const reason = (error as Error)?.message ?? String(error);
+            console.warn(`Cannot stat ${fullPath}:`, reason);
+            yield scopeError(fullPath, 'STAT_FAILED', reason);
+          }
+        } else if (ARCHIVE_EXT_SET.has(ext)) {
+          yield* scanArchive(fullPath, dirPath);
+          if (cancelled()) return;
+        }
+      }
+    }
+    if (cancelled()) return;
+    yield { type: 'scope-complete', rootPath, scopePath: dirPath, generation, kind: 'directory' };
+  }
+
+  async function* scanArchive(archivePath: string, parentDir: string): AsyncGenerator<DiscoveryEvent> {
+    let closeArchive: (() => Promise<void>) | undefined;
+    try {
+      const opened = await openArchiveDirectory(archivePath);
+      closeArchive = opened.close;
+      const { directory } = opened;
+      if (cancelled()) return;
+      const stat = await fs.promises.stat(archivePath);
+      if (cancelled()) return;
+      for (const entry of directory.files) {
+        if (cancelled()) return;
+        if (entry.type !== 'File' || !isSupportedArchiveEntry(entry.path)) continue;
+        const virtualPath = createArchiveEntryPath(archivePath, entry.path);
+        const file: DiscoveredModel = {
+          path: virtualPath,
+          name: getArchiveEntryBaseName(entry.path),
+          extension: getArchiveEntryExtension(entry.path),
+          directory: getArchiveEntryDirectory(virtualPath) || parentDir,
+          archivePath,
+          sizeBytes: entry.uncompressedSize,
+          modifiedAt: Math.floor(stat.mtimeMs),
+        };
+        yield { type: 'file', rootPath, scopePath: archivePath, file };
+      }
+      if (!cancelled()) yield { type: 'scope-complete', rootPath, scopePath: archivePath, generation, kind: 'archive' };
+    } catch (error: unknown) {
+      if (cancelled()) return;
+      const reason = (error as Error)?.message ?? String(error);
+      console.warn(`Cannot inspect archive ${archivePath}:`, reason);
+      yield scopeError(archivePath, 'ARCHIVE_FAILED', reason, 'archive');
+    } finally {
+      await closeArchive?.();
+    }
+  }
+
+  yield* walkDir(rootPath);
+  yield { type: 'discovery-complete', rootPath, cancelled: cancelled() };
+}
+
+/** Compatibility collector for existing callers and scan-safety tests. */
 export async function discoverFolder(rootPath: string, signal?: AbortSignal): Promise<ScanDiscovery> {
   const files: ScannedFile[] = [];
   const scopes: ScanScope[] = [];
   const errors: ScanDiscovery['errors'] = [];
-  let cancelled = false;
-  const addError = (scopePath: string, kind: 'directory' | 'archive', phase: ScanScope['phase'], error: unknown) => {
-    const reason = (error as Error)?.message ?? String(error);
-    scopes.push({ scopePath, kind, status: 'error', phase, reason });
-    errors.push({ scopePath, phase: phase ?? 'unknown', reason });
-  };
-  const walkDir = async (dirPath: string): Promise<void> => {
-    if (signal?.aborted) { cancelled = true; return; }
-  let entries: fs.Dirent[];
-  try {
-    entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
-    if (signal?.aborted) { cancelled = true; return; }
-  } catch (e: unknown) {
-    if (signal?.aborted) { cancelled = true; return; }
-    console.warn(`Cannot read directory ${dirPath}:`, (e as Error).message);
-    addError(dirPath, 'directory', 'readdir', e);
-    return;
-  }
-
-  for (const entry of entries) {
-    if (signal?.aborted) { cancelled = true; return; }
-    const fullPath = path.join(dirPath, entry.name);
-
-    if (entry.isDirectory()) {
-      // Skip tests/fixtures directory
-      if (entry.name === "fixtures" && dirPath.includes(path.sep + "tests")) {
-        const excludedPath = path.join(dirPath, entry.name);
-        scopes.push({ scopePath: excludedPath, kind: 'directory', status: 'excluded', phase: 'excluded', reason: 'directory excluded by scan policy' });
-        continue;
-      }
-      await walkDir(fullPath);
-      if (cancelled) return;
-    } else if (entry.isFile()) {
-      const ext = path.extname(entry.name).toLowerCase().slice(1);
-      if (EXT_SET.has(ext)) {
-        try {
-          const stat = await fs.promises.stat(fullPath);
-          if (signal?.aborted) { cancelled = true; return; }
-          files.push({
-            path: fullPath,
-            name: path.basename(entry.name, "." + ext),
-            ext,
-            dir: dirPath,
-            size: stat.size,
-            mtime: Math.floor(stat.mtimeMs),
-          });
-        } catch (e: unknown) {
-          if (signal?.aborted) { cancelled = true; return; }
-          console.warn(`Cannot stat ${fullPath}:`, (e as Error).message);
-          addError(fullPath, 'directory', 'stat', e);
-        }
-      } else if (ARCHIVE_EXT_SET.has(ext)) {
-        const archiveResult = await scanArchive(fullPath, dirPath, files, scopes, errors, signal);
-        if (archiveResult === 'cancelled') { cancelled = true; return; }
-      }
+  let wasCancelled = false;
+  for await (const event of streamDiscoverFolder(rootPath, signal)) {
+    if (event.type === 'file') {
+      const { file } = event;
+      files.push({ path: file.path, name: file.name, ext: file.extension, dir: file.directory,
+        size: file.sizeBytes, mtime: file.modifiedAt });
+    } else if (event.type === 'scope-complete') {
+      scopes.push({ scopePath: event.scopePath, kind: event.kind, status: 'complete' });
+    } else if (event.type === 'scope-error') {
+      const excluded = event.code === 'SCOPE_EXCLUDED';
+      const kind = event.kind;
+      const phase: ScanScope['phase'] = event.code === 'ARCHIVE_FAILED' ? 'archive'
+        : event.code === 'STAT_FAILED' ? 'stat'
+          : excluded ? 'excluded' : 'readdir';
+      scopes.push({ scopePath: event.scopePath, kind, status: excluded ? 'excluded' : 'error', phase, reason: event.reason });
+      if (!excluded) errors.push({ scopePath: event.scopePath, phase, reason: event.reason });
+    } else if (event.type === 'discovery-complete') {
+      wasCancelled = event.cancelled;
     }
   }
-    if (signal?.aborted) { cancelled = true; return; }
-    scopes.push({ scopePath: dirPath, kind: 'directory', status: 'complete' });
-  };
-  await walkDir(rootPath);
   const incomplete = errors.length > 0 || scopes.some((scope) => scope.status !== 'complete');
-  const state: ScanTerminalState = cancelled ? 'cancelled' : incomplete ? (scopes.some((scope) => scope.status === 'complete') ? 'partial' : 'failed') : 'completed';
+  const state: ScanTerminalState = wasCancelled ? 'cancelled' : incomplete
+    ? (scopes.some((scope) => scope.status === 'complete') ? 'partial' : 'failed')
+    : 'completed';
   return { files, scopes, state, errors };
-}
-
-async function scanArchive(
-  archivePath: string,
-  parentDir: string,
-  results: ScannedFile[],
-  scopes: ScanScope[],
-  errors: ScanDiscovery['errors'],
-  signal?: AbortSignal,
-): Promise<'completed' | 'failed' | 'cancelled'> {
-  try {
-    const directory = await unzipper.Open.file(archivePath);
-    if (signal?.aborted) return 'cancelled';
-    const stat = await fs.promises.stat(archivePath);
-    if (signal?.aborted) return 'cancelled';
-
-    for (const entry of directory.files) {
-      if (signal?.aborted) return 'cancelled';
-      if (entry.type !== "File" || !isSupportedArchiveEntry(entry.path)) {
-        continue;
-      }
-
-      const virtualPath = createArchiveEntryPath(archivePath, entry.path);
-      results.push({
-        path: virtualPath,
-        name: getArchiveEntryBaseName(entry.path),
-        ext: getArchiveEntryExtension(entry.path),
-        dir: getArchiveEntryDirectory(virtualPath) || parentDir,
-        size: entry.uncompressedSize,
-        mtime: Math.floor(stat.mtimeMs),
-      });
-    }
-    if (signal?.aborted) return 'cancelled';
-    scopes.push({ scopePath: archivePath, kind: 'archive', status: 'complete' });
-    return 'completed';
-  } catch (e: unknown) {
-    if (signal?.aborted) return 'cancelled';
-    console.warn(`Cannot inspect archive ${archivePath}:`, (e as Error).message);
-    const reason = (e as Error)?.message ?? String(e);
-    scopes.push({ scopePath: archivePath, kind: 'archive', status: 'error', phase: 'archive', reason });
-    errors.push({ scopePath: archivePath, phase: 'archive', reason });
-    return 'failed';
-  }
 }

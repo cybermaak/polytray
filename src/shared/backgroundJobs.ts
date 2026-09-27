@@ -14,6 +14,8 @@ export interface BackgroundJobCounts {
   discovered: number;
   indexed: number;
   indexFailed: number;
+  metadataCompleted: number;
+  metadataFailed: number;
   thumbnailsSucceeded: number;
   thumbnailsFailed: number;
   thumbnailsPending: number;
@@ -33,8 +35,8 @@ export interface BackgroundJob {
 
 export type DiscoveryEvent =
   | { type: "file"; rootPath: string; scopePath: string; file: DiscoveredModel }
-  | { type: "scope-complete"; rootPath: string; scopePath: string; generation: number }
-  | { type: "scope-error"; rootPath: string; scopePath: string; phase: "discovery"; reason: string; code: string }
+  | { type: "scope-complete"; rootPath: string; scopePath: string; generation: number; kind: "directory" | "archive" }
+  | { type: "scope-error"; rootPath: string; scopePath: string; phase: "discovery"; reason: string; code: string; kind: "directory" | "archive" }
   | { type: "discovery-complete"; rootPath: string; cancelled: boolean };
 
 export interface DiscoveredModel {

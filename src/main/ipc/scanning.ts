@@ -5,28 +5,37 @@ import { BrowserWindow, ipcMain } from "electron";
 import { join } from "path";
 import fs from "fs";
 import { getDb, getSetting } from "../database";
-import { discoverFolder } from "../scanner";
-import { captureScanPruneSnapshot, pruneScanSnapshot } from "../scanPruner";
-import { extractMetadata, type MetadataSummary } from "../metadata";
 import {
   cancelPendingThumbnailJobs,
   getThumbnailDir,
   queueThumbnailGeneration,
 } from "../thumbnails";
 import {
-  FileRecord,
   IPC,
   RuntimeSettingsData,
-  ScannedFile,
 } from "../../shared/types";
 import { filterContainedPaths } from "../pathContainment";
 import { DEFAULT_APP_SETTINGS } from "../../shared/settings";
-import { applyScannedFileRecord } from "../fileIndexing";
+import { createScanService } from "../scanService";
 import { parseFolderPath, parseRuntimeSettings } from "./runtimeValidation";
 
 export function registerScanningHandlers(
   getMainWindow: () => BrowserWindow | null,
 ) {
+  const scanService = createScanService({
+    db: getDb(),
+    onProgress: (progress) => {
+      const mainWindow = getMainWindow();
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.SCAN_PROGRESS, progress);
+    },
+    onFileIndexed: (filePath, current, total) => {
+      const mainWindow = getMainWindow();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC.FILE_INDEXED, { path: filePath, current, total });
+      }
+    },
+  });
+
   async function performScan(
     folderPath: string,
     settings: RuntimeSettingsData = {
@@ -37,131 +46,27 @@ export function registerScanningHandlers(
       thumbnailColor: DEFAULT_APP_SETTINGS.thumbnailColor,
     },
   ) {
-    const db = getDb();
     const mainWindow = getMainWindow();
-    // Capture row identities before discovery; pruning requires unchanged rows and
-    // successful enumeration proof for every candidate namespace.
-    const snapshot = captureScanPruneSnapshot(db, folderPath);
-    const discovery = await discoverFolder(folderPath);
-    const files = discovery.files;
-    const total = files.length;
-    const affectedScopes = discovery.scopes
-      .filter((scope) => scope.status !== 'complete')
-      .map((scope) => scope.scopePath);
+    const result = await scanService.scan(folderPath, { batchSize: settings.scanning_batch_size });
 
-    // ── Pass 1: Index files quickly (metadata only, no thumbnails) ──
-    const filesToThumbnail: ScannedFile[] = [];
-    const yieldToEventLoop = () => new Promise<void>((r) => setImmediate(r));
-
-    const batchSize = settings.scanning_batch_size;
-    for (let i = 0; i < files.length; i++) {
-      if (i % batchSize === 0) {
-        await yieldToEventLoop(); // Crucial: don't beachball macOS on 10,000 files
-      }
-      
-      const file = files[i];
-
-      const existing = db
-        .prepare(
-          "SELECT modified_at, size_bytes, thumbnail, thumbnail_failed FROM files WHERE path = ?",
-        )
-        .get(file.path) as
-        | Pick<
-            FileRecord,
-            "modified_at" | "size_bytes" | "thumbnail" | "thumbnail_failed"
-          >
-        | undefined;
-      if (
-        existing &&
-        existing.modified_at === file.mtime &&
-        existing.size_bytes === file.size
-      ) {
-        // Already up to date — skip but mark for thumbnail if missing and hasn't failed previously
-        if (!existing.thumbnail && !existing.thumbnail_failed) {
-          filesToThumbnail.push(file);
-        }
-        if (mainWindow) {
-          mainWindow.webContents.send(IPC.SCAN_PROGRESS, {
-            current: i + 1,
-            total,
-            filename: file.name,
-            skipped: true,
-          });
-        }
-        continue;
-      }
-
-      let meta: MetadataSummary = {
-        vertexCount: 0,
-        faceCount: 0,
-        dimensions: null,
-      };
-      try {
-        meta = await extractMetadata(file.path, file.ext);
-      } catch (e: unknown) {
-        console.warn(
-          `Failed to extract metadata for ${file.path}:`,
-          (e as Error).message,
-        );
-      }
-
-      applyScannedFileRecord(db, {
-        path: file.path,
-        name: file.name,
-        ext: file.ext,
-        dir: file.dir,
-        size: file.size,
-        mtime: file.mtime,
-        vertexCount: meta.vertexCount,
-        faceCount: meta.faceCount,
-        dimensions: meta.dimensions,
-        indexedAt: Date.now(),
-      });
-
-      filesToThumbnail.push(file);
-
-      if (mainWindow) {
-        mainWindow.webContents.send(IPC.SCAN_PROGRESS, {
-          current: i + 1,
-          total,
-          filename: file.name,
-          skipped: false,
-        });
-      }
-
-      // Emit file-indexed so the renderer can show the card immediately
-      if (mainWindow) {
-        mainWindow.webContents.send(IPC.FILE_INDEXED, {
-          path: file.path,
-          current: i + 1,
-          total,
-        });
-      }
-    }
-
-    const pruneResult = pruneScanSnapshot(db, folderPath, discovery, snapshot);
-
-    // Notify scan complete (cards are all visible now)
-    if (mainWindow) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(IPC.SCAN_COMPLETE, {
-        totalFiles: total,
-        state: discovery.state,
-        affectedScopes,
-        retainedCount: pruneResult.retainedCount,
+        totalFiles: result.totalFiles,
+        state: result.state,
+        affectedScopes: result.affectedScopes,
+        retainedCount: result.retainedCount,
+        jobId: result.jobId,
+        discovered: result.discovered,
+        indexed: result.indexed,
+        metadataCompleted: result.metadataCompleted,
+        metadataFailed: result.metadataFailed,
       });
     }
 
     // ── Pass 2: Generate thumbnails in the background (fire-and-forget) ──
     queueThumbnailGeneration(folderPath, getMainWindow, settings);
 
-    return {
-      totalFiles: total,
-      state: discovery.state,
-      affectedScopes,
-      errors: discovery.errors,
-      retainedCount: pruneResult.retainedCount,
-      deletedCount: pruneResult.deletedCount,
-    };
+    return result;
   }
 
   ipcMain.handle(IPC.SCAN_FOLDER, async (event, folderPath, settings: RuntimeSettingsData) => {

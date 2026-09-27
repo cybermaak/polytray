@@ -1,0 +1,130 @@
+import { test, expect } from '@playwright/test';
+import fs from 'node:fs';
+import path from 'node:path';
+import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
+
+async function findVisibleMainWindow(app: Awaited<ReturnType<typeof launchIsolatedApp>>['app']) {
+  await app.firstWindow();
+  await expect.poll(async () => {
+    for (const page of app.windows()) {
+      try {
+        await page.locator('#search-input').waitFor({ timeout: 200 });
+        return true;
+      } catch { /* Ignore the hidden thumbnail renderer. */ }
+    }
+    return false;
+  }, { timeout: 10_000 }).toBe(true);
+  for (const page of app.windows()) {
+    if (await page.locator('#search-input').isVisible().catch(() => false)) return page;
+  }
+  throw new Error('Visible main window did not become ready');
+}
+
+test('a 5k scan exposes the first indexed subtree before discovery completes', async () => {
+  let root = '';
+  let firstDirectory = '';
+  let delayedDirectory = '';
+  let firstPath = '';
+  let releasePath = '';
+  let reachedPath = '';
+  let heartbeatPath = '';
+  const env: NodeJS.ProcessEnv = {};
+  let isolated: Awaited<ReturnType<typeof launchIsolatedApp>> | null = null;
+  try {
+    isolated = await launchIsolatedApp({
+      mainEntry: path.join(process.cwd(), 'out/main/index.js'),
+      env,
+      beforeLaunch: ({ scratchDir }) => {
+        root = path.join(scratchDir, 'library');
+        firstDirectory = path.join(root, 'a-first');
+        delayedDirectory = path.join(root, 'z-delayed');
+        firstPath = path.join(firstDirectory, 'first.stl');
+        releasePath = path.join(scratchDir, 'scan-release');
+        reachedPath = path.join(scratchDir, 'scan-held');
+        heartbeatPath = path.join(scratchDir, 'main-heartbeat.json');
+        fs.mkdirSync(firstDirectory, { recursive: true });
+        fs.mkdirSync(delayedDirectory, { recursive: true });
+        fs.writeFileSync(firstPath, 'solid first\nendsolid first\n');
+        for (let index = 0; index < 4_999; index++) {
+          fs.writeFileSync(path.join(delayedDirectory, `model-${String(index).padStart(5, '0')}.stl`), 'solid model\nendsolid model\n');
+        }
+        env.POLYTRAY_SCAN_TEST_HOLD_PATH = delayedDirectory;
+        env.POLYTRAY_SCAN_TEST_RELEASE_PATH = releasePath;
+        env.POLYTRAY_SCAN_TEST_REACHED_PATH = reachedPath;
+        env.POLYTRAY_SCAN_TEST_HEARTBEAT_PATH = heartbeatPath;
+      },
+    });
+    const window = await findVisibleMainWindow(isolated.app);
+    await window.evaluate(({ firstDirectory, root }) => {
+      const view = window as unknown as Window & {
+        __scanStartedAt?: number;
+        __scanFinished?: boolean;
+        __scanResult?: { totalFiles: number };
+        __scanError?: string;
+        __scanProof?: { total: number | null; indexed: number; elapsedMs: number; paths: string[]; unfinishedAtQuery: boolean };
+      };
+      view.__scanStartedAt = performance.now();
+      view.__scanFinished = false;
+      let queried = false;
+      window.polytray.onScanProgress((progress) => {
+        if (queried || progress.total !== null || !progress.indexed) return;
+        queried = true;
+        void window.polytray.getFiles({ folder: firstDirectory, limit: 10, offset: 0 }).then((result) => {
+          const elapsedMs = performance.now() - (view.__scanStartedAt ?? performance.now());
+          view.__scanProof = {
+            total: progress.total,
+            indexed: progress.indexed ?? progress.current,
+            elapsedMs,
+            paths: result.files.map((file) => file.path),
+            unfinishedAtQuery: view.__scanFinished === false,
+          };
+        });
+      });
+      void window.polytray.scanFolder(root).then(
+        (result) => { view.__scanResult = result; view.__scanFinished = true; },
+        (error) => { view.__scanError = String(error); view.__scanFinished = true; },
+      );
+    }, { firstDirectory, root });
+
+    await expect.poll(() => fs.existsSync(reachedPath)).toBe(true);
+    await expect.poll(async () => window.evaluate(() => Boolean((window as unknown as { __scanProof?: unknown }).__scanProof)))
+      .toBe(true);
+    const proof = await window.evaluate(() => (window as unknown as {
+      __scanProof: { total: number | null; indexed: number; elapsedMs: number; paths: string[]; unfinishedAtQuery: boolean };
+      __scanFinished: boolean;
+    }).__scanProof);
+    expect(proof.total).toBeNull();
+    expect(proof.indexed).toBeGreaterThan(0);
+    expect(proof.paths).toContain(firstPath);
+    expect(proof.unfinishedAtQuery).toBe(true);
+    expect(fs.existsSync(releasePath)).toBe(false);
+    expect(proof.elapsedMs).toBeLessThan(1_000);
+
+    fs.writeFileSync(releasePath, 'release');
+    await expect.poll(async () => window.evaluate(() => (window as unknown as { __scanFinished: boolean }).__scanFinished))
+      .toBe(true);
+    const result = await window.evaluate(() => (window as unknown as {
+      __scanResult: { totalFiles: number };
+      __scanError?: string;
+    }).__scanResult);
+    expect(result).toBeTruthy();
+    expect(result.totalFiles).toBe(5_000);
+    await expect.poll(() => fs.existsSync(heartbeatPath)).toBe(true);
+    const heartbeat = JSON.parse(fs.readFileSync(heartbeatPath, 'utf8')) as { intervalMs: number; samples: number; maxGapMs: number | null };
+    expect(heartbeat.intervalMs).toBe(25);
+    expect(heartbeat.samples).toBeGreaterThan(0);
+    expect(heartbeat.maxGapMs).not.toBeNull();
+    expect(heartbeat.maxGapMs!).toBeLessThanOrEqual(250);
+    console.info('[S02 scan metrics]', JSON.stringify({
+      firstQueryableBatchMs: proof.elapsedMs,
+      indexedAtFirstQuery: proof.indexed,
+      mainHeartbeatMaxGapMs: heartbeat.maxGapMs,
+      mainHeartbeatSamples: heartbeat.samples,
+    }));
+  } finally {
+    if (isolated) {
+      if (releasePath && !fs.existsSync(releasePath)) fs.writeFileSync(releasePath, 'release');
+      await isolated.close();
+    }
+  }
+});

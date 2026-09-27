@@ -16,17 +16,18 @@ export function captureScanPruneSnapshot(db: Database, rootPath: string): ScanSn
   return rows.filter((row) => containedPaths.has(row.path));
 }
 
-export function pruneScanSnapshot(
+export function pruneScanSnapshotPaths(
   db: Database,
   rootPath: string,
-  discovery: Pick<ScanDiscovery, 'files' | 'scopes' | 'state'>,
+  discovery: Pick<ScanDiscovery, 'scopes' | 'state'>,
+  discoveredPaths: Iterable<string>,
   snapshot: ScanSnapshotRow[],
 ) {
   const decision = decidePruneCandidates({
     rootPath,
     state: discovery.state,
     scopes: discovery.scopes,
-    discoveredPaths: discovery.files.map((file) => file.path),
+    discoveredPaths,
     candidates: snapshot.map((row) => ({ id: row.id, path: row.path, generation: row.indexed_at })),
   });
   const snapshotById = new Map(snapshot.map((row) => [row.id, row]));
@@ -39,4 +40,14 @@ export function pruneScanSnapshot(
     deletedCount,
     retainedCount: decision.retained + (decision.prune.length - deletedCount),
   };
+}
+
+/** Compatibility adapter for callers that still collect discovery records. */
+export function pruneScanSnapshot(
+  db: Database,
+  rootPath: string,
+  discovery: Pick<ScanDiscovery, 'files' | 'scopes' | 'state'>,
+  snapshot: ScanSnapshotRow[],
+) {
+  return pruneScanSnapshotPaths(db, rootPath, discovery, discovery.files.map((file) => file.path), snapshot);
 }

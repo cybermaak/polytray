@@ -130,9 +130,13 @@ export interface LibraryStats {
 /** SCAN_PROGRESS event payload */
 export interface ScanProgressData {
   current: number;
-  total: number;
+  /** Null until discovery completes and the total is known. */
+  total: number | null;
   filename: string;
   skipped: boolean;
+  jobId?: string;
+  discovered?: number;
+  indexed?: number;
 }
 
 /** SCAN_COMPLETE event payload */
@@ -141,6 +145,11 @@ export interface ScanCompleteData {
   state?: "completed" | "partial" | "failed" | "cancelled";
   affectedScopes?: string[];
   retainedCount?: number;
+  jobId?: string;
+  discovered?: number;
+  indexed?: number;
+  metadataCompleted?: number;
+  metadataFailed?: number;
 }
 
 /** FILES_UPDATED event payload */
@@ -153,7 +162,7 @@ export interface FilesUpdatedData {
 export interface FileIndexedData {
   path: string;
   current: number;
-  total: number;
+  total: number | null;
 }
 
 /** THUMBNAIL_READY event payload */
