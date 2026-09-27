@@ -1,26 +1,48 @@
 /**
  * IPC handlers for file queries and data access.
  */
-import { ipcMain } from "electron";
+import { ipcMain, type IpcMain } from "electron";
 import fs from "fs";
 import * as unzipper from "unzipper";
+import type { Database } from "better-sqlite3";
 import { getDb } from "../database";
 import {
   FileRecord,
-  CountRow,
   TotalRow,
   IPC,
   SortOptions,
   LibraryStats,
+  LibraryQuery,
+  LibraryPageResult,
 } from "../../shared/types";
 import { isPathContained } from "../pathContainment";
 import { parseArchiveEntryPath } from "../../shared/archivePaths";
 import {
   parseFileMetadataUpdate,
+  parseLibraryQuery,
   parseFilePath,
   parseSortOptions,
 } from "./runtimeValidation";
 import { createFileIndexRepository } from "../fileIndexing";
+import { getLibraryFiles, getLibraryPage } from "../libraryQueries";
+import { getLibrarySummaryService } from "../librarySummary";
+
+export interface FileHandlerReadiness {
+  isScopeIndexReady(): boolean;
+  ensureScopeIndexReady(): Promise<void>;
+}
+
+export function registerLibrarySummaryHandlers(
+  summaryIpc: Pick<IpcMain, "handle"> = ipcMain,
+  getSummaryDb: () => Database = getDb,
+) {
+  summaryIpc.handle(IPC.GET_DIRECTORIES, () => {
+    return getLibrarySummaryService(getSummaryDb()).getDirectories();
+  });
+  summaryIpc.handle(IPC.GET_STATS, (): LibraryStats => {
+    return getLibrarySummaryService(getSummaryDb()).getStats();
+  });
+}
 
 
 async function readArchiveEntryBuffer(archivePath: string, entryPath: string) {
@@ -34,9 +56,12 @@ async function readArchiveEntryBuffer(archivePath: string, entryPath: string) {
   return entry.buffer();
 }
 
-export function registerFileHandlers() {
+export function registerFileHandlers(readiness: FileHandlerReadiness) {
+  registerLibrarySummaryHandlers();
   ipcMain.handle(IPC.GET_FILES, (event, opts: SortOptions = {}) => {
     const db = getDb();
+    const parsedOptions = parseSortOptions(opts);
+    if (readiness.isScopeIndexReady()) return getLibraryFiles(db, parsedOptions);
     const {
       sort = "name",
       order = "ASC",
@@ -44,7 +69,7 @@ export function registerFileHandlers() {
       search = "",
       limit = 200,
       offset = 0,
-    } = parseSortOptions(opts);
+    } = parsedOptions;
 
     const validSorts: Record<string, string> = {
       name: "name",
@@ -70,10 +95,10 @@ export function registerFileHandlers() {
 
     const whereClause = where.length > 0 ? "WHERE " + where.join(" AND ") : "";
 
-    if (opts.folder) {
+    if (parsedOptions.folder) {
       const query = `SELECT * FROM files ${whereClause}`;
       const filtered = (db.prepare(query).all(...params) as FileRecord[])
-        .filter((file) => isPathContained(opts.folder!, file.path));
+        .filter((file) => isPathContained(parsedOptions.folder!, file.path));
 
       filtered.sort((a, b) => {
         const left = a[sortCol as keyof FileRecord];
@@ -117,6 +142,12 @@ export function registerFileHandlers() {
     return { files, total: countRow.total };
   });
 
+  ipcMain.handle(IPC.GET_LIBRARY_PAGE, async (event, rawQuery): Promise<LibraryPageResult> => {
+    const query: LibraryQuery = parseLibraryQuery(rawQuery);
+    await readiness.ensureScopeIndexReady();
+    return getLibraryPage(getDb(), query);
+  });
+
   ipcMain.handle(IPC.GET_FILE_BY_ID, (event, id) => {
     const db = getDb();
     return db.prepare("SELECT * FROM files WHERE id = ?").get(id);
@@ -145,14 +176,6 @@ export function registerFileHandlers() {
     throw new Error("File changed while metadata was being updated");
   });
 
-  ipcMain.handle(IPC.GET_DIRECTORIES, () => {
-    const db = getDb();
-    const rows = db
-      .prepare("SELECT DISTINCT directory FROM files ORDER BY directory ASC")
-      .all() as { directory: string }[];
-    return rows.map((r) => r.directory);
-  });
-
   ipcMain.handle(IPC.READ_FILE_BUFFER, async (event, filePath) => {
     const parsedFilePath = parseFilePath(filePath);
     const db = getDb();
@@ -173,31 +196,4 @@ export function registerFileHandlers() {
     );
   });
 
-  ipcMain.handle(IPC.GET_STATS, (): LibraryStats => {
-    const db = getDb();
-    const total = (
-      db.prepare("SELECT COUNT(*) as count FROM files").get() as CountRow
-    ).count;
-    const stl = (
-      db
-        .prepare("SELECT COUNT(*) as count FROM files WHERE extension = 'stl'")
-        .get() as CountRow
-    ).count;
-    const obj = (
-      db
-        .prepare("SELECT COUNT(*) as count FROM files WHERE extension = 'obj'")
-        .get() as CountRow
-    ).count;
-    const threemf = (
-      db
-        .prepare("SELECT COUNT(*) as count FROM files WHERE extension = '3mf'")
-        .get() as CountRow
-    ).count;
-    const totalSize = (
-      db
-        .prepare("SELECT COALESCE(SUM(size_bytes), 0) as total FROM files")
-        .get() as TotalRow
-    ).total;
-    return { total, stl, obj, threemf, totalSize };
-  });
 }

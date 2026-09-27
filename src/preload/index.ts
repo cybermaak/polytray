@@ -17,6 +17,8 @@ import {
   RuntimeSettingsData,
   UpdateFileMetadataData,
   IndexMutationResult,
+  LibraryQuery,
+  LibraryPageResult,
 } from "../shared/types";
 
 function onChannel<T>(channel: string, callback: (data: T) => void) {
@@ -65,6 +67,7 @@ contextBridge.exposeInMainWorld("polytray", {
 
   // File queries
   getFiles: (opts: SortOptions) => ipcRenderer.invoke(IPC.GET_FILES, opts),
+  getLibraryPage: (query: LibraryQuery) => ipcRenderer.invoke(IPC.GET_LIBRARY_PAGE, query) as Promise<LibraryPageResult>,
   getFileById: (id: number) => ipcRenderer.invoke(IPC.GET_FILE_BY_ID, id),
   updateFileMetadata: (payload: UpdateFileMetadataData) =>
     ipcRenderer.invoke(IPC.UPDATE_FILE_METADATA, payload),

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   parseFolderPath,
+  parseLibraryQuery,
   parsePreviewMetric,
   parsePreviewParseRequest,
   parseRuntimeSettings,
@@ -88,4 +89,34 @@ test('path and preview validators reject malformed IPC payloads', () => {
     () => parsePreviewMetric({ source: 'worker', phase: 'parse' }),
     /Invalid preview metric/,
   );
+});
+
+test('parseLibraryQuery supplies bounded defaults and preserves collection and archive identity', () => {
+  assert.deepEqual(parseLibraryQuery({}), {
+    sort: 'name', direction: 'ASC', extension: null, folder: null, search: '',
+    collectionPaths: null, limit: 500, offset: 0, archivePath: null,
+  });
+  assert.deepEqual(parseLibraryQuery({
+    sort: 'faces', direction: 'DESC', extension: 'STL', folder: '/models', search: 'literal%_',
+    collectionPaths: [], limit: 20, offset: 40, expectedBrowseRevision: 7,
+    archivePath: '/models/kits.zip',
+  }), {
+    sort: 'faces', direction: 'DESC', extension: 'stl', folder: '/models', search: 'literal%_',
+    collectionPaths: [], limit: 20, offset: 40, expectedBrowseRevision: 7,
+    archivePath: '/models/kits.zip',
+  });
+  const opaqueMemberPath = '/models/kits.zip::entry::a/../Part.stl';
+  assert.equal(parseLibraryQuery({ collectionPaths: [opaqueMemberPath] }).collectionPaths?.[0], opaqueMemberPath);
+});
+
+test('parseLibraryQuery rejects unsafe sorts, directions, limits, offsets, revisions, and paths', () => {
+  for (const input of [
+    { sort: 'drop table' }, { direction: 'sideways' }, { limit: 0 }, { limit: 2001 },
+    { limit: 1.5 }, { offset: -1 }, { offset: Number.MAX_SAFE_INTEGER + 1 },
+    { expectedBrowseRevision: -1 }, { expectedBrowseRevision: Number.MAX_SAFE_INTEGER + 1 },
+    { search: null }, { folder: '' }, { extension: '' }, { archivePath: '' },
+    { collectionPaths: [''] }, { collectionPaths: 'not-a-list' },
+  ]) {
+    assert.throws(() => parseLibraryQuery(input), /Invalid library query/);
+  }
 });

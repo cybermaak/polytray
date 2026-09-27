@@ -1,3 +1,8 @@
+import {
+  DEFAULT_PANEL_PREFERENCES,
+  normalizePanelPreferences,
+} from "./panelPreferences";
+
 export const SETTINGS_STORAGE_KEY = "polytray-settings";
 
 export type GridSize = "small" | "medium" | "large";
@@ -18,6 +23,8 @@ export interface AppSettings {
   scanning_batch_size: number;
   watcher_stability: number;
   page_size: number;
+  sidebarWidth: number;
+  previewWidth: number;
 }
 
 export interface RuntimeSettings {
@@ -43,6 +50,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   scanning_batch_size: 50,
   watcher_stability: 1000,
   page_size: 500,
+  ...DEFAULT_PANEL_PREFERENCES,
 };
 
 const THUMB_QUALITIES: ThumbnailQuality[] = ["128", "256", "512"];
@@ -92,6 +100,7 @@ export function normalizeAppSettings(input: unknown): AppSettings {
       ? (input as Partial<Record<keyof AppSettings, unknown>>)
       : {};
 
+  const panelPreferences = normalizePanelPreferences(raw);
   return {
     lightMode: normalizeBoolean(raw.lightMode, DEFAULT_APP_SETTINGS.lightMode),
     gridSize: normalizeChoice(
@@ -143,6 +152,7 @@ export function normalizeAppSettings(input: unknown): AppSettings {
       50,
       2000,
     ),
+    ...panelPreferences,
   };
 }
 

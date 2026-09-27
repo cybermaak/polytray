@@ -17,6 +17,8 @@ import type {
   RuntimeSettingsData,
   UpdateFileMetadataData,
   IndexMutationResult,
+  LibraryQuery,
+  LibraryPageResult,
 } from "../shared/types";
 
 export type { FileRecord };
@@ -36,6 +38,7 @@ interface PolytrayAPI {
   getFiles: (
     opts: SortOptions,
   ) => Promise<{ files: FileRecord[]; total: number }>;
+  getLibraryPage: (query: LibraryQuery) => Promise<LibraryPageResult>;
   getFileById: (id: number) => Promise<FileRecord>;
   updateFileMetadata: (payload: UpdateFileMetadataData) => Promise<FileRecord>;
   getStats: () => Promise<LibraryStats>;
