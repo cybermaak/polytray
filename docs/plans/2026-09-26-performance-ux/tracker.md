@@ -2,9 +2,9 @@
 
 [Execution plan](../2026-09-26-performance-ux-execution-plan.md) | [Shared contracts](contracts.md) | [Handoff template](handoff-template.md)
 
-**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01, S01, T03, V01, and the P02 export service are reviewed and integrated. Seven implementation lanes now cover D02/S02/T01/V03/U03/P01/P03, with an independent review chat. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. The original unregistered chat requests are superseded by the active assignments below.
+**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01-D03, S01, T03, V01, and the P02 export service are reviewed and integrated. Six implementation lanes cover S02/T01/V03/U03/P01/P03, with independent reviews. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. The original unregistered chat requests are superseded by the active assignments below.
 
-**Progress:** 8 / 33 DONE. Foundation 2/2; data 2/3; scanning 1/6; thumbnails 1/4; preview 1/5; browsing 0/6; product workflows 1/4; validation 0/3. D02's query service, IPC smoke, benchmark and reviews are complete; UI paging remains U01/V02.
+**Progress:** 9 / 33 DONE. Foundation 2/2; data 3/3; scanning 1/6; thumbnails 1/4; preview 1/5; browsing 0/6; product workflows 1/4; validation 0/3. D02's query service, IPC smoke, benchmark and reviews are complete; UI paging remains U01/V02.
 
 ## Status and update rules
 
@@ -22,7 +22,7 @@
 | F02 | [Fixtures and diagnostics](foundation-data.md#f02---establish-portable-fixtures-and-trustworthy-diagnostics) | Foundation | - | DONE | f02_fixtures (Luna/medium) | [F02](handoffs/F02.md); spec/quality and combined gate passed |
 | D01 | [Indexed scopes and batched writes](foundation-data.md#d01---indexed-folder-membership-and-a-batched-write-repository) | P1 | F01, F02 | DONE | d01_index_repository (Luna/medium) | [D01](handoffs/D01.md); core through `fa38a6d`, guarded missing-row follow-up `8265dd2`/`37eb013`; reviews/checks passed |
 | D02 | [Complete SQL display pages](foundation-data.md#d02---query-complete-display-pages-in-sqlite) | P1 | D01 | DONE | d01_index_repository (Luna/medium) | [D02](handoffs/D02.md); independent spec/quality PASS, units/Build/IPC/benchmark PASS; integrated `288724e` through `516e79c` |
-| D03 | [Independent library summaries](foundation-data.md#d03---separate-library-summaries-from-list-queries) | P2 | D02 | IN_PROGRESS | d01_index_repository (Luna/medium) | Dispatch from integrated D02 base |
+| D03 | [Independent library summaries](foundation-data.md#d03---separate-library-summaries-from-list-queries) | P2 | D02 | DONE | d01_index_repository (Luna/medium) | [D03](handoffs/D03.md); independent spec and coordinator quality PASS; 164 units, Type/Build PASS; integrated `3bc4a2c`, `824be77`, `2f152af` |
 | S01 | [Safe enumeration and pruning](scanning.md#s01---require-proof-of-successful-enumeration-before-pruning) | P1 | F01, F02 | DONE | s01_safe_scanning (Luna/medium) | [S01](handoffs/S01.md); both reviews and runtime gate passed |
 | S02 | [Streaming discovery and early batches](scanning.md#s02---stream-discovery-and-commit-useful-batches-early) | P1 | S01, D01 | IN_PROGRESS | baseline_validation reassigned (Luna/medium) | Dispatch from verified local-main base |
 | S03 | [Background metadata extraction](scanning.md#s03---move-metadata-cpu-work-out-of-the-main-process) | P1 | S02 | PLANNED | Unassigned | - |
@@ -56,15 +56,15 @@
 
 | Assignment | Worker | Worktree / branch | State |
 | --- | --- | --- | --- |
-| D03 | d01_index_repository, Luna/medium | `/Users/maak/.codex/worktrees/polytray-d03/polytray` / `codex/perf-d03` | Source/reviews/checks passed; final handoff and integration pending |
+| D03 | d01_index_repository, Luna/medium | `/Users/maak/.codex/worktrees/polytray-d03/polytray` / `codex/perf-d03` | DONE: integrated; checkout free after handoff |
 | V03 | s01_safe_scanning reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-v03` | Implementing |
-| S02 | baseline_validation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-s02` | Implementing streaming scans |
+| S02 | baseline_validation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-s02` | Static reviews passed; owns native lane for startup diagnosis and held-subtree/heartbeat gate |
 | T03 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/61df/polytray`, `74d2e9e` | Preserved unreviewed alternative; active T03 producer already integrated |
 | T01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-thumbnails/polytray` / `codex/perf-t01` | Implementing |
-| U03 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-layout/polytray` / `codex/perf-u03` | Implementing |
+| U03 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-layout/polytray` / `codex/perf-u03` | Full Product and responsive matrix passed; final review |
 | P03 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-import/polytray` / `codex/perf-p03` | Implementing |
 | P01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-slicer/polytray` / `codex/perf-p01` | Implementing |
-| Independent review | Luna/medium chat `01a0e1fe-a466-7810-9892-71009a512cc2` | Read-only exact candidate checkouts | D01/S01 boundary PASS; V03 static spec review active |
+| Independent review | Luna/medium chat `01a0e1fe-a466-7810-9892-71009a512cc2` | Read-only exact candidate checkouts | U03 final review; T01 and P03 reviewed concurrently by free subagents |
 | U03 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/1221/polytray`, `3a3b13c` | Preserved unreviewed alternative; active owner is the registered layout chat |
 | P01 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/861a/polytray`, `b9701b5` | Preserved unreviewed alternative; active owner is the registered slicer chat |
 
@@ -95,6 +95,8 @@ S02 preparation exposed one additional D01 guard: a positive expected content re
 | 2026-09-27 | T03 producer gate | Coordinator spec and independent quality PASS; 12 focused renderer tests, Type/Build/lint PASS | Integrated bounded shared image loader; U01/T02 must wire path-only updates and invalidate same-path ready events |
 | 2026-09-27 | D01 gate | Core/adapters/IPC reviews PASS; 133 unit passes/1 native-Windows skip; all 35 non-optional E2E cases pass across Product plus corrected app-file rerun; portability follow-up focused tests/Type/Build PASS | Integrated migration5, guarded repository, bounded backfill and typed notifications; Windows/Linux app runs remain outstanding |
 | 2026-09-27 | D02 gate | Independent spec/quality PASS; 157 unit passes/1 Windows-only skip, Type/Build PASS, actual IPC smoke 1/1 | 10k/50k grouped folder median 14.77/79.71 ms; 50k p95 81.35 ms; heartbeat max 143.96 ms; final G02 repeats on integrated app |
+
+| 2026-09-27 | D03 gate | Independent spec and coordinator quality PASS; 164 unit passes/1 Windows-only skip, Type/Build PASS; production summary IPC handlers exercised with real SQLite | Integrated revision-keyed summaries and precise mutation flags; renderer query reduction remains U02 |
 
 ## Blockers and decisions
 
