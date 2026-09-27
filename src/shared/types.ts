@@ -180,9 +180,16 @@ export interface ThumbnailReadyData {
   contentRevision: number;
 }
 
+export const THUMBNAIL_INVALIDATION_PATH_BATCH_SIZE = 256;
+
 export type ThumbnailInvalidatedData =
   | { kind: "all" }
-  | { kind: "paths"; modelPaths: string[]; thumbnailPaths: string[] };
+  | {
+      kind: "paths";
+      /** Independent sets; entries are not positionally paired. Each array has at most the shared batch size. */
+      modelPaths: string[];
+      thumbnailPaths: string[];
+    };
 
 /** THUMBNAIL_PROGRESS event payload */
 export interface ThumbnailProgressData {
