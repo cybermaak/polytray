@@ -34,7 +34,7 @@ Selection uses real file IDs, never synthetic archive IDs. It persists across pa
 
 ## C3. Scanning and background work
 
-Discovery streams typed events: `file`, `scope-complete`, `scope-error`, and `discovery-complete`. A scope may be a physical directory or a ZIP member namespace. Errors include root/path, phase, and reason; an error is never converted into an empty successful listing.
+Discovery streams typed events: `file`, `scope-complete`, `scope-error`, and `discovery-complete`. A scope may be a physical directory or a ZIP member namespace. Scope events carry explicit `kind: directory|archive` from the scanner; a directory named `foo.zip` is not inferred to be an archive. Errors include root/path, phase, and reason; an error is never converted into an empty successful listing.
 
 Pruning requires affirmative complete enumeration of that scope. An unavailable root retains all indexed records. An unreadable child retains its entire old subtree, while a successfully enumerated sibling may prune missing files. A successfully enumerated parent may prove that a previously indexed child directory or archive was deleted. A corrupt/unreadable existing ZIP does not prove its members disappeared. Cancellation performs no further pruning. Only rows belonging to the scan's starting generation and not superseded by a newer watcher update are prune candidates.
 
