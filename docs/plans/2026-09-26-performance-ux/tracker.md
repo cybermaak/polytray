@@ -35,7 +35,7 @@
 | T04 | [Thumbnail queue controls and accounting](thumbnails.md#t04---centralize-thumbnail-queue-state-controls-and-retry-accounting) | P2 | T02 | PLANNED | Unassigned | - |
 | V01 | [Viewer lifetime and idle rendering](preview.md#v01---give-each-viewer-a-lifecycle-and-stop-drawing-when-idle) | P2 | F01, F02 | DONE | f01_foundation + s01_safe_scanning (Luna/medium) | [V01](handoffs/V01.md); reviewed and integrated through `cb63f7a` |
 | V02 | [Stable preview state and lazy archive navigation](preview.md#v02---decouple-metadata-from-geometry-and-show-durable-preview-states) | P2 | V01, D02 | IN_PROGRESS | Luna/medium chat `01a0e202-0863-7f30-bfb8-c159d2e58053` | Reuses completed import checkout `codex/perf-v02`, base reviewed V03 `cba30cb`; joint U01 preview-target seam |
-| V03 | [Owned cancellable preview runtime](preview.md#v03---cancel-obsolete-parsing-through-an-owned-preview-runtime) | P2 | F01, F02, D01 | REVIEW | s01_safe_scanning reassigned (Luna/medium) | corrected direct geometry transport and lifecycle reviews PASS; native cancellation gate pending |
+| V03 | [Owned cancellable preview runtime](preview.md#v03---cancel-obsolete-parsing-through-an-owned-preview-runtime) | P2 | F01, F02, D01 | REVIEW | s01_safe_scanning reassigned (Luna/medium) | corrected static reviews PASS; focused native cancellation PASS (73ms); full Product awaits shared ZIP cleanup correction |
 | V04 | [Background preparation and bounded assembly](preview.md#v04---prepare-orientation-in-the-background-and-budget-visible-mesh-assembly) | P2 | V01, V03, S04 | PLANNED | Unassigned | - |
 | V05 | [Progressive part thumbnails](preview.md#v05---make-part-thumbnails-small-progressive-and-independent) | P2 | V04 | PLANNED | Unassigned | - |
 | U01 | [Complete browsing and consistent selection](browsing.md#u01---load-every-result-and-keep-selection-consistent-across-pages) | P1 | D02, T03 | IN_PROGRESS | Luna/medium chat `01a0e202-8608-7f21-a52d-5e89ef92806b` | Reuses completed layout checkout on `codex/perf-u01`, base `b84ba09` |
@@ -57,8 +57,8 @@
 | Assignment | Worker | Worktree / branch | State |
 | --- | --- | --- | --- |
 | D03 | d01_index_repository, Luna/medium | `/Users/maak/.codex/worktrees/polytray-d03/polytray` / `codex/perf-d03` | DONE: integrated; checkout free after handoff |
-| V03 | s01_safe_scanning reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-v03` | Implementing |
-| S02 | baseline_validation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-s02` | Focused streaming runtime PASS (5.9ms first query,35.16ms heartbeat); owns full Product lane |
+| V03 | s01_safe_scanning reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-v03` | Focused native PASS; full Product blocked by shared empty-ZIP cleanup regression; no app lease |
+| S02 | baseline_validation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-s02` | Focused streaming runtime PASS (5.9ms first query,35.16ms heartbeat); shared ZIP stream correction f07baf7 under review |
 | T03 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/61df/polytray`, `74d2e9e` | Preserved unreviewed alternative; active T03 producer already integrated |
 | T02 | Registered Luna/medium chat, T01 complete | `/Users/maak/.codex/worktrees/polytray-thumbnails/polytray` / `codex/perf-t02` | Implementing authoritative refresh/invalidation; no current native lease |
 | U01 | Registered Luna/medium chat, U03 complete | `/Users/maak/.codex/worktrees/polytray-layout/polytray` / `codex/perf-u01` | Implementing complete paging and selection |
@@ -108,6 +108,8 @@ V02 can now proceed independently in the completed import checkout: V03's source
 | 2026-09-27 | P01 source integration | Independent spec/quality corrections complete; combined Type/Build and 209 unit passes/1 Windows-only skip PASS | Kept REVIEW pending combined Product startup gate; U06 activation remains downstream |
 
 | 2026-09-27 | T01/P01 combined gate | 219 unit passes/1 Windows skip, 38 E2E passes/1 optional model skip; actual hidden-renderer lifecycle and startup passed. Both source reviews PASS | Merged `9479c7f`; source/test/config tree matches tested `a809295` exactly, combined main Type/Build PASS. T01 and P01 DONE; S02 takes native lane |
+
+| 2026-09-27 | S02/V03 native checkpoints | S02 held-subtree query in 5.9ms, main heartbeat35.16ms; V03 old parser stopped73ms with distinct PIDs, C-only success/fallback and independent thumbnails | Both full Product runs stopped in Node units on the same lazy empty-ZIP stream cleanup; corrected S02 candidate `f07baf7` is under independent review. A separate scanner-hold EMFILE was sandbox FSEvents denial: identical escalated test passed, no watcher code changed |
 
 ## Blockers and decisions
 
