@@ -119,7 +119,7 @@ test("library pages expose every matching model, complete archive counts, and st
     const archive = grouped.items.find((item) => item.kind === "archive");
     expect(archive.modelCount).toBe(520);
     expect(archive.thumbnailSamples.length).toBeLessThanOrEqual(4);
-    await expect(page.locator(".file-card.archive-summary .card-source-badge")).toContainText("520 items");
+    await expect(page.locator(".file-card.archive-summary .card-source-badge")).toContainText("520 models");
 
     const archiveQuery = {
       sort: "name", direction: "ASC", extension: null,

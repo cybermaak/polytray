@@ -38,5 +38,5 @@ console.log(JSON.stringify({
   collectionPaths,
   lastRecordPath: rows[599].path,
   lastRecordName: rows[599].name,
-  tieFileIds: [rows[499].id, rows[500].id, rows[501].id],
+  tieFileIds: [rows[498].id, rows[499].id, rows[500].id],
 }));

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { VirtuosoGrid } from "react-virtuoso";
 import { formatSize, formatTimestamp, formatVertices } from "../lib/formatters";
 import type { FileRecord } from "../../shared/types";
@@ -183,7 +183,7 @@ const FileCard: React.FC<{
         )}
         {isArchiveSummary && (
           <span className="card-source-badge" title={`${archiveModelCount(file)} models in archive`}>
-            {archiveModelCount(file)} items
+            {archiveModelCount(file)} models
           </span>
         )}
       </div>
@@ -280,6 +280,26 @@ export const FileGrid: React.FC<Props> = ({
   onEndReached,
   onRetry,
 }) => {
+  const context = useMemo(() => ({
+    gridSize,
+    pageRefreshing,
+    pageLoadingNext,
+    pageError,
+    hasMore,
+    onRetry,
+  }), [gridSize, pageRefreshing, pageLoadingNext, pageError, hasMore, onRetry]);
+  const computeItemKey = useCallback((_index: number, item: DisplayFileRecord) => displayItemKey(item), []);
+  const itemContent = useCallback((_index: number, file: DisplayFileRecord) => (
+    <FileCardMemo
+      file={file}
+      selected={activeItemKey === displayItemKey(file) || comparisonItemKeys.has(displayItemKey(file))}
+      selectedForBatch={!isArchiveDisplay(file) && selectedFileIds.has(file.id)}
+      onToggleSelect={onToggleFileSelection}
+      onClick={onSelectFile}
+      onDoubleClick={onOpenArchive}
+    />
+  ), [activeItemKey, comparisonItemKeys, onOpenArchive, onSelectFile, onToggleFileSelection, selectedFileIds]);
+
   if (files.length === 0) {
     if (pageError) {
       return (
@@ -299,20 +319,11 @@ export const FileGrid: React.FC<Props> = ({
     <VirtuosoGrid
       style={{ flex: 1, minHeight: 0 }}
       data={files}
-      context={{ gridSize, pageRefreshing, pageLoadingNext, pageError, hasMore, onRetry }}
+      context={context}
       components={{ List: GridList, Item: GridItem, Footer: GridFooter }}
-      computeItemKey={(_index, item) => displayItemKey(item)}
+      computeItemKey={computeItemKey}
       endReached={hasMore ? onEndReached : undefined}
-      itemContent={(index, file) => (
-        <FileCardMemo
-          file={file}
-          selected={activeItemKey === displayItemKey(file) || comparisonItemKeys.has(displayItemKey(file))}
-          selectedForBatch={!isArchiveDisplay(file) && selectedFileIds.has(file.id)}
-          onToggleSelect={onToggleFileSelection}
-          onClick={onSelectFile}
-          onDoubleClick={onOpenArchive}
-        />
-      )}
+      itemContent={itemContent}
     />
   );
 };
