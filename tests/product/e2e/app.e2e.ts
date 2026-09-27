@@ -1002,6 +1002,53 @@ test("separate color settings persist and thumbnail color can reset to default",
   await expect(window.locator("#settings-overlay")).toHaveClass(/hidden/);
 });
 
+test("preview material uses a color saved while the viewer is closed", async () => {
+  await ensureFixtureFilesLoaded();
+  await resetUiState();
+  await expect(window.locator("#preview-panel")).toHaveClass(/hidden/);
+  expect(await window.evaluate(() => window.__POLYTRAY_CURRENT_MODEL ?? null)).toBeNull();
+
+  await window.locator("#btn-settings").click();
+  const previewColor = window.locator("#setting-preview-color");
+  await expect(previewColor).toBeVisible();
+  await previewColor.fill("#33aa88");
+  await window.locator("#settings-close").click();
+  await expect(window.locator("#settings-overlay")).toHaveClass(/hidden/);
+
+  const cubeCard = window.locator(".file-card")
+    .filter({ has: window.locator(".card-name[title='test_cube']") })
+    .first();
+  await expect(cubeCard).toBeVisible();
+  await cubeCard.click();
+  await expect(window.locator("#preview-panel")).not.toHaveClass(/hidden/);
+  await window.waitForFunction(() => {
+    const model = window.__POLYTRAY_CURRENT_MODEL;
+    if (!model) return false;
+    let firstMaterialColor;
+    model.traverse((child) => {
+      if (firstMaterialColor || !child.isMesh) return;
+      const material = Array.isArray(child.material) ? child.material[0] : child.material;
+      if (material?.color?.getHexString) firstMaterialColor = material.color.getHexString();
+    });
+    return firstMaterialColor !== undefined;
+  }, undefined, { timeout: 15000 });
+
+  const materialColor = await window.evaluate(() => {
+    const model = window.__POLYTRAY_CURRENT_MODEL;
+    let color;
+    model.traverse((child) => {
+      if (color || !child.isMesh) return;
+      const material = Array.isArray(child.material) ? child.material[0] : child.material;
+      if (material?.color?.getHexString) color = `#${material.color.getHexString()}`;
+    });
+    return color;
+  });
+  expect(materialColor).toBe("#33aa88");
+
+  await window.locator("#btn-close-viewer").click();
+  await expect(window.locator("#preview-panel")).toHaveClass(/hidden/);
+});
+
 test("toolbar context strip reflects active scope and sidebar keeps collections above merged filter stats", async () => {
   await ensureFixtureFilesLoaded();
   await resetUiState();

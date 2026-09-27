@@ -58,6 +58,15 @@ function createInitialState(): ViewerState {
 let state: ViewerState = createInitialState();
 let activeSession: ViewerSession<ViewerState> | null = null;
 const BUILD_MESH_BATCH_SIZE = 8;
+const PREVIEW_COLOR_PATTERN = /^#[\da-f]{6}$/i;
+
+function seedViewerModelColor(containerEl: HTMLElement) {
+  const configuredColor = window.getComputedStyle(containerEl)
+    .getPropertyValue("--preview-model-color")
+    .trim();
+  const fallbackColor = `#${VIEWER_CONFIG.material.color.toString(16).padStart(6, "0")}`;
+  setModelColor(PREVIEW_COLOR_PATTERN.test(configuredColor) ? configuredColor : fallbackColor);
+}
 
 function getMultiModelContainer() {
   if (!state.multiModelContainer) {
@@ -109,6 +118,7 @@ export function initViewer(containerEl: HTMLElement) {
   disposeViewer();
   state = createInitialState();
   state.container = containerEl;
+  seedViewerModelColor(containerEl);
 
   const width = state.container.clientWidth;
   const height = state.container.clientHeight;
