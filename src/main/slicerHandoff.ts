@@ -183,7 +183,10 @@ export function createSlicerHandoff(deps: Dependencies) {
       try { await ensureHandoffDirectory(false); } catch (error) { noteFailure(error); return { removed, failed, errors }; }
       let entries: fs.Dirent[];
       try { entries = await fsp.readdir(handoffDir, { withFileTypes: true }); }
-      catch (error) { noteFailure(error); return { removed, failed, errors }; }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') noteFailure(error);
+        return { removed, failed, errors };
+      }
       for (const item of entries) {
         if (!item.isFile()) continue;
         const target = path.join(handoffDir, item.name);

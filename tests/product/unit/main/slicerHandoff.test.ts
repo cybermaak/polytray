@@ -228,6 +228,14 @@ test('startup cleanup prunes only stale regular files inside the owned directory
   await fs.rm(f.root, { recursive: true, force: true });
 });
 
+test('startup cleanup treats an absent fresh-install handoff directory as a clean result', async () => {
+  const f = await fixture();
+  const result = await service(f.root, () => null, async () => {}).cleanupOldFiles();
+  assert.deepEqual(result, { removed: 0, failed: 0, errors: [] });
+  assert.equal(await fs.stat(path.join(f.root, 'slicer-handoff')).then(() => true).catch(() => false), false);
+  await fs.rm(f.root, { recursive: true, force: true });
+});
+
 test('startup cleanup keeps going after delete failures and bounds its error sample', async () => {
   const f = await fixture();
   const handoffDir = path.join(f.root, 'slicer-handoff'); await fs.mkdir(handoffDir);
