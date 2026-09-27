@@ -2,9 +2,9 @@
 
 [Execution plan](../2026-09-26-performance-ux-execution-plan.md) | [Shared contracts](contracts.md) | [Handoff template](handoff-template.md)
 
-**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01 and F02 are reviewed and integrated. Combined foundation gate passed: Build, 66 unit tests, 29 E2E tests, 1 optional real-model test skipped. D01/S01/V01 are implementing; T03/U03/P01 chat creation is pending registration.
+**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01 and F02 are reviewed and integrated. Combined foundation gate passed: Build, 66 unit tests, 29 E2E tests, 1 optional real-model test skipped. S01 is reviewed and integrated; D01/V01 are addressing review corrections. T03/U03/P01 chat creation remains pending registration.
 
-**Progress:** 2 / 33 DONE. Foundation 2/2; data 0/3; scanning 0/6; thumbnails 0/4; preview 0/5; browsing 0/6; product workflows 0/4; validation 0/3.
+**Progress:** 3 / 33 DONE. Foundation 2/2; data 0/3; scanning 1/6; thumbnails 0/4; preview 0/5; browsing 0/6; product workflows 0/4; validation 0/3.
 
 ## Status and update rules
 
@@ -23,7 +23,7 @@
 | D01 | [Indexed scopes and batched writes](foundation-data.md#d01---indexed-folder-membership-and-a-batched-write-repository) | P1 | F01, F02 | IN_PROGRESS | d01_index_repository (Luna/medium) | Pending checkpoint |
 | D02 | [Complete SQL display pages](foundation-data.md#d02---query-complete-display-pages-in-sqlite) | P1 | D01 | PLANNED | Unassigned | - |
 | D03 | [Independent library summaries](foundation-data.md#d03---separate-library-summaries-from-list-queries) | P2 | D02 | PLANNED | Unassigned | - |
-| S01 | [Safe enumeration and pruning](scanning.md#s01---require-proof-of-successful-enumeration-before-pruning) | P1 | F01, F02 | IN_PROGRESS | s01_safe_scanning (Luna/medium) | Pending checkpoint |
+| S01 | [Safe enumeration and pruning](scanning.md#s01---require-proof-of-successful-enumeration-before-pruning) | P1 | F01, F02 | DONE | s01_safe_scanning (Luna/medium) | [S01](handoffs/S01.md); both reviews and runtime gate passed |
 | S02 | [Streaming discovery and early batches](scanning.md#s02---stream-discovery-and-commit-useful-batches-early) | P1 | S01, D01 | PLANNED | Unassigned | - |
 | S03 | [Background metadata extraction](scanning.md#s03---move-metadata-cpu-work-out-of-the-main-process) | P1 | S02 | PLANNED | Unassigned | - |
 | S04 | [Dimensions and units](scanning.md#s04---correct-dimensions-units-and-measurement-provenance) | P2 | S03 | PLANNED | Unassigned | - |
@@ -57,7 +57,7 @@
 | Assignment | Worker | Worktree / branch | State |
 | --- | --- | --- | --- |
 | D01 | d01_index_repository, Luna/medium | `/Users/maak/.codex/worktrees/polytray-foundation/polytray` / `codex/perf-d01` | Implementing |
-| S01 | s01_safe_scanning, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-s01` | Implementing |
+| S01 | s01_safe_scanning, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-s01` | Done; checkout available after coordination |
 | V01 | f01_foundation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-v01` | Implementing |
 | T03 | New Luna/medium chat requested | Client `eec1883f-42d5-4431-ad0b-955c2867d1b1` | Worktree created; waiting for task registration |
 | U03 | New Luna/medium chat requested | Client `0a22ffff-ae10-4583-a008-f381c43fc15d` | Worktree created; waiting for task registration |
@@ -76,6 +76,7 @@ The three requested chat tasks do not yet have usable task IDs and are not count
 | 2026-09-26 | F01 candidate | Typecheck/build, 59 units and 29 E2E pass; optional real model skipped | Two C9 declarations fixed; spec and quality reviews passed at `6909757` |
 | 2026-09-26 | Baseline gate | Build PASS; 57 unit tests and 29 E2E tests PASS; 1 optional real-model test skipped | [Report](handoffs/baseline-validation.md); use `PYTHON=/usr/bin/python3` for native rebuilds |
 | 2026-09-26 | Combined foundation gate | Build PASS; 66 unit tests and 29 E2E tests PASS; 1 optional real-model test skipped | F01/F02 review gates complete; parallel workstreams eligible |
+| 2026-09-26 | S01 safety gate | Both reviews PASS; Build, 84 units and 30 E2E PASS; 1 optional skip; lookup-only follow-up passed focused18/type/build | Integrated scan coverage, cancellation, annotation/ABA guards and linear snapshot lookup |
 
 ## Blockers and decisions
 
