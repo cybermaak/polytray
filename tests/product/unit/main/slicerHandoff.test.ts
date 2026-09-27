@@ -84,6 +84,33 @@ test('revalidates id, revision, path, and extension after archive preparation be
   }
 });
 
+test('final launch guard catches cancellation or revision changes during async app validation', async () => {
+  for (const change of ['cancel', 'revision'] as const) {
+    const f = await fixture();
+    let row: IndexedHandoffFile | null = indexed(f.request);
+    let enterValidation!: () => void;
+    let releaseValidation!: () => void;
+    const entered = new Promise<void>(resolve => { enterValidation = resolve; });
+    const barrier = new Promise<void>(resolve => { releaseValidation = resolve; });
+    let spawnCount = 0;
+    const launcher = createPlatformLauncher('linux', {
+      canExecute: async () => { enterValidation(); await barrier; return true; },
+      spawn: async () => { spawnCount += 1; },
+    });
+    const abort = new AbortController();
+    const pending = service(f.root, () => row, launcher, { validateApplication: async () => true }).open(f.request, abort.signal);
+    await entered;
+    if (change === 'cancel') abort.abort();
+    else row = { ...indexed(f.request), contentRevision: 10 };
+    releaseValidation();
+    const result = await pending;
+    assert.equal(result.status, change === 'cancel' ? 'cancelled' : 'failed');
+    assert.equal(spawnCount, 0);
+    assert.deepEqual(await fs.readdir(path.join(f.root, 'slicer-handoff')), []);
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
 test('rejects an archive replaced by a symlink after extraction and removes the partial handoff', async () => {
   const f = await fixture();
   const target = path.join(f.root, 'target.zip');

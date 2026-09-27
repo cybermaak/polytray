@@ -19,7 +19,15 @@ interface IpcDependencies {
   dialog: DialogAdapter;
 }
 
-const activeBySender = new Map<number, Map<string, AbortController>>();
+interface SenderRequestRegistry {
+  senderId: number;
+  sender: WebContents;
+  requests: Map<string, AbortController>;
+  onNavigation: (_event: Electron.Event, url: string, isInPlace: boolean, isMainFrame: boolean) => void;
+  onProcessGone: () => void;
+  onDestroyed: () => void;
+}
+const activeBySender = new Map<number, SenderRequestRegistry>();
 function assertMainRenderer(event: IpcMainInvokeEvent, getMainWindow: MainWindowGetter): BrowserWindow {
   const window = getMainWindow();
   if (!window || window.isDestroyed() || window.webContents.isDestroyed() || event.sender !== window.webContents || event.senderFrame !== event.sender.mainFrame) {
@@ -29,36 +37,46 @@ function assertMainRenderer(event: IpcMainInvokeEvent, getMainWindow: MainWindow
 }
 
 export function createSlicerIpcHandlers(deps: IpcDependencies) {
-  function senderRequests(sender: WebContents) {
-    let requests = activeBySender.get(sender.id);
-    if (!requests) {
-      requests = new Map();
-      activeBySender.set(sender.id, requests);
-      sender.once('destroyed', () => {
-        for (const controller of requests!.values()) controller.abort();
-        activeBySender.delete(sender.id);
-      });
-    }
-    return requests;
+  function registryFor(sender: WebContents, senderId: number) {
+    const existing = activeBySender.get(senderId);
+    if (existing) return existing;
+    const registry = {} as SenderRequestRegistry;
+    registry.senderId = senderId;
+    registry.sender = sender;
+    registry.requests = new Map();
+    registry.onNavigation = (_event, _url, isInPlace, isMainFrame) => {
+      if (isMainFrame && !isInPlace) disposeSenderRegistry(registry);
+    };
+    registry.onProcessGone = () => disposeSenderRegistry(registry);
+    registry.onDestroyed = () => disposeSenderRegistry(registry);
+    activeBySender.set(senderId, registry);
+    sender.on('did-start-navigation', registry.onNavigation);
+    sender.on('render-process-gone', registry.onProcessGone);
+    sender.on('destroyed', registry.onDestroyed);
+    return registry;
+  }
+  function finishRequest(registry: SenderRequestRegistry, requestId: string) {
+    registry.requests.delete(requestId);
+    if (registry.requests.size === 0) disposeSenderRegistry(registry);
   }
   return {
     async open(event: IpcMainInvokeEvent, raw: unknown): Promise<SlicerHandoffResult> {
       assertMainRenderer(event, deps.getMainWindow);
+      const sender = event.sender;
+      const senderId = sender.id;
       const request = parseSlicerHandoffRequest(raw, deps.platform);
-      const requests = senderRequests(event.sender);
-      if (requests.has(request.requestId)) return { status: 'failed', code: 'launch-failed', message: 'This handoff is already in progress.' };
+      const registry = registryFor(sender, senderId);
+      if (registry.requests.has(request.requestId)) return { status: 'failed', code: 'launch-failed', message: 'This handoff is already in progress.' };
       const controller = new AbortController();
-      requests.set(request.requestId, controller);
+      registry.requests.set(request.requestId, controller);
       try { return await deps.handoff.open(request, controller.signal); }
-      finally {
-        requests.delete(request.requestId);
-        if (requests.size === 0) activeBySender.delete(event.sender.id);
-      }
+      finally { finishRequest(registry, request.requestId); }
     },
     cancel(event: IpcMainInvokeEvent, rawId: unknown): boolean {
       assertMainRenderer(event, deps.getMainWindow);
       const requestId = parseSlicerRequestId(rawId);
-      const controller = activeBySender.get(event.sender.id)?.get(requestId);
+      const senderId = event.sender.id;
+      const controller = activeBySender.get(senderId)?.requests.get(requestId);
       if (!controller) return false;
       controller.abort();
       return true;
@@ -66,9 +84,7 @@ export function createSlicerIpcHandlers(deps: IpcDependencies) {
     async pick(event: IpcMainInvokeEvent): Promise<SlicerConfiguration | null> {
       const window = assertMainRenderer(event, deps.getMainWindow);
       const filters = deps.platform === 'win32' ? [{ name: 'Applications', extensions: ['exe'] }] : undefined;
-      const properties: Electron.OpenDialogOptions['properties'] = deps.platform === 'darwin'
-        ? ['openFile', 'treatPackageAsDirectory']
-        : ['openFile'];
+      const properties: Electron.OpenDialogOptions['properties'] = ['openFile'];
       const result = await deps.dialog.showOpenDialog(window, {
         title: 'Choose slicer application', properties, filters,
       });
@@ -116,6 +132,14 @@ export function registerSlicerHandlers(getMainWindow: MainWindowGetter) {
 }
 
 export function cancelAllSlicerHandoffs() {
-  for (const requests of activeBySender.values()) for (const controller of requests.values()) controller.abort();
-  activeBySender.clear();
+  for (const registry of [...activeBySender.values()]) disposeSenderRegistry(registry);
+}
+
+function disposeSenderRegistry(registry: SenderRequestRegistry) {
+  for (const controller of registry.requests.values()) controller.abort();
+  registry.requests.clear();
+  registry.sender.removeListener('did-start-navigation', registry.onNavigation);
+  registry.sender.removeListener('render-process-gone', registry.onProcessGone);
+  registry.sender.removeListener('destroyed', registry.onDestroyed);
+  if (activeBySender.get(registry.senderId) === registry) activeBySender.delete(registry.senderId);
 }

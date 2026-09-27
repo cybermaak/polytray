@@ -15,7 +15,7 @@ interface Dependencies {
   userDataPath: string;
   platform: SlicerPlatform;
   lookupIndexedFile(path: string): IndexedHandoffFile | null;
-  launch(configuration: SlicerConfiguration, modelPath: string): Promise<void>;
+  launch(configuration: SlicerConfiguration, modelPath: string, guard?: () => 'cancelled' | 'stale' | null): Promise<void>;
   validateApplication?(configuration: SlicerConfiguration): Promise<boolean>;
   afterPreparation?(): Promise<void>;
   afterOutputOpen?(): void;
@@ -45,10 +45,16 @@ export interface SpawnAdapter {
 }
 export interface PlatformAdapters {
   spawn: SpawnAdapter;
-  openDefault(filePath: string): Promise<void>;
+  openDefault(filePath: string, guard?: LaunchGuard): Promise<void>;
   canExecute?(filePath: string): Promise<boolean>;
   isMacApplicationBundle?(bundlePath: string): Promise<boolean>;
   isWindowsExecutable?(exePath: string): Promise<boolean>;
+}
+type LaunchGuard = () => 'cancelled' | 'stale' | null;
+function assertLaunchAllowed(guard?: LaunchGuard) {
+  const result = guard?.();
+  if (result === 'cancelled') throw new Error('launch-cancelled');
+  if (result === 'stale') throw new Error('indexed-identity-changed');
 }
 
 const defaultSpawn: SpawnAdapter = (executable, args, waitForExit) => new Promise((resolve, reject) => {
@@ -66,8 +72,9 @@ export function getLaunchInvocation(platform: SlicerPlatform, applicationPath: s
 
 export function createPlatformLauncher(platform: SlicerPlatform, adapters: Partial<PlatformAdapters> = {}) {
   const spawn = adapters.spawn ?? defaultSpawn;
-  const openDefault = adapters.openDefault ?? (async (filePath: string) => {
+  const openDefault = adapters.openDefault ?? (async (filePath: string, guard?: LaunchGuard) => {
     const { shell } = await import('electron');
+    assertLaunchAllowed(guard);
     const error = await shell.openPath(filePath);
     if (error) throw new Error(error);
   });
@@ -76,13 +83,14 @@ export function createPlatformLauncher(platform: SlicerPlatform, adapters: Parti
   });
   const isMacApplicationBundle = adapters.isMacApplicationBundle ?? (async (bundlePath: string) => fsp.lstat(bundlePath).then(stat => stat.isDirectory() && !stat.isSymbolicLink()).catch(() => false));
   const isWindowsExecutable = adapters.isWindowsExecutable ?? (async (exePath: string) => fsp.lstat(exePath).then(stat => stat.isFile() && !stat.isSymbolicLink() && path.win32.extname(exePath).toLowerCase() === '.exe').catch(() => false));
-  return async (configuration: SlicerConfiguration, modelPath: string) => {
-    if (configuration.useSystemDefault) return openDefault(modelPath);
+  return async (configuration: SlicerConfiguration, modelPath: string, guard?: LaunchGuard) => {
+    if (configuration.useSystemDefault) return openDefault(modelPath, guard);
     const applicationPath = configuration.applicationPath;
     if (!applicationPath) throw new Error('A slicer application has not been selected.');
     if (platform === 'linux' && !(await canExecute(applicationPath))) throw new Error('Selected Linux application is not a regular executable file.');
     if (platform === 'darwin' && !(await isMacApplicationBundle(applicationPath))) throw new Error('Selected macOS application bundle is unavailable.');
     if (platform === 'win32' && !(await isWindowsExecutable(applicationPath))) throw new Error('Selected Windows application is not a regular executable file.');
+    assertLaunchAllowed(guard);
     const invocation = getLaunchInvocation(platform, applicationPath, modelPath);
     await spawn(invocation.executable, invocation.args, invocation.waitForExit);
   };
@@ -213,17 +221,23 @@ export function createSlicerHandoff(deps: Dependencies) {
           sourceIdentity = { path: request.path, dev: opened.dev, ino: opened.ino };
         }
         if (signal?.aborted) throw new Error('cancelled');
-        if (sourceIdentity) {
-          const latestSource = await fsp.lstat(sourceIdentity.path).catch(() => null);
-          if (!latestSource?.isFile() || latestSource.isSymbolicLink() || latestSource.dev !== sourceIdentity.dev || latestSource.ino !== sourceIdentity.ino) throw new Error('missing-source');
-        }
-        const latest = deps.lookupIndexedFile(request.path);
-        if (!identityMatches(latest, request)) throw new Error('indexed-identity-changed');
-        await deps.launch(configuration, modelPath);
+        const launchGuard: LaunchGuard = () => {
+          if (signal?.aborted) return 'cancelled';
+          if (!identityMatches(deps.lookupIndexedFile(request.path), request)) return 'stale';
+          if (sourceIdentity) {
+            try {
+              const current = fs.lstatSync(sourceIdentity.path);
+              if (!current.isFile() || current.isSymbolicLink() || current.dev !== sourceIdentity.dev || current.ino !== sourceIdentity.ino) return 'stale';
+            } catch { return 'stale'; }
+          }
+          return null;
+        };
+        assertLaunchAllowed(launchGuard);
+        await deps.launch(configuration, modelPath, launchGuard);
         return { status: 'launched', handoffPath: modelPath };
       } catch (error) {
         if (outputPath) await fsp.rm(outputPath, { force: true }).catch(() => undefined);
-        if (error instanceof Error && (error.name === 'AbortError' || error.message === 'cancelled')) return { status: 'cancelled' };
+        if (error instanceof Error && (error.name === 'AbortError' || error.message === 'cancelled' || error.message === 'launch-cancelled')) return { status: 'cancelled' };
         if (error instanceof Error && error.message === 'size-limit') return failed('size-limit', 'The selected ZIP member exceeds the 1 GiB handoff limit.');
         if (error instanceof Error && error.message === 'unsafe-archive-entry') return failed('unsafe-archive-entry', 'The ZIP is corrupt or the selected member is unsafe.');
         if (error instanceof Error && (error.message === 'missing-source' || error.message === 'indexed-identity-changed')) return failed('missing-source', 'The indexed model or source archive changed or was removed before launch. Rescan the library and try again.');

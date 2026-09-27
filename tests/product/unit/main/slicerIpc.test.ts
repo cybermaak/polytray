@@ -17,11 +17,11 @@ function setup() {
   return { sender, window, request, handlers, getOptions: () => options };
 }
 
-test('only current main renderer can pick a package-aware macOS application', async () => {
+test('only current main renderer can pick a macOS application package as a file', async () => {
   const f = setup();
   const result = await f.handlers.pick({ sender: f.sender } as Electron.IpcMainInvokeEvent);
   assert.deepEqual(result, { applicationPath: '/Applications/Slicer.app', useSystemDefault: false });
-  assert.deepEqual(f.getOptions()?.properties, ['openFile', 'treatPackageAsDirectory']);
+  assert.deepEqual(f.getOptions()?.properties, ['openFile']);
 });
 
 test('Windows native picker restricts selection to executable files', async () => {
@@ -66,6 +66,54 @@ test('cancels every outstanding extraction during app shutdown', async () => {
   await new Promise(resolve => setImmediate(resolve));
   cancelAllSlicerHandoffs();
   assert.deepEqual(await pending, { status: 'cancelled' });
+});
+
+test('removes lifecycle listeners after each request instead of accumulating destroyed listeners', async () => {
+  const f = setup();
+  const requests = f.sender as unknown as EventEmitter;
+  const baseline = ['destroyed', 'did-start-navigation', 'render-process-gone'].map(name => requests.listenerCount(name));
+  const handlers = createSlicerIpcHandlers({ platform: 'darwin', getMainWindow: () => f.window,
+    handoff: { open: async () => ({ status: 'launched', handoffPath: '/tmp/model.stl' }) },
+    dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
+  });
+  for (let index = 0; index < 15; index += 1) {
+    await handlers.open({ sender: f.sender } as Electron.IpcMainInvokeEvent, { ...f.request, requestId: `seq-${index}` });
+    assert.deepEqual(['destroyed', 'did-start-navigation', 'render-process-gone'].map(name => requests.listenerCount(name)), baseline);
+  }
+});
+
+test('cancels on main-frame navigation and process loss, but not in-page navigation', async () => {
+  const f = setup();
+  let lastSignal: AbortSignal | undefined;
+  const handlers = createSlicerIpcHandlers({ platform: 'darwin', getMainWindow: () => f.window,
+    handoff: { open: async (_request, signal) => new Promise(resolve => { lastSignal = signal; signal?.addEventListener('abort', () => resolve({ status: 'cancelled' }), { once: true }); }) },
+    dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
+  });
+  const hashNavigation = handlers.open({ sender: f.sender } as Electron.IpcMainInvokeEvent, f.request);
+  await new Promise(resolve => setImmediate(resolve));
+  (f.sender as unknown as EventEmitter).emit('did-start-navigation', {}, 'file:///app/#settings', true, true);
+  assert.equal(lastSignal?.aborted, false);
+  (f.sender as unknown as EventEmitter).emit('did-start-navigation', {}, 'file:///app/other', false, true);
+  assert.deepEqual(await hashNavigation, { status: 'cancelled' });
+
+  const processLoss = handlers.open({ sender: f.sender } as Electron.IpcMainInvokeEvent, { ...f.request, requestId: 'process-loss' });
+  await new Promise(resolve => setImmediate(resolve));
+  (f.sender as unknown as EventEmitter).emit('render-process-gone', {}, { reason: 'crashed', exitCode: 1 });
+  assert.deepEqual(await processLoss, { status: 'cancelled' });
+});
+
+test('destroyed cleanup uses the captured sender ID and removes all listeners', async () => {
+  const f = setup();
+  const sender = f.sender as unknown as EventEmitter & { id: number };
+  let destroyed = false;
+  Object.defineProperty(sender, 'id', { configurable: true, get: () => { if (destroyed) throw new Error('sender id read after destruction'); return 707; } });
+  const before = ['destroyed', 'did-start-navigation', 'render-process-gone'].map(name => sender.listenerCount(name));
+  const pending = f.handlers.open({ sender: f.sender } as Electron.IpcMainInvokeEvent, f.request);
+  await new Promise(resolve => setImmediate(resolve));
+  destroyed = true;
+  sender.emit('destroyed');
+  assert.deepEqual(await pending, { status: 'cancelled' });
+  assert.deepEqual(['destroyed', 'did-start-navigation', 'render-process-gone'].map(name => sender.listenerCount(name)), before);
 });
 
 test('validates bounded request identifiers and absolute app paths at the IPC boundary', async () => {
