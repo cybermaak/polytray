@@ -6,7 +6,6 @@ import crypto from "crypto";
 import {
   IPC,
   PreviewParseRequestData,
-  PreviewParsePortData,
   RuntimeSettingsData,
   ScannedFile,
 } from "../shared/types";
@@ -15,7 +14,8 @@ import { getDb } from "./database";
 import { filterContainedPaths } from "./pathContainment";
 import { createThumbnailJobScheduler } from "./thumbnailJobScheduler";
 import { reconcileThumbnailCache } from "./thumbnailCacheLifecycle";
-import { parsePreviewParseRequest, parseRuntimeSettings } from "./ipc/runtimeValidation";
+import { parseRuntimeSettings } from "./ipc/runtimeValidation";
+import { registerPreviewParseHandler } from "./previewParseService";
 
 let thumbnailDir: string | null = null;
 const pendingRequests = new Map<string, Array<{ resolve: (val: string | null) => void }>>();
@@ -88,30 +88,11 @@ export function initThumbnailService() {
     callbacks.forEach((cb) => cb.resolve(savedPath));
   });
 
-  ipcMain.handle(IPC.REQUEST_PREVIEW_PARSE, async (event, request: PreviewParseRequestData) => {
-    requestPreviewParse(event.sender, parsePreviewParseRequest(request));
-    return true;
-  });
+  registerPreviewParseHandler(ipcMain, getThumbnailWindow, () => new MessageChannelMain());
 }
 
 function generatePathHash(filePath: string): string {
   return crypto.createHash("sha256").update(filePath).digest("hex").slice(0, 16);
-}
-
-function requestPreviewParse(
-  requester: Electron.WebContents,
-  request: PreviewParseRequestData,
-) {
-  const thumbWindow = getThumbnailWindow();
-  if (!thumbWindow || thumbWindow.isDestroyed()) {
-    throw new Error("Background preview parser is unavailable");
-  }
-
-  const channel = new MessageChannelMain();
-  const portPayload: PreviewParsePortData = { requestId: request.requestId };
-
-  requester.postMessage(IPC.PREVIEW_PARSE_PORT, portPayload, [channel.port1]);
-  thumbWindow.webContents.postMessage(IPC.GENERATE_PREVIEW_PARSE_REQUEST, request, [channel.port2]);
 }
 
 /**

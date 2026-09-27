@@ -233,3 +233,75 @@ export interface UpdateFileMetadataData {
   tags?: string[] | null;
   notes?: string | null;
 }
+
+// Domain contracts are re-exported here as the stable shared type entrypoint.
+export type {
+  LibrarySortField,
+  SortDirection,
+  LibraryQuery,
+  LibraryFileItem,
+  LibraryArchiveItem,
+  LibraryItem,
+  LibraryPageResult,
+  LibraryQueryClient,
+  IndexRepository,
+  IndexBatch,
+  IndexBatchResult,
+  IndexInput,
+  WatchUpdate,
+  IndexMutationResult,
+  RevisionGuardedMetadataUpdate,
+  RevisionGuardedMetadataResult,
+  MetadataEnrichmentUpdate,
+  MetadataEnrichmentResult,
+  PruneCandidate,
+} from "./libraryQuery";
+export type {
+  BackgroundJobKind,
+  BackgroundJobState,
+  BackgroundJobErrorPhase,
+  BackgroundJobError,
+  BackgroundJobCounts,
+  BackgroundJob,
+  DiscoveryEvent,
+  DiscoveredModel,
+  ThumbnailJobRequest,
+  ThumbnailJobs,
+  ThumbnailJobResult,
+  ScanJobs,
+} from "./backgroundJobs";
+export type {
+  ThumbnailSize,
+  ThumbnailIdentity,
+  ThumbnailCacheKey,
+  ThumbnailAttempt,
+  ThumbnailGenerationResult,
+  ThumbnailJobCoordinator,
+} from "./thumbnailContracts";
+export type {
+  PreviewParseRequest,
+  PreviewParseCancelRequest,
+  PreparedPreview,
+  PreviewParsePortMessage,
+  PreviewParseStrategyClient,
+  PreviewParseTransportClient,
+  PreviewOrientationTransform,
+} from "./previewContracts";
+export type {
+  MeasurementUnit,
+  MeasurementStatus,
+  ModelMeasurement,
+  MeasurementEnrichmentRequest,
+} from "./measurementContracts";
+export type {
+  SlicerConfiguration,
+  SlicerHandoffResult,
+  SlicerHandoffRequest,
+  MetadataBackupV1,
+  MetadataBackupSnapshot,
+  MetadataBackupExportResult,
+  MetadataImportPlan,
+  StagedMetadataRestore,
+  MetadataImportCommitResult,
+  MetadataBackupService,
+} from "./backupContracts";
