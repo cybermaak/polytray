@@ -2,7 +2,7 @@
 
 [Execution plan](../2026-09-26-performance-ux-execution-plan.md) | [Shared contracts](contracts.md) | [Handoff template](handoff-template.md)
 
-**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01-D03, S01, T03, V01, and the P02/P03 backup services are reviewed and integrated. Five implementation lanes cover S02/T02/V02/V03/U01; P04 is next after S02, with independent reviews. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. The original unregistered chat requests are superseded by the active assignments below.
+**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01-D03, S01, T03, V01, and the P02/P03 backup services are reviewed and integrated. Six implementation lanes cover S02/S03/T02/V02/V03/U01; P04 is next after S02, with independent reviews. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. The original unregistered chat requests are superseded by the active assignments below.
 
 **Progress:** 13 / 33 DONE. Foundation 2/2; data 3/3; scanning 1/6; thumbnails 2/4; preview 1/5; browsing 1/6; product workflows 3/4; validation 0/3. D02's query service, IPC smoke, benchmark and reviews are complete; UI paging remains U01/V02.
 
@@ -25,7 +25,7 @@
 | D03 | [Independent library summaries](foundation-data.md#d03---separate-library-summaries-from-list-queries) | P2 | D02 | DONE | d01_index_repository (Luna/medium) | [D03](handoffs/D03.md); independent spec and coordinator quality PASS; 164 units, Type/Build PASS; integrated `3bc4a2c`, `824be77`, `2f152af` |
 | S01 | [Safe enumeration and pruning](scanning.md#s01---require-proof-of-successful-enumeration-before-pruning) | P1 | F01, F02 | DONE | s01_safe_scanning (Luna/medium) | [S01](handoffs/S01.md); both reviews and runtime gate passed |
 | S02 | [Streaming discovery and early batches](scanning.md#s02---stream-discovery-and-commit-useful-batches-early) | P1 | S01, D01 | IN_PROGRESS | baseline_validation reassigned (Luna/medium) | Dispatch from verified local-main base |
-| S03 | [Background metadata extraction](scanning.md#s03---move-metadata-cpu-work-out-of-the-main-process) | P1 | S02 | PLANNED | Unassigned | - |
+| S03 | [Background metadata extraction](scanning.md#s03---move-metadata-cpu-work-out-of-the-main-process) | P1 | S02 | IN_PROGRESS | Luna/medium chat `01a0e293-6dd9-74d0-b51b-a11a33697713` | Metadata implementation starts against reviewed S02 interface; runtime/DONE awaits final S02 gate |
 | S04 | [Dimensions and units](scanning.md#s04---correct-dimensions-units-and-measurement-provenance) | P2 | S03 | PLANNED | Unassigned | - |
 | S05 | [Watcher ordering and thumbnail availability](scanning.md#s05---index-watcher-changes-before-thumbnail-work-and-preserve-ordering) | P1 | D01, S03, T01 | PLANNED | Unassigned | - |
 | S06 | [Scan controls and targeted retry](scanning.md#s06---add-explicit-scan-job-pause-cancellation-and-targeted-retry) | P2 | S02, S03, S05 | PLANNED | Unassigned | - |
@@ -59,6 +59,7 @@
 | D03 | d01_index_repository, Luna/medium | `/Users/maak/.codex/worktrees/polytray-d03/polytray` / `codex/perf-d03` | DONE: integrated; checkout free after handoff |
 | V03 | s01_safe_scanning reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-v03` | Focused native PASS; full Product blocked by shared empty-ZIP cleanup regression; no app lease |
 | S02 | baseline_validation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-s02` | Focused streaming runtime PASS (5.9ms first query,35.16ms heartbeat); shared ZIP stream correction f07baf7 under review |
+| S03 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-foundation/polytray` / `codex/perf-s03` | Independent metadata implementation from S02 `f07baf7`; final scan fixes merged later |
 | T03 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/61df/polytray`, `74d2e9e` | Preserved unreviewed alternative; active T03 producer already integrated |
 | T02 | Registered Luna/medium chat, T01 complete | `/Users/maak/.codex/worktrees/polytray-thumbnails/polytray` / `codex/perf-t02` | Implementing authoritative refresh/invalidation; no current native lease |
 | U01 | Registered Luna/medium chat, U03 complete | `/Users/maak/.codex/worktrees/polytray-layout/polytray` / `codex/perf-u01` | Implementing complete paging and selection |

@@ -43,6 +43,8 @@ Read [contracts C1, C3, C6](contracts.md), the [tracker](tracker.md), and `AGENT
 
 **Priority:** P1 responsiveness. **Dependencies:** S02. **Owner:** S.
 
+**Execution refinement (2026-09-27):** Implementation may begin against the reviewed S02 service contract after its focused native streaming gate. S02's remaining archive cleanup is confined to scanner/coverage files, while S03 owns metadata/client code and the service's extraction seam. Keep separate checkouts and preserve S02's final correction on integration. S03 runtime acceptance and DONE still require verified S02 and the combined Product gate.
+
 **Own:** `src/main/metadata.ts`, new `src/main/metadataWorker.ts`, `src/main/metadataWorkerClient.ts`, `src/main/scanService.ts`; `tests/product/unit/main/metadata.test.ts`, new worker-client tests. Coordinator adds the utility-worker build entry/lifecycle wiring.
 
 **Steps:**
