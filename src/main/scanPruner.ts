@@ -37,9 +37,10 @@ export function pruneScanSnapshot(
     SELECT id, path, indexed_at, modified_at, size_bytes, tags, notes, print_status
     FROM files WHERE id = ?
   `);
+  const snapshotById = new Map(snapshot.map((row) => [row.id, row]));
   let deletedCount = 0;
   for (const candidate of decision.prune) {
-    const row = snapshot.find((entry) => entry.id === candidate.id);
+    const row = snapshotById.get(candidate.id);
     if (!row) continue;
     const current = readCurrent.get(row.id) as ScanSnapshotRow | undefined;
     if (!current || !matchesScanSnapshot(row, current)) continue;
