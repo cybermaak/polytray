@@ -2,9 +2,9 @@
 
 [Execution plan](../2026-09-26-performance-ux-execution-plan.md) | [Shared contracts](contracts.md) | [Handoff template](handoff-template.md)
 
-**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01/F02 are running in isolated worktrees; all other tasks remain dependency-gated. An independent validator is capturing the pre-integration baseline.
+**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01 is reviewed and integrated; F02 is completing fixture/diagnostic verification. Other tasks remain dependency-gated. The independent pre-integration baseline passed.
 
-**Progress:** 0 / 33 DONE. Foundation 0/2; data 0/3; scanning 0/6; thumbnails 0/4; preview 0/5; browsing 0/6; product workflows 0/4; validation 0/3.
+**Progress:** 1 / 33 DONE. Foundation 1/2; data 0/3; scanning 0/6; thumbnails 0/4; preview 0/5; browsing 0/6; product workflows 0/4; validation 0/3.
 
 ## Status and update rules
 
@@ -18,7 +18,7 @@
 
 | ID | Task specification | Priority | Dependencies | Status | Owner | Evidence / handoff |
 | --- | --- | --- | --- | --- | --- | --- |
-| F01 | [Contracts and preview seam](foundation-data.md#f01---freeze-contracts-and-extract-the-preview-seam) | Foundation | - | IN_PROGRESS | Luna/medium | Pending handoff |
+| F01 | [Contracts and preview seam](foundation-data.md#f01---freeze-contracts-and-extract-the-preview-seam) | Foundation | - | DONE | f01_foundation (Luna/medium) | [F01](handoffs/F01.md); integrated `9430eb9`, `da1adf8` |
 | F02 | [Fixtures and diagnostics](foundation-data.md#f02---establish-portable-fixtures-and-trustworthy-diagnostics) | Foundation | - | IN_PROGRESS | Luna/medium | Pending handoff |
 | D01 | [Indexed scopes and batched writes](foundation-data.md#d01---indexed-folder-membership-and-a-batched-write-repository) | P1 | F01, F02 | PLANNED | Unassigned | - |
 | D02 | [Complete SQL display pages](foundation-data.md#d02---query-complete-display-pages-in-sqlite) | P1 | D01 | PLANNED | Unassigned | - |
@@ -67,13 +67,13 @@ Each worktree has its own dependency copy, so native Node/Electron rebuilds cann
 | Date | Task / checkpoint | Result | Follow-up |
 | --- | --- | --- | --- |
 | 2026-09-26 | Planning | Execution plan and tracker prepared | Complete |
-| 2026-09-26 | Execution authorization | Concurrent Luna/medium worktrees, commits, and local-main integration approved | F01/F02 dispatched; independent baseline validation running; no origin/main push |
-
+| 2026-09-26 | Execution authorization | Concurrent Luna/medium worktrees, commits, and local-main integration approved | F01/F02 dispatched; independent baseline validation passed; no origin/main push |
+| 2026-09-26 | F01 candidate | Typecheck/build, 59 units and 29 E2E pass; optional real model skipped | Two C9 declarations fixed; spec and quality reviews passed at `6909757` |
 | 2026-09-26 | Baseline gate | Build PASS; 57 unit tests and 29 E2E tests PASS; 1 optional real-model test skipped | [Report](handoffs/baseline-validation.md); use `PYTHON=/usr/bin/python3` for native rebuilds |
 
 ## Blockers and decisions
 
-No implementation blocker has been established because execution has not begun. The proposed defaults are in `contracts.md`; the user may change them before dispatch. Graph tooling was unavailable during the audit; future agents must check its availability/freshness and otherwise use source fallback rather than claiming graph coverage. The existing marketing/media changes are unrelated and must remain intact.
+Execution is active. The default Python native-rebuild issue is resolved by selecting `/usr/bin/python3`; no package change was needed. F01 review corrections are integrated; F02 fixture review corrections are in progress. Approved defaults are in `contracts.md`; any contract revision must be coordinated before consumer dispatch. Graph tooling was unavailable during the audit; future agents must check its availability/freshness and otherwise use source fallback rather than claiming graph coverage. The existing marketing/media changes are unrelated and must remain intact.
 
 ## Completion evidence checklist
 

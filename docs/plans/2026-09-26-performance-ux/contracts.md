@@ -43,7 +43,7 @@ Discovery, indexing, and thumbnail work have separate counters. Use indeterminat
 
 `getBackgroundJobs`, `onBackgroundJobChanged`, `pauseJob`, `resumeJob`, `cancelJob`, and `retryJobFailures` route to the owning scan or thumbnail service. Pause stops new work after the current bounded unit settles. Cancel stops discovery, terminates owned extraction work, drops queued work, and settles once; rows already committed remain usable. Scan cancellation never prunes incomplete scopes. Explicit retries target failed scopes/files only. No delayed completion timer can hide a newer active job. Thumbnail cancellation semantics are defined in C4.
 
-The renderer's normalized `watch_folders` setting is authoritative. Scan completion never starts a watcher unconditionally. Watcher reconfiguration depends only on root list, watch enablement, and watcher settings, not page size or thumbnail color. On an explicitly offline root, watcher delete events are not enough to mass-delete that root; verify availability/reconcile before pruning. Ordinary confirmed single-file removal in an available root remains supported.
+The renderer's normalized `watch` setting is authoritative. Scan completion never starts a watcher unconditionally. Watcher reconfiguration depends only on root list, watch enablement, and watcher settings, not page size or thumbnail color. On an explicitly offline root, watcher delete events are not enough to mass-delete that root; verify availability/reconcile before pruning. Ordinary confirmed single-file removal in an available root remains supported.
 
 ## C4. Thumbnail identity and delivery
 
