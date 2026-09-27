@@ -7,7 +7,6 @@ import * as unzipper from "unzipper";
 import { getDb } from "../database";
 import {
   FileRecord,
-  CountRow,
   TotalRow,
   IPC,
   SortOptions,
@@ -25,6 +24,7 @@ import {
 } from "./runtimeValidation";
 import { createFileIndexRepository } from "../fileIndexing";
 import { getLibraryFiles, getLibraryPage } from "../libraryQueries";
+import { getLibrarySummaryService } from "../librarySummary";
 
 export interface FileHandlerReadiness {
   isScopeIndexReady(): boolean;
@@ -163,11 +163,7 @@ export function registerFileHandlers(readiness: FileHandlerReadiness) {
   });
 
   ipcMain.handle(IPC.GET_DIRECTORIES, () => {
-    const db = getDb();
-    const rows = db
-      .prepare("SELECT DISTINCT directory FROM files ORDER BY directory ASC")
-      .all() as { directory: string }[];
-    return rows.map((r) => r.directory);
+    return getLibrarySummaryService(getDb()).getDirectories();
   });
 
   ipcMain.handle(IPC.READ_FILE_BUFFER, async (event, filePath) => {
@@ -191,30 +187,6 @@ export function registerFileHandlers(readiness: FileHandlerReadiness) {
   });
 
   ipcMain.handle(IPC.GET_STATS, (): LibraryStats => {
-    const db = getDb();
-    const total = (
-      db.prepare("SELECT COUNT(*) as count FROM files").get() as CountRow
-    ).count;
-    const stl = (
-      db
-        .prepare("SELECT COUNT(*) as count FROM files WHERE extension = 'stl'")
-        .get() as CountRow
-    ).count;
-    const obj = (
-      db
-        .prepare("SELECT COUNT(*) as count FROM files WHERE extension = 'obj'")
-        .get() as CountRow
-    ).count;
-    const threemf = (
-      db
-        .prepare("SELECT COUNT(*) as count FROM files WHERE extension = '3mf'")
-        .get() as CountRow
-    ).count;
-    const totalSize = (
-      db
-        .prepare("SELECT COALESCE(SUM(size_bytes), 0) as total FROM files")
-        .get() as TotalRow
-    ).total;
-    return { total, stl, obj, threemf, totalSize };
+    return getLibrarySummaryService(getDb()).getStats();
   });
 }

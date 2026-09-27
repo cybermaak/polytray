@@ -383,7 +383,8 @@ function createPreparedFileIndexRepository(
       } else {
         updateUnchangedScan.run(input.name, input.extension, input.directory, indexedAt, 0, existing.id);
       }
-      return makeMutation([input.path], { rows: true, stats: contentChanged, topology: existing.directory !== input.directory });
+      const statsChanged = existing.size_bytes !== input.sizeBytes || existing.extension !== input.extension;
+      return makeMutation([input.path], { rows: true, stats: statsChanged, topology: existing.directory !== input.directory });
     })();
     notify(result, result.affectedPaths);
     return result;
@@ -473,9 +474,9 @@ function createPreparedFileIndexRepository(
             chunkCommitted.push({ id: existing.id, path: record.path, contentRevision });
             chunkUpdated++;
             batchRowsChanged = true;
-            batchStatsChanged = true;
             batchTopologyChanged ||= record.directory !== existing.directory;
             chunkChangedPaths.push(record.path);
+            batchStatsChanged ||= record.sizeBytes !== existing.size_bytes || record.extension !== existing.extension;
           } else if (displayChanged) {
             if (preserveScanGeneration) {
               updateUnchangedPreservingGeneration.run(record.name, record.extension, record.directory, now, existing.id);
@@ -485,6 +486,7 @@ function createPreparedFileIndexRepository(
             chunkCommitted.push({ id: existing.id, path: record.path, contentRevision: existing.content_revision });
             chunkUpdated++;
             batchRowsChanged = true;
+            batchStatsChanged ||= record.extension !== existing.extension;
             batchTopologyChanged ||= record.directory !== existing.directory;
             chunkChangedPaths.push(record.path);
           } else {
@@ -695,7 +697,7 @@ function createPreparedFileIndexRepository(
         return { status: 'updated' as const, contentRevision: input.expectedContentRevision };
       }
       updateEnrichment.run(input.vertexCount, input.faceCount, input.dimensions, input.fileId, input.path, input.expectedContentRevision);
-      const mutation = makeMutation([input.path], { rows: true, stats: true });
+      const mutation = makeMutation([input.path], { rows: true });
       return { status: 'updated' as const, contentRevision: input.expectedContentRevision, mutation };
     })();
     if (result.status === 'updated' && 'mutation' in result && result.mutation !== undefined) {
