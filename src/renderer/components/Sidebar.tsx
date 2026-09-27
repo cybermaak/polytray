@@ -30,6 +30,9 @@ interface Props {
   onRefreshFolderThumbnails: (folder: string) => void;
   onCollectionSelect: (collectionId: string | null) => void;
   onRemoveCollection: (collectionId: string) => void;
+  preferredWidth: number;
+  effectiveWidth: number;
+  onPreferredWidthChange: (width: number) => void;
 }
 
 interface FolderNode {
@@ -309,20 +312,24 @@ const FolderTreeNode: React.FC<{
   );
 };
 
-function useSidebarResize(minWidth = 200, maxWidth = 600) {
+function useSidebarResize(
+  preferredWidth: number,
+  onPreferredWidthChange: (width: number) => void,
+  minWidth = 200,
+  maxWidth = 600,
+) {
   const sidebarRef = React.useRef<HTMLElement>(null);
-  const [width, setWidth] = React.useState<number | null>(null);
   const [isDragging, setIsDragging] = React.useState(false);
 
   const handleMouseDown = React.useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;
-    const startWidth = sidebarRef.current?.offsetWidth ?? (width ?? 260);
+    const startWidth = preferredWidth;
     setIsDragging(true);
 
     const onMouseMove = (ev: MouseEvent) => {
       const next = Math.max(minWidth, Math.min(maxWidth, startWidth + (ev.clientX - startX)));
-      setWidth(next);
+      onPreferredWidthChange(next);
     };
 
     const onMouseUp = () => {
@@ -333,9 +340,9 @@ function useSidebarResize(minWidth = 200, maxWidth = 600) {
 
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
-  }, [width, minWidth, maxWidth]);
+  }, [preferredWidth, onPreferredWidthChange, minWidth, maxWidth]);
 
-  return { sidebarRef, width, isDragging, handleMouseDown };
+  return { sidebarRef, isDragging, handleMouseDown };
 }
 
 export const Sidebar: React.FC<Props> = ({
@@ -357,8 +364,11 @@ export const Sidebar: React.FC<Props> = ({
   onRefreshFolderThumbnails,
   onCollectionSelect,
   onRemoveCollection,
+  preferredWidth,
+  effectiveWidth,
+  onPreferredWidthChange,
 }) => {
-  const { sidebarRef, width: sidebarWidth, isDragging: sidebarDragging, handleMouseDown: handleSidebarMouseDown } = useSidebarResize();
+  const { sidebarRef, isDragging: sidebarDragging, handleMouseDown: handleSidebarMouseDown } = useSidebarResize(preferredWidth, onPreferredWidthChange);
   const tree = React.useMemo(() => buildFolderTree(folders, directories), [folders, directories]);
   const filters = [
     { label: "All", ext: null, dataExt: "", count: stats.total, statId: "stat-total" },
@@ -371,7 +381,7 @@ export const Sidebar: React.FC<Props> = ({
     <aside
       id="sidebar"
       ref={sidebarRef}
-      style={{ display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 200, maxWidth: "50vw", ...(sidebarWidth !== null ? { width: sidebarWidth } : {}) }}
+      style={{ display: "flex", flexDirection: "column", overflow: "hidden", minWidth: effectiveWidth, width: effectiveWidth, flex: `0 0 ${effectiveWidth}px` }}
     >
       <div
         className={`sidebar-resize-handle${sidebarDragging ? " dragging" : ""}`}

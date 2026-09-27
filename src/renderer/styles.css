@@ -57,7 +57,7 @@
 
   /* Layout */
   --header-height: 52px;
-  --panel-width: 640px;
+  --panel-width: 360px;
   --sidebar-width: 260px;
   --titlebar-height: 38px;
   --toolbar-height: 48px;
@@ -159,6 +159,7 @@ body {
   display: flex;
   overflow: hidden;
   min-height: 0;
+  position: relative;
 }
 
 /* ── Sidebar ───────────────────────────────────────────────────── */
@@ -1182,6 +1183,15 @@ body {
 
 .preview-panel.hidden {
   display: none;
+}
+
+.preview-panel.overlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 80;
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.24);
 }
 
 .preview-panel.expanded {

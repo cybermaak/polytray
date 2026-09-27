@@ -16,6 +16,7 @@ import { EmptyState } from "./components/EmptyState";
 import { FileGrid } from "./components/FileGrid";
 import { ScanProgress } from "./components/ScanProgress";
 import { createRefreshDebouncer } from "./lib/refreshDebouncer";
+import { calculatePanelLayout } from "./lib/panelLayout";
 import {
   collapseArchiveEntriesForDisplay,
   type DisplayFileRecord,
@@ -102,6 +103,12 @@ export const App: React.FC = () => {
     count: "",
   });
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
+  const [layoutWidth, setLayoutWidth] = useState(() => window.innerWidth);
+  const panelLayout = calculatePanelLayout({
+    windowWidth: layoutWidth,
+    sidebarWidth: settings.sidebarWidth,
+    preferredPreviewWidth: settings.previewWidth,
+  });
   const activeFolderLabel = activeFolder
     ? formatArchiveFolderLabel(activeFolder)?.split(/[\\/]/).filter(Boolean).pop()
       || formatArchiveFolderLabel(activeFolder)
@@ -140,6 +147,19 @@ export const App: React.FC = () => {
   const fileRefreshDebouncerRef = useRef<ReturnType<
     typeof createRefreshDebouncer
   > | null>(null);
+
+  useEffect(() => {
+    const layout = document.getElementById("main-layout");
+    if (!layout) return;
+    const updateWidth = () => {
+      const nextWidth = layout.clientWidth;
+      setLayoutWidth((current) => current === nextWidth ? current : nextWidth);
+    };
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(layout);
+    updateWidth();
+    return () => observer.disconnect();
+  }, []);
 
   const applySettingsToDocument = useCallback((nextSettings: AppSettings) => {
     document.body.classList.toggle("light", nextSettings.lightMode);
@@ -847,6 +867,9 @@ export const App: React.FC = () => {
           onRefreshFolderThumbnails={handleRefreshFolderThumbnails}
           onCollectionSelect={handleCollectionSelect}
           onRemoveCollection={handleRemoveCollection}
+          preferredWidth={settings.sidebarWidth}
+          effectiveWidth={panelLayout.sidebarWidth}
+          onPreferredWidthChange={(sidebarWidth) => handleSettingsChange({ sidebarWidth })}
         />
         <main id="content">
           <Toolbar
@@ -931,6 +954,10 @@ export const App: React.FC = () => {
           thumbnailColor={settings.thumbnailColor}
           onFileChange={handleFileRecordUpdate}
           collections={collectionsState.collections}
+          preferredWidth={settings.previewWidth}
+          effectiveWidth={panelLayout.previewWidth}
+          overlay={panelLayout.mode === "overlay"}
+          onPreferredWidthChange={(previewWidth) => handleSettingsChange({ previewWidth })}
           onCreateCollection={handleCreateCollection}
           onAddFilesToCollection={handleAddFilesToCollection}
           onClose={() => {

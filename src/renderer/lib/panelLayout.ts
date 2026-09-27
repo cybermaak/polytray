@@ -1,3 +1,9 @@
+import {
+  DEFAULT_PANEL_PREFERENCES,
+  PANEL_PREFERENCE_BOUNDS,
+} from "../../shared/panelPreferences";
+export { normalizePanelPreferences } from "../../shared/panelPreferences";
+
 export interface PanelLayoutInput {
   windowWidth: number;
   sidebarWidth: number;
@@ -8,22 +14,28 @@ export interface PanelLayout {
   mode: "docked" | "overlay";
   browseWidth: number;
   previewWidth: number;
+  sidebarWidth: number;
 }
 
 export const PANEL_LAYOUT_BOUNDS = {
   browseMinWidth: 400,
-  previewMinWidth: 320,
-  previewPreferredWidth: 360,
-  sidebarMinWidth: 200,
-  sidebarMaxWidth: 600,
-  previewMaxWidth: 900,
+  previewMinWidth: PANEL_PREFERENCE_BOUNDS.previewMinWidth,
+  previewPreferredWidth: DEFAULT_PANEL_PREFERENCES.previewWidth,
+  sidebarMinWidth: PANEL_PREFERENCE_BOUNDS.sidebarMinWidth,
+  sidebarMaxWidth: PANEL_PREFERENCE_BOUNDS.sidebarMaxWidth,
+  previewMaxWidth: PANEL_PREFERENCE_BOUNDS.previewMaxWidth,
 } as const;
 
 export function calculatePanelLayout({
   windowWidth,
-  sidebarWidth,
+  sidebarWidth: preferredSidebarWidth,
   preferredPreviewWidth,
 }: PanelLayoutInput): PanelLayout {
+  const sidebarWidth = Math.min(
+    Math.max(PANEL_LAYOUT_BOUNDS.sidebarMinWidth, preferredSidebarWidth),
+    PANEL_LAYOUT_BOUNDS.sidebarMaxWidth,
+    Math.max(PANEL_LAYOUT_BOUNDS.sidebarMinWidth, windowWidth - PANEL_LAYOUT_BOUNDS.browseMinWidth),
+  );
   const contentWidth = Math.max(0, windowWidth - sidebarWidth);
   const canDock = windowWidth >= sidebarWidth + PANEL_LAYOUT_BOUNDS.browseMinWidth + PANEL_LAYOUT_BOUNDS.previewMinWidth;
   const previewWidth = Math.min(
@@ -38,17 +50,6 @@ export function calculatePanelLayout({
     mode: canDock ? "docked" : "overlay",
     browseWidth: canDock ? contentWidth - previewWidth : contentWidth,
     previewWidth,
-  };
-}
-
-export function normalizePanelPreferences(preferences: {
-  sidebarWidth: number;
-  previewWidth: number;
-}) {
-  const normalize = (value: number, fallback: number, min: number, max: number) =>
-    Number.isFinite(value) ? Math.min(max, Math.max(min, Math.round(value))) : fallback;
-  return {
-    sidebarWidth: normalize(preferences.sidebarWidth, 260, PANEL_LAYOUT_BOUNDS.sidebarMinWidth, PANEL_LAYOUT_BOUNDS.sidebarMaxWidth),
-    previewWidth: normalize(preferences.previewWidth, PANEL_LAYOUT_BOUNDS.previewPreferredWidth, PANEL_LAYOUT_BOUNDS.previewMinWidth, PANEL_LAYOUT_BOUNDS.previewMaxWidth),
+    sidebarWidth,
   };
 }
