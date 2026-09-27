@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ViewerSession } from "../../../../src/renderer/lib/viewerSession";
+import { disposeOwnedViewerResources, ViewerSession } from "../../../../src/renderer/lib/viewerSession";
 
 function createFrameHarness() {
   let nextId = 1;
@@ -80,4 +80,47 @@ test("hidden and disposed sessions do not schedule frames or run stale load toke
   assert.equal(draws, 0);
   assert.equal(cleanupCount, 1);
   assert.equal(session.isCurrent(token), false);
+});
+
+test("disposing an old session tears down only its own resources", () => {
+  const frames = createFrameHarness();
+  const disposedResources: string[] = [];
+  const disposalOrder: string[] = [];
+  let activeSession: ViewerSession<{ id: string }> | null = null;
+  const createSession = (id: string) => new ViewerSession(
+    { id },
+    {
+      requestFrame: frames.requestFrame,
+      cancelFrame: frames.cancelFrame,
+      updateControls: () => false,
+      draw: () => {},
+    },
+    (resources, owner) => disposeOwnedViewerResources(
+      owner,
+      activeSession,
+      resources,
+      (owned, ownsCurrentUi) => {
+        disposedResources.push(owned.id);
+        disposalOrder.push(`${owned.id}-resources`);
+        if (ownsCurrentUi) activeSession = null;
+      },
+      () => { activeSession = null; },
+    ),
+  );
+
+  const oldSession = createSession("old");
+  activeSession = oldSession;
+  oldSession.addCleanup(() => { disposalOrder.push("old-listeners"); });
+  const replacement = createSession("replacement");
+  activeSession = replacement;
+
+  oldSession.dispose();
+  assert.equal(activeSession, replacement);
+  assert.deepEqual(disposedResources, ["old"]);
+  assert.deepEqual(disposalOrder, ["old-listeners", "old-resources"]);
+  oldSession.dispose();
+  assert.deepEqual(disposedResources, ["old"]);
+  replacement.dispose();
+  assert.equal(activeSession, null);
+  assert.deepEqual(disposedResources, ["old", "replacement"]);
 });

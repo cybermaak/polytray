@@ -5,6 +5,26 @@ export interface ViewerFrameScheduler {
   draw(): void;
 }
 
+export type ViewerSessionResourceDisposer<TResources> = (
+  resources: TResources,
+  owner: ViewerSession<TResources>,
+) => void;
+
+export function disposeOwnedViewerResources<TResources>(
+  owner: ViewerSession<TResources>,
+  currentOwner: ViewerSession<TResources> | null,
+  resources: TResources,
+  disposeResources: (resources: TResources, ownsCurrentUi: boolean) => void,
+  clearCurrentOwner: () => void,
+) {
+  const ownsCurrentUi = currentOwner === owner;
+  try {
+    disposeResources(resources, ownsCurrentUi);
+  } finally {
+    if (ownsCurrentUi) clearCurrentOwner();
+  }
+}
+
 /** Owns one viewer's resources, render scheduling, cleanup, and async load generation. */
 export class ViewerSession<TResources> {
   private frameId: number | null = null;
@@ -17,6 +37,7 @@ export class ViewerSession<TResources> {
   constructor(
     readonly resources: TResources,
     private readonly scheduler: ViewerFrameScheduler,
+    private readonly disposeResources?: ViewerSessionResourceDisposer<TResources>,
   ) {}
 
   get isDisposed() {
@@ -89,6 +110,11 @@ export class ViewerSession<TResources> {
       } catch (error) {
         console.warn("Viewer session cleanup failed", error);
       }
+    }
+    try {
+      this.disposeResources?.(this.resources, this);
+    } catch (error) {
+      console.warn("Viewer resource disposal failed", error);
     }
   }
 

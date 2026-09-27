@@ -49,7 +49,11 @@ test.beforeAll(async () => {
     const probe = {
       viewerFrames: 0,
       webglDrawCalls: 0,
-      markViewerFrame() { this.viewerFrames++; },
+      lastViewerFrameAt: Number.NEGATIVE_INFINITY,
+      markViewerFrame() {
+        this.viewerFrames++;
+        this.lastViewerFrameAt = performance.now();
+      },
       markViewerDrawCalls(count) { this.webglDrawCalls += count; },
     };
     window.__POLYTRAY_RENDERER_PROBE = probe;
@@ -58,7 +62,11 @@ test.beforeAll(async () => {
     folder: FIXTURE_DIR,
     settings: RUNTIME_SETTINGS,
   });
-  await window.waitForFunction(() => document.querySelectorAll(".file-card").length > 0, { timeout: 30000 });
+  await window.waitForFunction(
+    () => document.querySelectorAll(".file-card").length > 0,
+    undefined,
+    { timeout: 30000 },
+  );
 });
 
 test.afterAll(async () => {
@@ -67,7 +75,9 @@ test.afterAll(async () => {
 });
 
 test("settled preview schedules no viewer frames and disposes cleanly across reopen cycles", async () => {
-  const card = window.locator(".file-card").filter({ hasText: "test_cube.obj" }).first();
+  const card = window.locator(".file-card")
+    .filter({ has: window.locator(".card-name[title='test_cube']") })
+    .first();
   await expect(card).toBeVisible();
   const canvas = window.locator("#viewer-container canvas");
   const close = window.locator("#btn-close-viewer");
@@ -76,16 +86,18 @@ test("settled preview schedules no viewer frames and disposes cleanly across reo
     await card.click();
     await expect(canvas).toHaveCount(1, { timeout: 15000 });
     await expect(window.locator("#preview-panel")).not.toHaveClass(/hidden/);
-    await window.waitForFunction(() => {
-      const loading = document.querySelector("#viewer-loading");
-      return !loading || getComputedStyle(loading).display === "none";
-    }, { timeout: 30000 });
-    await window.waitForFunction(async () => {
-      const probe = window.__POLYTRAY_RENDERER_PROBE;
-      const framesAtStart = probe.viewerFrames;
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      return probe.viewerFrames === framesAtStart;
-    }, { timeout: 10000 });
+    await window.waitForFunction(
+      () => {
+        const loading = document.querySelector("#viewer-loading");
+        return !loading || getComputedStyle(loading).display === "none";
+      },
+      undefined,
+      { timeout: 30000 },
+    );
+    await expect.poll(
+      () => window.evaluate(() => performance.now() - window.__POLYTRAY_RENDERER_PROBE.lastViewerFrameAt),
+      { timeout: 10000, intervals: [50, 100, 200] },
+    ).toBeGreaterThan(200);
 
     const settledCounts = await window.evaluate(() => ({
       viewerFrames: window.__POLYTRAY_RENDERER_PROBE.viewerFrames,
@@ -109,5 +121,90 @@ test("settled preview schedules no viewer frames and disposes cleanly across reo
     await close.click();
     await expect(window.locator("#preview-panel")).toHaveClass(/hidden/);
     await expect(canvas).toHaveCount(0);
+    await expect.poll(() => window.evaluate(() => window.__POLYTRAY_CURRENT_MODEL)).toBeNull();
   }
+});
+
+test("resize, reset camera, and grid changes each invalidate the viewer", async () => {
+  const cube = window.locator(".file-card")
+    .filter({ has: window.locator(".card-name[title='test_cube']") })
+    .first();
+  await cube.click();
+  await expect(window.locator("#viewer-container canvas")).toHaveCount(1);
+  await expect(window.locator("#viewer-loading")).toHaveClass(/hidden/);
+
+  const clearFrames = () => window.evaluate(() => {
+    window.__POLYTRAY_RENDERER_PROBE.viewerFrames = 0;
+  });
+  const expectFrame = () => expect.poll(
+    () => window.evaluate(() => window.__POLYTRAY_RENDERER_PROBE.viewerFrames),
+    { timeout: 5000 },
+  ).toBeGreaterThan(0);
+
+  const originalSize = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize());
+  const initialViewerWidth = await window.locator("#viewer-container").evaluate((element) => element.clientWidth);
+  await clearFrames();
+  await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size[0] - 120, size[1] - 80), originalSize);
+  await expect.poll(
+    () => window.locator("#viewer-container").evaluate((element) => element.clientWidth),
+    { timeout: 5000 },
+  ).not.toBe(initialViewerWidth);
+  await expectFrame();
+
+  await clearFrames();
+  await window.locator("#btn-reset-camera").click();
+  await expectFrame();
+
+  await clearFrames();
+  await window.locator("#btn-settings").click();
+  await window.locator(".settings-row")
+    .filter({ hasText: "Show grid" })
+    .locator(".toggle-slider")
+    .click();
+  await expectFrame();
+  await window.locator("#settings-close").click();
+
+  await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size[0], size[1]), originalSize);
+  await window.locator("#btn-close-viewer").click();
+  await expect(window.locator("#preview-panel")).toHaveClass(/hidden/);
+});
+
+test("minimizing pauses viewer frames and restore draws a catch-up frame", async () => {
+  const cube = window.locator(".file-card")
+    .filter({ has: window.locator(".card-name[title='test_cube']") })
+    .first();
+  await cube.click();
+  await expect(window.locator("#viewer-container canvas")).toHaveCount(1);
+  await expect(window.locator("#viewer-loading")).toHaveClass(/hidden/);
+
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize());
+  await expect.poll(
+    () => window.evaluate(() => document.visibilityState),
+    { timeout: 15000 },
+  ).toBe("hidden");
+  await window.evaluate(() => {
+    window.__POLYTRAY_RENDERER_PROBE.viewerFrames = 0;
+    window.__POLYTRAY_RENDERER_PROBE.webglDrawCalls = 0;
+  });
+  await window.waitForTimeout(500);
+  const hiddenCounts = await window.evaluate(() => ({
+    viewerFrames: window.__POLYTRAY_RENDERER_PROBE.viewerFrames,
+    webglDrawCalls: window.__POLYTRAY_RENDERER_PROBE.webglDrawCalls,
+  }));
+  expect(hiddenCounts.viewerFrames).toBe(0);
+  expect(hiddenCounts.webglDrawCalls).toBe(0);
+
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].restore());
+  await window.bringToFront();
+  await expect.poll(
+    () => window.evaluate(() => document.visibilityState),
+    { timeout: 15000 },
+  ).toBe("visible");
+  await expect.poll(
+    () => window.evaluate(() => window.__POLYTRAY_RENDERER_PROBE.viewerFrames),
+    { timeout: 10000 },
+  ).toBeGreaterThan(0);
+
+  await window.locator("#btn-close-viewer").click();
+  await expect(window.locator("#preview-panel")).toHaveClass(/hidden/);
 });

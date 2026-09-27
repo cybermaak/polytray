@@ -12,7 +12,7 @@ import { applySmartOrientation } from "./orientation";
 import { computeCameraFit } from "./cameraUtils";
 import type { SerializedMesh } from "../../shared/types";
 import { loadPreviewMeshes } from "./previewStrategies";
-import { ViewerSession } from "./viewerSession";
+import { disposeOwnedViewerResources, ViewerSession } from "./viewerSession";
 
 // ── Re-exports for backward compatibility ─────────────────────────
 export { VIEWER_CONFIG } from "./viewerConfig";
@@ -25,6 +25,7 @@ interface ViewerState {
   renderer: THREE.WebGLRenderer | null;
   controls: OrbitControls | null;
   currentModel: THREE.Object3D | null;
+  debugModel: THREE.Object3D | null;
   gridHelper: THREE.GridHelper | null;
   wireframeMode: boolean;
   multiModelMeshes: THREE.Object3D[];
@@ -40,6 +41,7 @@ function createInitialState(): ViewerState {
     renderer: null,
     controls: null,
     currentModel: null,
+    debugModel: null,
     gridHelper: null,
     wireframeMode: false,
     multiModelMeshes: [],
@@ -150,7 +152,16 @@ export function initViewer(containerEl: HTMLElement) {
       probeWindow.__POLYTRAY_RENDERER_PROBE?.markViewerFrame?.();
       probeWindow.__POLYTRAY_RENDERER_PROBE?.markViewerDrawCalls?.(renderer.info.render.calls);
     },
-  });
+  }, (ownedResources, owner) => disposeOwnedViewerResources(
+    owner,
+    activeSession,
+    ownedResources,
+    disposeViewerResources,
+    () => {
+      activeSession = null;
+      if (state === ownedResources) state = createInitialState();
+    },
+  ));
   activeSession = session;
   installSessionListeners(session);
 
@@ -363,6 +374,7 @@ export async function loadModel(
   // Remove previous model
   if (state.currentModel) {
     state.scene!.remove(state.currentModel);
+    clearCurrentModelDiagnostic(state);
     disposeObject(state.currentModel);
     state.currentModel = null;
   }
@@ -404,9 +416,7 @@ export async function loadModel(
 
   // Expose current model for E2E testing diagnostics
   if (typeof window !== "undefined") {
-    (
-      window as Window & { __POLYTRAY_CURRENT_MODEL?: THREE.Object3D | null }
-    ).__POLYTRAY_CURRENT_MODEL = state.currentModel;
+    publishCurrentModelDiagnostic(state);
   }
 
   // Auto-fit camera
@@ -565,51 +575,12 @@ export function toggleWireframe() {
 
 export function disposeViewer() {
   const session = activeSession;
-  activeSession = null;
-  session?.dispose();
-
-  if (state.currentModel) {
-    state.scene?.remove(state.currentModel);
-    disposeObject(state.currentModel);
-    state.currentModel = null;
+  if (session) {
+    session.dispose();
+    return;
   }
 
-  if (state.gridHelper) {
-    state.scene?.remove(state.gridHelper);
-    state.gridHelper.geometry.dispose();
-    const materials = Array.isArray(state.gridHelper.material)
-      ? state.gridHelper.material
-      : [state.gridHelper.material];
-    materials.forEach((material) => material.dispose());
-    state.gridHelper = null;
-  }
-
-  const multiModelContainer = state.multiModelContainer ?? document.getElementById("viewer-multi-model");
-  if (multiModelContainer) {
-    multiModelContainer.replaceChildren();
-    multiModelContainer.classList.add("hidden");
-  }
-
-  if (state.controls) {
-    state.controls.dispose();
-    state.controls = null;
-  }
-
-  if (state.renderer) {
-    state.renderer.dispose();
-    if (state.renderer.domElement && state.renderer.domElement.parentNode) {
-      state.renderer.domElement.parentNode.removeChild(
-        state.renderer.domElement,
-      );
-    }
-    state.renderer = null;
-  }
-
-  state.scene = null;
-  state.camera = null;
-  state.multiModelMeshes = [];
-  state.activeSubModelIndex = -1;
-  state.multiModelContainer = null;
+  disposeViewerResources(state, true);
   state = createInitialState();
 }
 
@@ -624,6 +595,7 @@ export async function buildModelFromMeshes(
   // Remove previous model
   if (state.currentModel) {
     state.scene!.remove(state.currentModel);
+    clearCurrentModelDiagnostic(state);
     disposeObject(state.currentModel);
     state.currentModel = null;
   }
@@ -699,7 +671,7 @@ export async function buildModelFromMeshes(
   if (!owner.isCurrent(loadToken) || activeSession !== owner) return;
 
   if (typeof window !== "undefined") {
-    (window as Window & { __POLYTRAY_CURRENT_MODEL?: THREE.Object3D | null }).__POLYTRAY_CURRENT_MODEL = state.currentModel;
+    publishCurrentModelDiagnostic(state);
   }
 
   fitCameraToObject(group);
@@ -720,4 +692,63 @@ function disposeObject(obj: THREE.Object3D) {
       }
     }
   });
+}
+
+function clearCurrentModelDiagnostic(resources: ViewerState) {
+  if (typeof window !== "undefined") {
+    const diagnosticWindow = window as Window & { __POLYTRAY_CURRENT_MODEL?: THREE.Object3D | null };
+    if (resources.debugModel && diagnosticWindow.__POLYTRAY_CURRENT_MODEL === resources.debugModel) {
+      diagnosticWindow.__POLYTRAY_CURRENT_MODEL = null;
+    }
+  }
+  resources.debugModel = null;
+}
+
+function publishCurrentModelDiagnostic(resources: ViewerState) {
+  resources.debugModel = resources.currentModel;
+  if (typeof window !== "undefined") {
+    (window as Window & { __POLYTRAY_CURRENT_MODEL?: THREE.Object3D | null }).__POLYTRAY_CURRENT_MODEL = resources.debugModel;
+  }
+}
+
+function disposeViewerResources(resources: ViewerState, ownsCurrentUi: boolean) {
+  if (resources.currentModel) {
+    resources.scene?.remove(resources.currentModel);
+    clearCurrentModelDiagnostic(resources);
+    disposeObject(resources.currentModel);
+    resources.currentModel = null;
+  } else {
+    clearCurrentModelDiagnostic(resources);
+  }
+
+  if (resources.gridHelper) {
+    resources.scene?.remove(resources.gridHelper);
+    resources.gridHelper.geometry.dispose();
+    const materials = Array.isArray(resources.gridHelper.material)
+      ? resources.gridHelper.material
+      : [resources.gridHelper.material];
+    materials.forEach((material) => material.dispose());
+    resources.gridHelper = null;
+  }
+
+  if (ownsCurrentUi) {
+    const multiModelContainer = resources.multiModelContainer ?? document.getElementById("viewer-multi-model");
+    multiModelContainer?.replaceChildren();
+    multiModelContainer?.classList.add("hidden");
+  }
+
+  resources.controls?.dispose();
+  resources.controls = null;
+  if (resources.renderer) {
+    resources.renderer.dispose();
+    resources.renderer.domElement.parentNode?.removeChild(resources.renderer.domElement);
+    resources.renderer = null;
+  }
+
+  resources.scene = null;
+  resources.camera = null;
+  resources.multiModelMeshes = [];
+  resources.activeSubModelIndex = -1;
+  resources.multiModelContainer = null;
+  resources.container = null;
 }
