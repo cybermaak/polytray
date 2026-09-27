@@ -51,7 +51,9 @@ export async function discoverFolder(rootPath: string, signal?: AbortSignal): Pr
   let entries: fs.Dirent[];
   try {
     entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+    if (signal?.aborted) { cancelled = true; return; }
   } catch (e: unknown) {
+    if (signal?.aborted) { cancelled = true; return; }
     console.warn(`Cannot read directory ${dirPath}:`, (e as Error).message);
     addError(dirPath, 'directory', 'readdir', e);
     return;
@@ -63,14 +65,19 @@ export async function discoverFolder(rootPath: string, signal?: AbortSignal): Pr
 
     if (entry.isDirectory()) {
       // Skip tests/fixtures directory
-      if (entry.name === "fixtures" && dirPath.includes(path.sep + "tests"))
+      if (entry.name === "fixtures" && dirPath.includes(path.sep + "tests")) {
+        const excludedPath = path.join(dirPath, entry.name);
+        scopes.push({ scopePath: excludedPath, kind: 'directory', status: 'excluded', phase: 'excluded', reason: 'directory excluded by scan policy' });
         continue;
+      }
       await walkDir(fullPath);
+      if (cancelled) return;
     } else if (entry.isFile()) {
       const ext = path.extname(entry.name).toLowerCase().slice(1);
       if (EXT_SET.has(ext)) {
         try {
           const stat = await fs.promises.stat(fullPath);
+          if (signal?.aborted) { cancelled = true; return; }
           files.push({
             path: fullPath,
             name: path.basename(entry.name, "." + ext),
@@ -80,18 +87,22 @@ export async function discoverFolder(rootPath: string, signal?: AbortSignal): Pr
             mtime: Math.floor(stat.mtimeMs),
           });
         } catch (e: unknown) {
+          if (signal?.aborted) { cancelled = true; return; }
           console.warn(`Cannot stat ${fullPath}:`, (e as Error).message);
           addError(fullPath, 'directory', 'stat', e);
         }
       } else if (ARCHIVE_EXT_SET.has(ext)) {
-        await scanArchive(fullPath, dirPath, files, scopes, errors);
+        const archiveResult = await scanArchive(fullPath, dirPath, files, scopes, errors, signal);
+        if (archiveResult === 'cancelled') { cancelled = true; return; }
       }
     }
   }
+    if (signal?.aborted) { cancelled = true; return; }
     scopes.push({ scopePath: dirPath, kind: 'directory', status: 'complete' });
   };
   await walkDir(rootPath);
-  const state: ScanTerminalState = cancelled ? 'cancelled' : errors.length ? (scopes.some((scope) => scope.status === 'complete') ? 'partial' : 'failed') : 'completed';
+  const incomplete = errors.length > 0 || scopes.some((scope) => scope.status !== 'complete');
+  const state: ScanTerminalState = cancelled ? 'cancelled' : incomplete ? (scopes.some((scope) => scope.status === 'complete') ? 'partial' : 'failed') : 'completed';
   return { files, scopes, state, errors };
 }
 
@@ -101,14 +112,16 @@ async function scanArchive(
   results: ScannedFile[],
   scopes: ScanScope[],
   errors: ScanDiscovery['errors'],
-) {
+  signal?: AbortSignal,
+): Promise<'completed' | 'failed' | 'cancelled'> {
   try {
-    const [directory, stat] = await Promise.all([
-      unzipper.Open.file(archivePath),
-      fs.promises.stat(archivePath),
-    ]);
+    const directory = await unzipper.Open.file(archivePath);
+    if (signal?.aborted) return 'cancelled';
+    const stat = await fs.promises.stat(archivePath);
+    if (signal?.aborted) return 'cancelled';
 
     for (const entry of directory.files) {
+      if (signal?.aborted) return 'cancelled';
       if (entry.type !== "File" || !isSupportedArchiveEntry(entry.path)) {
         continue;
       }
@@ -123,11 +136,15 @@ async function scanArchive(
         mtime: Math.floor(stat.mtimeMs),
       });
     }
+    if (signal?.aborted) return 'cancelled';
     scopes.push({ scopePath: archivePath, kind: 'archive', status: 'complete' });
+    return 'completed';
   } catch (e: unknown) {
+    if (signal?.aborted) return 'cancelled';
     console.warn(`Cannot inspect archive ${archivePath}:`, (e as Error).message);
     const reason = (e as Error)?.message ?? String(e);
     scopes.push({ scopePath: archivePath, kind: 'archive', status: 'error', phase: 'archive', reason });
     errors.push({ scopePath: archivePath, phase: 'archive', reason });
+    return 'failed';
   }
 }

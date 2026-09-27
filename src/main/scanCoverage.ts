@@ -6,8 +6,8 @@ export type ScanScopeKind = 'directory' | 'archive';
 export interface ScanScope {
   scopePath: string;
   kind: ScanScopeKind;
-  status: 'complete' | 'error';
-  phase?: 'readdir' | 'stat' | 'archive' | 'cancelled';
+  status: 'complete' | 'error' | 'excluded';
+  phase?: 'readdir' | 'stat' | 'archive' | 'cancelled' | 'excluded';
   reason?: string;
 }
 export type ScanTerminalState = 'completed' | 'partial' | 'failed' | 'cancelled';
@@ -50,7 +50,9 @@ export function decidePruneCandidates(input: {
       (scope.kind === 'archive'
         ? Boolean(parsed && path.resolve(scope.scopePath) === path.resolve(parsed.archivePath))
         : isPathContained(scope.scopePath, physicalPath)));
-    if (failedScope) continue;
+    const excludedScope = input.scopes.some((scope) => scope.status === 'excluded' &&
+      scope.kind === 'directory' && isPathContained(scope.scopePath, physicalPath));
+    if (failedScope || excludedScope) continue;
     const hasCompleteCoverage = input.scopes.some((scope) => scope.status === 'complete' &&
       (scope.kind === 'archive'
         ? Boolean(parsed && path.resolve(scope.scopePath) === path.resolve(parsed.archivePath))
