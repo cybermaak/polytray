@@ -4,7 +4,7 @@
 
 **Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, S01, V01, and the P02 export service are reviewed and integrated. D01 is completing common wiring and its combined app gate; V03 is implementing independently. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06. T03/U03/P01 chat creation remains pending registration.
 
-**Progress:** 5 / 33 DONE. Foundation 2/2; data 0/3; scanning 1/6; thumbnails 0/4; preview 1/5; browsing 0/6; product workflows 1/4; validation 0/3.
+**Progress:** 6 / 33 DONE. Foundation 2/2; data 0/3; scanning 1/6; thumbnails 1/4; preview 1/5; browsing 0/6; product workflows 1/4; validation 0/3.
 
 ## Status and update rules
 
@@ -31,7 +31,7 @@
 | S06 | [Scan controls and targeted retry](scanning.md#s06---add-explicit-scan-job-pause-cancellation-and-targeted-retry) | P2 | S02, S03, S05 | PLANNED | Unassigned | - |
 | T01 | [Thumbnail identity and settlement](thumbnails.md#t01---make-thumbnail-requests-and-cache-identities-settle-correctly) | P1 | D01 | PLANNED | Unassigned | - |
 | T02 | [Authoritative refresh and cache reset](thumbnails.md#t02---make-refresh-clear-and-cache-version-reset-authoritative) | P1 | T01 | PLANNED | Unassigned | - |
-| T03 | [Shared path-only thumbnail presentation](thumbnails.md#t03---keep-file-state-path-only-and-share-thumbnail-reads) | P1 | F01, F02 | REVIEW | baseline_validation reassigned (Luna/medium) | `be7e879`; coordinator spec PASS, 11 focused tests/Type/Build/lint PASS; independent quality pending |
+| T03 | [Shared path-only thumbnail presentation](thumbnails.md#t03---keep-file-state-path-only-and-share-thumbnail-reads) | P1 | F01, F02 | DONE | baseline_validation (Luna/medium) | [T03](handoffs/T03.md); spec/independent quality PASS, 12 focused tests/Type/Build/lint PASS; producer integrated `d1c44b7`, `1fd9c44`; consumers U01/T02 |
 | T04 | [Thumbnail queue controls and accounting](thumbnails.md#t04---centralize-thumbnail-queue-state-controls-and-retry-accounting) | P2 | T02 | PLANNED | Unassigned | - |
 | V01 | [Viewer lifetime and idle rendering](preview.md#v01---give-each-viewer-a-lifecycle-and-stop-drawing-when-idle) | P2 | F01, F02 | DONE | f01_foundation + s01_safe_scanning (Luna/medium) | [V01](handoffs/V01.md); reviewed and integrated through `cb63f7a` |
 | V02 | [Stable preview state and lazy archive navigation](preview.md#v02---decouple-metadata-from-geometry-and-show-durable-preview-states) | P2 | V01, D02 | PLANNED | Unassigned | - |
@@ -58,7 +58,7 @@
 | --- | --- | --- | --- |
 | D01 | d01_index_repository, Luna/medium | `/Users/maak/.codex/worktrees/polytray-foundation/polytray` / `codex/perf-d01` | Wiring and serialized app verification |
 | V03 | s01_safe_scanning reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-v03` | Implementing |
-| T03 | baseline_validation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-t03` | Implementing; replaces pending chat request below |
+| T03 | Completed; worker now reviewing D01 | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-t03` | Integrated producer; checkout available for next task after review |
 | T03 old dispatch | Unregistered chat request | Client `eec1883f-42d5-4431-ad0b-955c2867d1b1` | Superseded for ownership; reconcile if it later registers |
 | U03 | New Luna/medium chat requested | Client `0a22ffff-ae10-4583-a008-f381c43fc15d` | Worktree created; waiting for task registration |
 | P01 | New Luna/medium chat requested | Client `530dfb9f-136d-417b-a4ea-610b0026ec0d` | Worktree created; waiting for task registration |
@@ -83,6 +83,7 @@ V03 also needs the persisted D01 content revision at its existing preview caller
 | 2026-09-26 | S01 safety gate | Both reviews PASS; Build, 84 units and 30 E2E PASS; 1 optional skip; lookup-only follow-up passed focused18/type/build | Integrated scan coverage, cancellation, annotation/ABA guards and linear snapshot lookup |
 | 2026-09-27 | V01 gate | Spec and quality PASS; Build + 88 units + 33 E2E PASS, 1 optional skip; color-init correction observed RED then GREEN in focused E2E/type/build | Integrated `6b0f643` through `cb63f7a`; macOS native minimize/restore verified; other platforms pending |
 | 2026-09-27 | P02 producer gate | Independent spec and quality PASS; 14 focused and 98 product units, Type/Build PASS | Integrated export-only service and registration adapter; live revision/provider/UI consumer wiring remains P04/U06 |
+| 2026-09-27 | T03 producer gate | Coordinator spec and independent quality PASS; 12 focused renderer tests, Type/Build/lint PASS | Integrated bounded shared image loader; U01/T02 must wire path-only updates and invalidate same-path ready events |
 
 ## Blockers and decisions
 
