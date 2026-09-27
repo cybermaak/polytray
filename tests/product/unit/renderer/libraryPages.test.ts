@@ -4,6 +4,7 @@ import type { FileRecord } from '../../../../src/shared/types';
 import type { LibraryItem, LibraryPageResult } from '../../../../src/shared/libraryQuery';
 import {
   createInitialLibraryPagesState,
+  fetchConsistentPageRange,
   libraryPagesReducer,
 } from '../../../../src/renderer/hooks/useLibraryPages';
 
@@ -93,4 +94,70 @@ test('same-scope refresh atomically replaces loaded items at the new revision', 
   assert.deepEqual(state.items.map((item) => item.key), ['file:2', 'file:3']);
   assert.equal(state.revision, 11);
   assert.equal(state.refreshRequired, false);
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+test('refresh snapshots its query and stops before requesting another page after a scope change', async () => {
+  const secondPage = deferred<LibraryPageResult>();
+  const calls: Array<{ search: string; offset: number; expectedBrowseRevision?: number }> = [];
+  let current = true;
+  const request = fetchConsistentPageRange(async (query) => {
+    calls.push({ search: query.search, offset: query.offset, expectedBrowseRevision: query.expectedBrowseRevision });
+    if (calls.length === 1) return okPage(12, [file(1)], 1);
+    return secondPage.promise;
+  }, {
+    sort: 'name', direction: 'ASC', extension: null, folder: null, search: 'old scope',
+    collectionPaths: null, limit: 1, offset: 0,
+  }, 2, () => current);
+
+  while (calls.length < 2) await new Promise((resolve) => setImmediate(resolve));
+  current = false;
+  secondPage.resolve(okPage(12, [file(2)], null));
+  const result = await request;
+  assert.equal(result.status, 'cancelled');
+  assert.deepEqual(calls, [
+    { search: 'old scope', offset: 0, expectedBrowseRevision: undefined },
+    { search: 'old scope', offset: 1, expectedBrowseRevision: 12 },
+  ]);
+});
+
+test('refresh stops after an in-flight page resolves when the consumer is disabled', async () => {
+  const firstPage = deferred<LibraryPageResult>();
+  let enabled = true;
+  let reads = 0;
+  const request = fetchConsistentPageRange(async () => {
+    reads += 1;
+    return firstPage.promise;
+  }, {
+    sort: 'name', direction: 'ASC', extension: null, folder: null, search: '',
+    collectionPaths: null, limit: 1, offset: 0,
+  }, 2, () => enabled);
+
+  enabled = false;
+  firstPage.resolve(okPage(12, [file(1)], 1));
+  assert.equal((await request).status, 'cancelled');
+  assert.equal(reads, 1);
+});
+
+test('refresh stops after unmount instead of continuing the loaded-range request loop', async () => {
+  const firstPage = deferred<LibraryPageResult>();
+  let mounted = true;
+  let reads = 0;
+  const request = fetchConsistentPageRange(async () => {
+    reads += 1;
+    return firstPage.promise;
+  }, {
+    sort: 'name', direction: 'ASC', extension: null, folder: null, search: '',
+    collectionPaths: null, limit: 1, offset: 0,
+  }, 2, () => mounted);
+
+  mounted = false;
+  firstPage.resolve(okPage(12, [file(1)], 1));
+  assert.equal((await request).status, 'cancelled');
+  assert.equal(reads, 1);
 });

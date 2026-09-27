@@ -11,6 +11,7 @@ export interface LibraryPagesState {
   totalItems: number;
   totalModels: number;
   nextOffset: number | null;
+  ready: boolean;
   loading: boolean;
   loadingNext: boolean;
   refreshing: boolean;
@@ -28,6 +29,7 @@ export function createInitialLibraryPagesState(): LibraryPagesState {
     totalItems: 0,
     totalModels: 0,
     nextOffset: null,
+    ready: false,
     loading: false,
     loadingNext: false,
     refreshing: false,
@@ -112,6 +114,7 @@ export function libraryPagesReducer(
           totalItems: action.page.totalItems,
           totalModels: action.page.totalModels,
           nextOffset: action.page.nextOffset,
+          ready: true,
           loading: false,
           loadingNext: false,
           refreshing: false,
@@ -157,6 +160,7 @@ export function libraryPagesReducer(
         totalItems: action.totalItems,
         totalModels: action.totalModels,
         nextOffset: action.nextOffset,
+        ready: true,
         refreshing: false,
         refreshRequired: false,
         error: null,
@@ -202,8 +206,83 @@ function getQueryKey(query: LibraryQuery) {
   });
 }
 
+export function libraryQueryScopeKey(query: LibraryQuery) {
+  const { limit: _limit, offset: _offset, expectedBrowseRevision: _revision, ...scope } = query;
+  return JSON.stringify({
+    ...scope,
+    collectionPaths: query.collectionPaths === null
+      ? null
+      : [...query.collectionPaths].sort(),
+  });
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "The library page could not be loaded.";
+}
+
+export type ConsistentPageRangeResult =
+  | { status: "loaded"; items: LibraryItem[]; revision: number; totalItems: number; totalModels: number; nextOffset: number | null }
+  | { status: "cancelled" }
+  | { status: "error"; error: unknown }
+  | { status: "revision-changed" };
+
+/** Reads one revision-consistent prefix, stopping promptly if its scope is obsolete. */
+export async function fetchConsistentPageRange(
+  readPage: (query: LibraryQuery) => Promise<LibraryPageResult>,
+  baseQuery: LibraryQuery,
+  targetCount: number,
+  isCurrent: () => boolean,
+  maxRestarts = 1,
+): Promise<ConsistentPageRangeResult> {
+  const querySnapshot: LibraryQuery = {
+    ...baseQuery,
+    collectionPaths: baseQuery.collectionPaths === null ? null : [...baseQuery.collectionPaths],
+    offset: 0,
+    expectedBrowseRevision: undefined,
+  };
+
+  for (let attempt = 0; attempt <= maxRestarts; attempt += 1) {
+    if (!isCurrent()) return { status: "cancelled" };
+    const items: LibraryItem[] = [];
+    let firstPage: Extract<LibraryPageResult, { status: "ok" }> | null = null;
+    let offset = 0;
+    let restart = false;
+
+    while (true) {
+      if (!isCurrent()) return { status: "cancelled" };
+      let response: LibraryPageResult;
+      try {
+        response = await readPage({
+          ...querySnapshot,
+          offset,
+          ...(firstPage ? { expectedBrowseRevision: firstPage.revision } : {}),
+        });
+      } catch (error) {
+        return isCurrent() ? { status: "error", error } : { status: "cancelled" };
+      }
+      if (!isCurrent()) return { status: "cancelled" };
+      if (response.status === "stale" || (firstPage && response.revision !== firstPage.revision)) {
+        restart = true;
+        break;
+      }
+      firstPage ??= response;
+      items.push(...response.items);
+      if (response.nextOffset === null || items.length >= targetCount) {
+        return {
+          status: "loaded",
+          items,
+          revision: firstPage.revision,
+          totalItems: response.totalItems,
+          totalModels: response.totalModels,
+          nextOffset: response.nextOffset,
+        };
+      }
+      offset = response.nextOffset;
+    }
+
+    if (!restart) break;
+  }
+  return isCurrent() ? { status: "revision-changed" } : { status: "cancelled" };
 }
 
 interface PendingNextPage {
@@ -235,6 +314,9 @@ export function useLibraryPages(query: LibraryQuery, enabled = true): UseLibrary
   queryRef.current = query;
   const queryKey = useMemo(() => getQueryKey(query), [query]);
   const generationRef = useRef(0);
+  const scopeEpochRef = useRef(0);
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
   const pendingNextRef = useRef<PendingNextPage | null>(null);
   const pendingRefreshRef = useRef<PendingRefresh | null>(null);
 
@@ -257,12 +339,20 @@ export function useLibraryPages(query: LibraryQuery, enabled = true): UseLibrary
   }, []);
 
   useEffect(() => {
-    if (!enabled) return;
-    const generation = ++generationRef.current;
-    pendingNextRef.current = null;
-    pendingRefreshRef.current = null;
-    dispatch({ type: "query-started", generation, queryKey });
-    void fetchPage(generation, 0);
+    const scopeEpoch = ++scopeEpochRef.current;
+    if (enabled) {
+      const generation = ++generationRef.current;
+      pendingNextRef.current = null;
+      pendingRefreshRef.current = null;
+      dispatch({ type: "query-started", generation, queryKey });
+      void fetchPage(generation, 0);
+    }
+    return () => {
+      if (scopeEpochRef.current === scopeEpoch) scopeEpochRef.current += 1;
+      generationRef.current += 1;
+      pendingNextRef.current = null;
+      pendingRefreshRef.current = null;
+    };
   }, [enabled, fetchPage, queryKey]);
 
   const refresh = useCallback((): Promise<void> => {
@@ -272,58 +362,55 @@ export function useLibraryPages(query: LibraryQuery, enabled = true): UseLibrary
 
     const snapshot = stateRef.current;
     const generation = ++generationRef.current;
-    const targetCount = Math.max(snapshot.items.length, queryRef.current.limit);
+    const scopeEpoch = scopeEpochRef.current;
+    const querySnapshot: LibraryQuery = {
+      ...queryRef.current,
+      collectionPaths: queryRef.current.collectionPaths === null
+        ? null
+        : [...queryRef.current.collectionPaths],
+    };
+    const targetCount = Math.max(snapshot.items.length, querySnapshot.limit);
     pendingNextRef.current = null;
     dispatch({ type: "refresh-started", generation });
 
+    const isCurrentRequest = () => enabledRef.current
+      && generationRef.current === generation
+      && scopeEpochRef.current === scopeEpoch;
     const promise = (async () => {
-      try {
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-          const items: LibraryItem[] = [];
-          let firstPage: Extract<LibraryPageResult, { status: "ok" }> | null = null;
-          let offset = 0;
-          let restart = false;
-          while (true) {
-            const response = await window.polytray.getLibraryPage({
-              ...queryRef.current,
-              offset,
-              ...(firstPage ? { expectedBrowseRevision: firstPage.revision } : {}),
-            });
-            if (response.status === "stale") {
-              restart = true;
-              break;
-            }
-            firstPage ??= response;
-            if (response.revision !== firstPage.revision) {
-              restart = true;
-              break;
-            }
-            items.push(...response.items);
-            if (response.nextOffset === null || items.length >= targetCount) {
-              dispatch({
-                type: "refresh-completed",
-                generation,
-                items,
-                revision: firstPage.revision,
-                totalItems: response.totalItems,
-                totalModels: response.totalModels,
-                nextOffset: response.nextOffset,
-              });
-              return;
-            }
-            offset = response.nextOffset;
-          }
-          if (!restart) return;
-        }
+      const result = await fetchConsistentPageRange(
+        (request) => window.polytray.getLibraryPage(request),
+        querySnapshot,
+        targetCount,
+        isCurrentRequest,
+      );
+      if (result.status === "cancelled" || !isCurrentRequest()) return;
+      if (result.status === "loaded") {
+        dispatch({
+          type: "refresh-completed",
+          generation,
+          items: result.items,
+          revision: result.revision,
+          totalItems: result.totalItems,
+          totalModels: result.totalModels,
+          nextOffset: result.nextOffset,
+        });
+        return;
+      }
+      if (result.status === "error") {
         dispatch({
           type: "page-failed",
           generation,
           offset: 0,
-          error: "The library changed again while refreshing. Retry to load the latest results.",
+          error: errorMessage(result.error),
         });
-      } catch (error) {
-        dispatch({ type: "page-failed", generation, offset: 0, error: errorMessage(error) });
+        return;
       }
+      dispatch({
+        type: "page-failed",
+        generation,
+        offset: 0,
+        error: "The library changed again while refreshing. Retry to load the latest results.",
+      });
     })().finally(() => {
       if (pendingRefreshRef.current?.generation === generation) pendingRefreshRef.current = null;
     });
