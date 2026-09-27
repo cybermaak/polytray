@@ -4,6 +4,7 @@ import type { FileRecord, ModelDimensions } from "../../shared/types";
 import { normalizeFileTags, parseStoredFileTags } from "../../shared/fileTags";
 import type { CollectionRecord } from "../../shared/libraryCollections";
 import { DEFAULT_APP_SETTINGS } from "../../shared/settings";
+import type { ThumbnailQuality } from "../../shared/settings";
 import {
   type DisplayFileRecord,
   isArchiveSummaryRecord,
@@ -24,6 +25,7 @@ interface Props {
   item: DisplayFileRecord | null;
   showGrid: boolean;
   thumbnailColor: string;
+  thumbQuality: ThumbnailQuality;
   collections: CollectionRecord[];
   onFileChange?: (file: FileRecord) => void;
   onCreateCollection: (name: string, filePaths: string[]) => void;
@@ -61,6 +63,7 @@ export const PreviewPanel: React.FC<Props> = ({
   item,
   showGrid,
   thumbnailColor,
+  thumbQuality,
   collections,
   onFileChange,
   onCreateCollection,
@@ -68,6 +71,7 @@ export const PreviewPanel: React.FC<Props> = ({
   onClose,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const thumbQualityRef = useRef(thumbQuality);
   const panelRef = useRef<HTMLElement>(null);
   const dragStartX = useRef<number>(0);
   const dragStartWidth = useRef<number>(0);
@@ -84,6 +88,10 @@ export const PreviewPanel: React.FC<Props> = ({
   const [selectedCollectionId, setSelectedCollectionId] = useState("");
   const [archiveEntryIndex, setArchiveEntryIndex] = useState(0);
   const archiveSummary = item && isArchiveSummaryRecord(item) ? item : null;
+
+  useEffect(() => {
+    thumbQualityRef.current = thumbQuality;
+  }, [thumbQuality]);
   const currentFile = archiveSummary
     ? archiveSummary.entries[Math.min(archiveEntryIndex, archiveSummary.entries.length - 1)] ?? null
     : file;
@@ -144,6 +152,7 @@ export const PreviewPanel: React.FC<Props> = ({
             watcher_stability: DEFAULT_APP_SETTINGS.watcher_stability,
             page_size: DEFAULT_APP_SETTINGS.page_size,
             thumbnailColor,
+            thumbQuality: thumbQualityRef.current,
           });
         }
       } catch (e) {

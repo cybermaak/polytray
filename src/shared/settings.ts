@@ -26,6 +26,7 @@ export interface RuntimeSettings {
   watcher_stability: number;
   page_size: number;
   thumbnailColor: string;
+  thumbQuality: ThumbnailQuality;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -161,6 +162,7 @@ export function normalizeRuntimeSettings(input: unknown): RuntimeSettings {
     watcher_stability: normalized.watcher_stability,
     page_size: normalized.page_size,
     thumbnailColor: normalized.thumbnailColor,
+    thumbQuality: normalized.thumbQuality,
   };
 }
 
