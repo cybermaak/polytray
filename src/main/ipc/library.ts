@@ -5,6 +5,7 @@ import { BrowserWindow, dialog, ipcMain } from "electron";
 import { getDb, getSetting } from "../database";
 import { IPC } from "../../shared/types";
 import { filterContainedPaths } from "../pathContainment";
+import { createFileIndexRepository } from "../fileIndexing";
 
 export function registerLibraryHandlers(
   getMainWindow: () => BrowserWindow | null,
@@ -26,18 +27,23 @@ export function registerLibraryHandlers(
 
   ipcMain.handle(IPC.REMOVE_LIBRARY_FOLDER, (event, folderPath) => {
     const db = getDb();
-    const rows = db.prepare("SELECT path FROM files").all() as Array<{ path: string }>;
+    const rows = db.prepare("SELECT path, content_revision, scan_generation FROM files").all() as Array<{
+      path: string;
+      content_revision: number;
+      scan_generation: number;
+    }>;
     const containedPaths = filterContainedPaths(
       folderPath,
       rows.map((row) => row.path),
     );
-    const deleteFiles = db.transaction((paths: string[]) => {
-      const stmt = db.prepare("DELETE FROM files WHERE path = ?");
-      for (const filePath of paths) {
-        stmt.run(filePath);
-      }
-    });
-    deleteFiles(containedPaths);
+    const contained = new Set(containedPaths);
+    createFileIndexRepository(db).deleteContainedFiles(folderPath, rows
+      .filter((row) => contained.has(row.path))
+      .map((row) => ({
+        path: row.path,
+        expectedContentRevision: row.content_revision,
+        scanGeneration: row.scan_generation,
+      })));
     return true;
   });
 

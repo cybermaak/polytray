@@ -12,6 +12,7 @@ import type {
   WatchUpdate,
 } from '../shared/libraryQuery';
 import { parseArchiveEntryPath } from '../shared/archivePaths';
+import { serializeFileTags } from '../shared/fileTags';
 import { isPathContained } from './pathContainment';
 import { enumerateFileScopes } from './fileScopes';
 import { advanceLibraryRevisions, allocateContentRevision, getBrowseRevision } from './libraryRevisions';
@@ -179,13 +180,35 @@ export interface FileIndexRepository {
   applyIndexBatch(input: IndexBatch): IndexBatchResult;
   applyWatchUpdate(input: WatchUpdate): IndexMutationResult;
   deleteContainedFiles(rootPath: string, candidates: PruneCandidate[]): IndexMutationResult;
+  deleteScanSnapshotRows(rootPath: string, candidates: GuardedScanPruneRow[]): IndexMutationResult;
   applyMetadataResult(input: MetadataEnrichmentUpdate): MetadataEnrichmentResult;
   updateFileMetadata(input: RevisionGuardedMetadataUpdate): RevisionGuardedMetadataResult;
   updateThumbnailState(input: ThumbnailStateUpdate): ThumbnailStateUpdateResult;
   getBrowseRevision(): number;
   getFileContentRevision(fileId: number): number | null;
+  getFileIdentityByPath(filePath: string): FileIndexIdentity | null;
   applyLegacyScan(file: ScannedFileRecord): void;
   applyLegacyWatch(file: WatchedFileRecord): void;
+}
+
+export interface FileIndexIdentity {
+  id: number;
+  path: string;
+  contentRevision: number;
+  scanGeneration: number;
+}
+
+export interface GuardedScanPruneRow {
+  id: number;
+  path: string;
+  indexed_at: number;
+  modified_at: number;
+  size_bytes: number;
+  tags: string | null;
+  notes: string | null;
+  print_status: string | null;
+  content_revision: number;
+  scan_generation: number;
 }
 
 export interface ThumbnailStateUpdate {
@@ -232,6 +255,10 @@ function createPreparedFileIndexRepository(
   const findByIdAndRevision = db.prepare('SELECT * FROM files WHERE id = ? AND content_revision = ?');
   const removeScopesById = db.prepare('DELETE FROM file_scopes WHERE file_id = ?');
   const deleteById = db.prepare('DELETE FROM files WHERE id = ?');
+  const deleteScanSnapshot = db.prepare(`DELETE FROM files WHERE id = ? AND path = ?
+    AND indexed_at = ? AND modified_at = ? AND size_bytes = ?
+    AND tags IS ? AND notes IS ? AND print_status IS ?
+    AND content_revision = ? AND scan_generation = ?`);
   const updateEnrichment = db.prepare(`UPDATE files SET vertex_count = ?, face_count = ?, dimensions = ?
     WHERE id = ? AND path = ? AND content_revision = ?`);
   const updateAnnotations = db.prepare(`UPDATE files SET tags = ?, notes = ?
@@ -242,6 +269,7 @@ function createPreparedFileIndexRepository(
   const findCandidateRows = db.prepare(`SELECT id, path, content_revision, scan_generation FROM files
     WHERE path IN (${Array.from({ length: 250 }, () => '?').join(',')})`);
   const findContentRevision = db.prepare('SELECT content_revision FROM files WHERE id = ?');
+  const findFileIdentityByPath = db.prepare('SELECT id, path, content_revision, scan_generation FROM files WHERE path = ?');
   const findThumbnailState = db.prepare(`SELECT path, thumbnail, thumbnail_failed
     FROM files WHERE id = ? AND content_revision = ?`);
   const writeThumbnailState = db.prepare(`UPDATE files SET thumbnail = ?, thumbnail_failed = ?
@@ -306,6 +334,7 @@ function createPreparedFileIndexRepository(
   function commitWatchAddOrChange(
     input: Extract<WatchUpdate, { kind: 'add' | 'change' }>,
     enrichment?: Pick<WatchedFileRecord, 'vertexCount' | 'faceCount' | 'dimensions' | 'thumbnailPath' | 'thumbnailFailed'>,
+    indexedAt = Date.now(),
   ): IndexMutationResult {
     const result = db.transaction(() => {
       const existing = findByPath.get(input.path) as (RevisionedFileRecord & {
@@ -315,7 +344,7 @@ function createPreparedFileIndexRepository(
       if (!existing) {
         const contentRevision = allocateContentRevision(db);
         const inserted = insertFile.run(input.path, input.name, input.extension, input.directory,
-          input.sizeBytes, input.modifiedAt, Date.now(), contentRevision, archivePath, 0);
+          input.sizeBytes, input.modifiedAt, indexedAt, contentRevision, archivePath, 0);
         const id = Number(inserted.lastInsertRowid);
         insertScopesForPath(id, input.path);
         if (enrichment) {
@@ -348,7 +377,7 @@ function createPreparedFileIndexRepository(
       if (contentChanged) {
         const contentRevision = allocateContentRevision(db);
         updateFile.run(input.name, input.extension, input.directory, input.sizeBytes, input.modifiedAt,
-          0, 0, null, null, 0, Date.now(), contentRevision, archivePath, 0, existing.id);
+          0, 0, null, null, 0, indexedAt, contentRevision, archivePath, 0, existing.id);
         if (enrichment) {
           updateEnrichment.run(enrichment.vertexCount, enrichment.faceCount,
             enrichment.dimensions ? JSON.stringify(enrichment.dimensions) : null,
@@ -356,7 +385,7 @@ function createPreparedFileIndexRepository(
           writeThumbnailState.run(enrichment.thumbnailPath, enrichment.thumbnailFailed, existing.id, contentRevision);
         }
       } else {
-        updateUnchangedScan.run(input.name, input.extension, input.directory, Date.now(), 0, existing.id);
+        updateUnchangedScan.run(input.name, input.extension, input.directory, indexedAt, 0, existing.id);
       }
       return makeMutation([input.path], { rows: true, stats: contentChanged, topology: existing.directory !== input.directory });
     })();
@@ -364,7 +393,7 @@ function createPreparedFileIndexRepository(
     return result;
   }
 
-  function applyIndexBatchInternal(input: IndexBatch, preserveScanGeneration = false): IndexBatchResult {
+  function applyIndexBatchInternal(input: IndexBatch, preserveScanGeneration = false, indexedAtOverride?: number): IndexBatchResult {
     const inputByPath = new Map(input.records.map((record) => [record.path, record]));
     const records = [...inputByPath.values()];
     let inserted = 0;
@@ -376,44 +405,57 @@ function createPreparedFileIndexRepository(
     let topologyChanged = false;
     let browseRevision = getBrowseRevision(db);
 
+    const publishCommitted = () => {
+      if (changedPaths.length === 0) return;
+      const mutation: IndexMutationResult = {
+        affectedPaths: [...new Set(changedPaths)], rowsChanged: true,
+        annotationsChanged: false, statsChanged,
+        topologyChanged, thumbnailOnly: false, browseRevision,
+      };
+      notify(mutation, changedPaths);
+    };
+
     for (let start = 0; start < records.length; start += 250) {
       const batch = records.slice(start, start + 250);
       const transaction = db.transaction(() => {
+        let chunkInserted = 0;
+        let chunkUpdated = 0;
+        let chunkUnchanged = 0;
+        const chunkCommitted: IndexBatchResult['committed'] = [];
+        const chunkChangedPaths: string[] = [];
+        let batchRowsChanged = false;
+        let batchStatsChanged = false;
+        let batchTopologyChanged = false;
         const paths = batch.map((record) => record.path);
         while (paths.length < batchSize) paths.push(null as unknown as string);
         const existingRows = findBatch.all(...paths) as Array<RevisionedFileRecord & {
           size_bytes: number; modified_at: number; id: number;
         }>;
         const existingByPath = new Map(existingRows.map((row) => [row.path, row]));
-        let batchRowsChanged = false;
-        let batchStatsChanged = false;
-        let batchTopologyChanged = false;
         for (const record of batch) {
           const existing = existingByPath.get(record.path);
           const archivePath = parseArchiveEntryPath(record.path)?.archivePath ?? null;
-          const now = Date.now();
+          const now = indexedAtOverride ?? Date.now();
           if (!existing) {
             const contentRevision = allocateContentRevision(db);
             const result = insertFile.run(record.path, record.name, record.extension, record.directory,
               record.sizeBytes, record.modifiedAt, now, contentRevision, archivePath, input.scanGeneration);
             const id = Number(result.lastInsertRowid);
             insertScopesForPath(id, record.path);
-            committed.push({ id, path: record.path, contentRevision });
-            inserted++;
+            chunkCommitted.push({ id, path: record.path, contentRevision });
+            chunkInserted++;
             batchRowsChanged = true;
             batchStatsChanged = true;
             batchTopologyChanged = true;
-            statsChanged = true;
-            topologyChanged = true;
-            changedPaths.push(record.path);
+            chunkChangedPaths.push(record.path);
             continue;
           }
           if (record.expectedContentRevision !== undefined && record.expectedContentRevision !== existing.content_revision) {
-            unchanged++;
+            chunkUnchanged++;
             continue;
           }
           if (record.modifiedAt < existing.modified_at) {
-            unchanged++;
+            chunkUnchanged++;
             continue;
           }
           const contentChanged = record.modifiedAt !== existing.modified_at || record.sizeBytes !== existing.size_bytes;
@@ -428,48 +470,61 @@ function createPreparedFileIndexRepository(
               updateFile.run(record.name, record.extension, record.directory, record.sizeBytes, record.modifiedAt,
                 0, 0, null, null, 0, now, contentRevision, archivePath, input.scanGeneration, existing.id);
             }
-            committed.push({ id: existing.id, path: record.path, contentRevision });
-            updated++;
+            chunkCommitted.push({ id: existing.id, path: record.path, contentRevision });
+            chunkUpdated++;
             batchRowsChanged = true;
             batchStatsChanged = true;
             batchTopologyChanged ||= record.directory !== existing.directory;
-            statsChanged = true;
-            topologyChanged ||= record.directory !== existing.directory;
-            changedPaths.push(record.path);
+            chunkChangedPaths.push(record.path);
           } else if (displayChanged) {
             if (preserveScanGeneration) {
               updateUnchangedPreservingGeneration.run(record.name, record.extension, record.directory, now, existing.id);
             } else {
               updateUnchangedScan.run(record.name, record.extension, record.directory, now, input.scanGeneration, existing.id);
             }
-            committed.push({ id: existing.id, path: record.path, contentRevision: existing.content_revision });
-            updated++;
+            chunkCommitted.push({ id: existing.id, path: record.path, contentRevision: existing.content_revision });
+            chunkUpdated++;
             batchRowsChanged = true;
             batchTopologyChanged ||= record.directory !== existing.directory;
-            topologyChanged ||= record.directory !== existing.directory;
-            changedPaths.push(record.path);
+            chunkChangedPaths.push(record.path);
           } else {
             if (!preserveScanGeneration) {
               updateUnchangedScan.run(record.name, record.extension, record.directory, now, input.scanGeneration, existing.id);
             }
-            unchanged++;
-            committed.push({ id: existing.id, path: record.path, contentRevision: existing.content_revision });
+            chunkUnchanged++;
+            chunkCommitted.push({ id: existing.id, path: record.path, contentRevision: existing.content_revision });
           }
         }
+        let chunkBrowseRevision = getBrowseRevision(db);
         if (batchRowsChanged || batchStatsChanged || batchTopologyChanged) {
           const revisions = advanceLibraryRevisions(db, { browse: batchRowsChanged, stats: batchStatsChanged, topology: batchTopologyChanged });
-          browseRevision = revisions.browseRevision;
+          chunkBrowseRevision = revisions.browseRevision;
         }
+        return {
+          inserted: chunkInserted, updated: chunkUpdated, unchanged: chunkUnchanged,
+          committed: chunkCommitted, changedPaths: chunkChangedPaths,
+          statsChanged: batchStatsChanged, topologyChanged: batchTopologyChanged,
+          browseRevision: chunkBrowseRevision,
+        };
       });
-      transaction();
+      let chunkResult: ReturnType<typeof transaction>;
+      try {
+        chunkResult = transaction();
+      } catch (error) {
+        publishCommitted();
+        throw error;
+      }
+      inserted += chunkResult.inserted;
+      updated += chunkResult.updated;
+      unchanged += chunkResult.unchanged;
+      committed.push(...chunkResult.committed);
+      changedPaths.push(...chunkResult.changedPaths);
+      statsChanged ||= chunkResult.statsChanged;
+      topologyChanged ||= chunkResult.topologyChanged;
+      browseRevision = chunkResult.browseRevision;
     }
 
-    const mutation: IndexMutationResult = {
-      affectedPaths: [...new Set(changedPaths)], rowsChanged: changedPaths.length > 0,
-      annotationsChanged: false, statsChanged,
-      topologyChanged, thumbnailOnly: false, browseRevision,
-    };
-    notify(mutation, changedPaths);
+    publishCommitted();
     return { inserted, updated, unchanged, browseRevision, committed };
   }
 
@@ -485,7 +540,7 @@ function createPreparedFileIndexRepository(
           path: file.path, name: file.name, extension: file.ext, directory: file.dir,
           sizeBytes: file.size, modifiedAt: file.mtime, scanGeneration: 0,
         }],
-      }, true);
+      }, true, file.indexedAt);
       const identity = result.committed.find((entry) => entry.path === file.path);
       if (!identity) return;
       applyMetadataResult({
@@ -503,7 +558,7 @@ function createPreparedFileIndexRepository(
     }, {
       vertexCount: file.vertexCount, faceCount: file.faceCount, dimensions: file.dimensions,
       thumbnailPath: file.thumbnailPath, thumbnailFailed: file.thumbnailFailed,
-    });
+    }, file.indexedAt);
   }
 
   function applyWatchUpdate(input: WatchUpdate): IndexMutationResult {
@@ -526,9 +581,18 @@ function createPreparedFileIndexRepository(
     const uniqueCandidates = [...new Map(candidates.map((candidate) => [candidate.path, candidate])).values()];
     const deletedPaths: string[] = [];
     let browseRevision = getBrowseRevision(db);
+    const publishCommitted = () => {
+      if (deletedPaths.length === 0) return;
+      const mutation: IndexMutationResult = {
+        affectedPaths: [...new Set(deletedPaths)], rowsChanged: true,
+        annotationsChanged: false, statsChanged: true,
+        topologyChanged: true, thumbnailOnly: false, browseRevision,
+      };
+      notify(mutation, mutation.affectedPaths);
+    };
     for (let start = 0; start < uniqueCandidates.length; start += 250) {
       const batch = uniqueCandidates.slice(start, start + 250);
-      const chunk = db.transaction(() => {
+      const transaction = db.transaction(() => {
       const candidatePaths = batch.map((candidate) => candidate.path);
       while (candidatePaths.length < 250) candidatePaths.push(null as unknown as string);
       const rows = findCandidateRows.all(...candidatePaths) as Array<{ id: number; path: string; content_revision: number; scan_generation: number }>;
@@ -546,7 +610,14 @@ function createPreparedFileIndexRepository(
       return deleted.length > 0 ? makeMutation(deleted, { rows: true, stats: true, topology: true })
         : { affectedPaths: [], rowsChanged: false, annotationsChanged: false, statsChanged: false,
           topologyChanged: false, thumbnailOnly: false, browseRevision: getBrowseRevision(db) };
-      })();
+      });
+      let chunk: ReturnType<typeof transaction>;
+      try {
+        chunk = transaction();
+      } catch (error) {
+        publishCommitted();
+        throw error;
+      }
       deletedPaths.push(...chunk.affectedPaths);
       browseRevision = chunk.browseRevision;
     }
@@ -555,8 +626,59 @@ function createPreparedFileIndexRepository(
       annotationsChanged: false, statsChanged: deletedPaths.length > 0,
       topologyChanged: deletedPaths.length > 0, thumbnailOnly: false, browseRevision,
     };
-    notify(result, result.affectedPaths);
+    publishCommitted();
     return result;
+  }
+
+  function deleteScanSnapshotRows(rootPath: string, candidates: GuardedScanPruneRow[]): IndexMutationResult {
+    const eligible = candidates.filter((candidate) => isPathContained(rootPath, candidate.path));
+    const deletedPaths: string[] = [];
+    let browseRevision = getBrowseRevision(db);
+    const publishCommitted = () => {
+      if (deletedPaths.length === 0) return;
+      const mutation: IndexMutationResult = {
+        affectedPaths: [...new Set(deletedPaths)], rowsChanged: true,
+        annotationsChanged: false, statsChanged: true,
+        topologyChanged: true, thumbnailOnly: false, browseRevision,
+      };
+      notify(mutation, mutation.affectedPaths);
+    };
+    for (let start = 0; start < eligible.length; start += 250) {
+      const batch = eligible.slice(start, start + 250);
+      const transaction = db.transaction(() => {
+        const deleted: string[] = [];
+        for (const row of batch) {
+          const change = deleteScanSnapshot.run(
+            row.id, row.path, row.indexed_at, row.modified_at, row.size_bytes,
+            row.tags, row.notes, row.print_status, row.content_revision, row.scan_generation,
+          );
+          if (change.changes > 0) {
+            removeScopesById.run(row.id);
+            deleted.push(row.path);
+          }
+        }
+        return deleted.length > 0
+          ? makeMutation(deleted, { rows: true, stats: true, topology: true })
+          : { affectedPaths: [], rowsChanged: false, annotationsChanged: false, statsChanged: false,
+            topologyChanged: false, thumbnailOnly: false, browseRevision: getBrowseRevision(db) };
+      });
+      let result: ReturnType<typeof transaction>;
+      try {
+        result = transaction();
+      } catch (error) {
+        publishCommitted();
+        throw error;
+      }
+      deletedPaths.push(...result.affectedPaths);
+      browseRevision = result.browseRevision;
+    }
+    const mutation: IndexMutationResult = {
+      affectedPaths: [...new Set(deletedPaths)], rowsChanged: deletedPaths.length > 0,
+      annotationsChanged: false, statsChanged: deletedPaths.length > 0,
+      topologyChanged: deletedPaths.length > 0, thumbnailOnly: false, browseRevision,
+    };
+    publishCommitted();
+    return mutation;
   }
 
   function applyMetadataResult(input: MetadataEnrichmentUpdate): MetadataEnrichmentResult {
@@ -592,7 +714,7 @@ function createPreparedFileIndexRepository(
         return current ? { status: 'stale' as const, currentContentRevision: current.content_revision }
           : { status: 'missing' as const };
       }
-      const tags = input.tags === undefined ? row.tags : input.tags === null ? null : JSON.stringify(input.tags);
+      const tags = input.tags === undefined ? row.tags : input.tags === null ? null : serializeFileTags(input.tags);
       const notes = input.notes === undefined ? row.notes : input.notes;
       if (tags !== row.tags || notes !== row.notes) {
         updateAnnotations.run(tags, notes, input.fileId, input.expectedContentRevision);
@@ -643,15 +765,29 @@ function createPreparedFileIndexRepository(
     return row?.content_revision ?? null;
   }
 
+  function getFileIdentityByPath(filePath: string): FileIndexIdentity | null {
+    const row = findFileIdentityByPath.get(filePath) as {
+      id: number; path: string; content_revision: number; scan_generation: number;
+    } | undefined;
+    return row ? {
+      id: row.id,
+      path: row.path,
+      contentRevision: row.content_revision,
+      scanGeneration: row.scan_generation,
+    } : null;
+  }
+
   return {
     applyIndexBatch,
     applyWatchUpdate,
     deleteContainedFiles,
+    deleteScanSnapshotRows,
     applyMetadataResult,
     updateFileMetadata,
     updateThumbnailState,
     getBrowseRevision: () => getBrowseRevision(db),
     getFileContentRevision,
+    getFileIdentityByPath,
     applyLegacyScan,
     applyLegacyWatch,
   };
@@ -669,7 +805,18 @@ function getSharedRepository(db: Database): SharedFileIndexRepository {
   if (!shared) {
     const observers = new Map<(mutation: CommittedFileMutation) => void, { factoryRegistration: boolean; subscriptions: number }>();
     const repository = createPreparedFileIndexRepository(db, (mutation) => {
-      for (const observer of observers.keys()) observer(mutation);
+      for (const observer of observers.keys()) {
+        try {
+          const result = observer(mutation) as unknown;
+          if (result && typeof (result as { then?: unknown }).then === 'function') {
+            void Promise.resolve(result).catch((error: unknown) => {
+              console.error('[FileIndex] Mutation observer rejected after commit:', error);
+            });
+          }
+        } catch (error) {
+          console.error('[FileIndex] Mutation observer threw after commit:', error);
+        }
+      }
     });
     shared = { repository, observers };
     sharedRepositories.set(db, shared);

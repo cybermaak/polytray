@@ -15,12 +15,12 @@ import {
 } from "../../shared/types";
 import { isPathContained } from "../pathContainment";
 import { parseArchiveEntryPath } from "../../shared/archivePaths";
-import { serializeFileTags } from "../../shared/fileTags";
 import {
   parseFileMetadataUpdate,
   parseFilePath,
   parseSortOptions,
 } from "./runtimeValidation";
+import { createFileIndexRepository } from "../fileIndexing";
 
 
 async function readArchiveEntryBuffer(archivePath: string, entryPath: string) {
@@ -125,37 +125,24 @@ export function registerFileHandlers() {
   ipcMain.handle(IPC.UPDATE_FILE_METADATA, (event, payload) => {
     const db = getDb();
     const update = parseFileMetadataUpdate(payload);
-    const existing = db
-      .prepare("SELECT * FROM files WHERE id = ?")
-      .get(update.id) as FileRecord | undefined;
+    const repository = createFileIndexRepository(db);
+    let expectedContentRevision = repository.getFileContentRevision(update.id);
+    if (expectedContentRevision === null) throw new Error("File not found");
 
-    if (!existing) {
-      throw new Error("File not found");
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const result = repository.updateFileMetadata({
+        fileId: update.id,
+        expectedContentRevision,
+        tags: update.tags,
+        notes: update.notes,
+      });
+      if (result.status === "updated") return result.file;
+      if (result.status === "missing") throw new Error("File not found");
+      if (result.currentContentRevision === null) throw new Error("File not found");
+      expectedContentRevision = result.currentContentRevision;
     }
 
-    const assignments: string[] = [];
-    const values: Array<string | number | null> = [];
-
-    if (update.tags !== undefined) {
-      assignments.push("tags = ?");
-      values.push(serializeFileTags(update.tags ?? []));
-    }
-
-    if (update.notes !== undefined) {
-      assignments.push("notes = ?");
-      values.push(update.notes);
-    }
-
-    if (assignments.length === 0) {
-      return existing;
-    }
-
-    values.push(update.id);
-    db.prepare(`UPDATE files SET ${assignments.join(", ")} WHERE id = ?`).run(
-      ...values,
-    );
-
-    return db.prepare("SELECT * FROM files WHERE id = ?").get(update.id);
+    throw new Error("File changed while metadata was being updated");
   });
 
   ipcMain.handle(IPC.GET_DIRECTORIES, () => {

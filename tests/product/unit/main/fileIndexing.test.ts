@@ -261,6 +261,106 @@ test('repository publishes one typed mutation only after the indexed row commits
   }
 });
 
+test('repository sends no post-commit notification when its transaction rolls back', () => {
+  const db = createRepositoryDatabase();
+  try {
+    let notifications = 0;
+    const repository = createFileIndexRepository(db, () => { notifications++; });
+    db.exec(`CREATE TRIGGER reject_scope_insert BEFORE INSERT ON file_scopes
+      BEGIN SELECT RAISE(ABORT, 'forced scope failure'); END`);
+
+    assert.throws(() => repository.applyIndexBatch({ scanGeneration: 1, records: [{
+      path: '/models/a.stl', name: 'a', extension: 'stl', directory: '/models',
+      sizeBytes: 10, modifiedAt: 20, scanGeneration: 1,
+    }] }), /forced scope failure/);
+    assert.equal(notifications, 0);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM files').get() as { count: number }).count, 0);
+    assert.equal(repository.getBrowseRevision(), 0);
+  } finally {
+    db.close();
+  }
+});
+
+test('late index chunk failure notifies committed rows only and leaves the failed chunk rolled back', () => {
+  const db = createRepositoryDatabase();
+  try {
+    const notifications: CommittedFileMutation[] = [];
+    const repository = createFileIndexRepository(db, (mutation) => notifications.push(mutation));
+    db.exec(`CREATE TRIGGER reject_late_scope BEFORE INSERT ON file_scopes
+      WHEN NEW.scope_path = '/models'
+        AND (SELECT path FROM files WHERE id = NEW.file_id) = '/models/250.stl'
+      BEGIN SELECT RAISE(ABORT, 'forced late scope failure'); END`);
+    const records = Array.from({ length: 251 }, (_, index) => ({
+      path: `/models/${String(index).padStart(3, '0')}.stl`, name: String(index), extension: 'stl', directory: '/models',
+      sizeBytes: 10, modifiedAt: 20, scanGeneration: 1,
+    }));
+
+    assert.throws(() => repository.applyIndexBatch({ scanGeneration: 1, records }), /forced late scope failure/);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM files').get() as { count: number }).count, 250);
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].affectedPaths.length, 250);
+    assert.equal(notifications[0].affectedPaths.includes('/models/250.stl'), false);
+    assert.equal(repository.getBrowseRevision(), 1);
+  } finally {
+    db.close();
+  }
+});
+
+test('late contained deletion failure notifies the prior committed chunk only', () => {
+  const db = createRepositoryDatabase();
+  try {
+    const notifications: CommittedFileMutation[] = [];
+    const repository = createFileIndexRepository(db, (mutation) => notifications.push(mutation));
+    const records = Array.from({ length: 251 }, (_, index) => ({
+      path: `/models/${String(index).padStart(3, '0')}.stl`, name: String(index), extension: 'stl', directory: '/models',
+      sizeBytes: 10, modifiedAt: 20, scanGeneration: 7,
+    }));
+    const indexed = repository.applyIndexBatch({ scanGeneration: 7, records });
+    notifications.length = 0;
+    const candidates = indexed.committed.map((row) => ({
+      path: row.path, scanGeneration: 7, expectedContentRevision: row.contentRevision,
+    }));
+    db.exec(`CREATE TRIGGER reject_late_delete BEFORE DELETE ON files
+      WHEN OLD.path = '/models/250.stl'
+      BEGIN SELECT RAISE(ABORT, 'forced late delete failure'); END`);
+
+    assert.throws(() => repository.deleteContainedFiles('/models', candidates), /forced late delete failure/);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM files').get() as { count: number }).count, 1);
+    assert.ok(db.prepare("SELECT id FROM files WHERE path = '/models/250.stl'").get());
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].affectedPaths.length, 250);
+    assert.equal(notifications[0].affectedPaths.includes('/models/250.stl'), false);
+  } finally {
+    db.close();
+  }
+});
+
+test('throwing and rejecting mutation observers do not break writes or starve other observers', async () => {
+  const db = createRepositoryDatabase();
+  const originalError = console.error;
+  const observerErrors: unknown[] = [];
+  try {
+    console.error = (...values: unknown[]) => { observerErrors.push(values.at(-1)); };
+    let received = 0;
+    const repository = createFileIndexRepository(db, () => { throw new Error('sync observer failure'); });
+    createFileIndexRepository(db, async () => { throw new Error('async observer failure'); });
+    subscribeToFileIndexMutations(db, () => { received++; });
+
+    assert.doesNotThrow(() => repository.applyIndexBatch({ scanGeneration: 1, records: [{
+      path: '/models/a.stl', name: 'a', extension: 'stl', directory: '/models',
+      sizeBytes: 10, modifiedAt: 20, scanGeneration: 1,
+    }] }));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(received, 1);
+    assert.equal(observerErrors.length, 2);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM files').get() as { count: number }).count, 1);
+  } finally {
+    console.error = originalError;
+    db.close();
+  }
+});
+
 test('thumbnail updates are revision guarded and do not advance browse revision', () => {
   const db = createRepositoryDatabase();
   try {
@@ -292,6 +392,59 @@ test('thumbnail updates are revision guarded and do not advance browse revision'
     assert.equal(changed.rowsChanged, true);
     assert.equal(stale.status, 'stale');
     assert.equal((db.prepare('SELECT thumbnail FROM files WHERE id = ?').get(row.id) as { thumbnail: string | null }).thumbnail, null);
+  } finally {
+    db.close();
+  }
+});
+
+test('annotation edits use the revisioned repository and preserve print status', () => {
+  const db = createRepositoryDatabase();
+  try {
+    const notifications: CommittedFileMutation[] = [];
+    const repository = createFileIndexRepository(db, (mutation) => notifications.push(mutation));
+    repository.applyIndexBatch({ scanGeneration: 1, records: [{
+      path: '/models/a.stl', name: 'a', extension: 'stl', directory: '/models', sizeBytes: 10, modifiedAt: 20, scanGeneration: 1,
+    }] });
+    const identity = repository.getFileIdentityByPath('/models/a.stl')!;
+    db.prepare("UPDATE files SET tags = '[\"old\"]', notes = 'before', print_status = 'Testing'").run();
+    const before = repository.getBrowseRevision();
+
+    const result = repository.updateFileMetadata({
+      fileId: identity.id, expectedContentRevision: identity.contentRevision, tags: [], notes: null,
+    });
+    assert.equal(result.status, 'updated');
+    assert.equal(result.file.tags, null);
+    assert.equal(result.file.notes, null);
+    assert.equal((db.prepare('SELECT print_status FROM files WHERE id = ?').get(identity.id) as { print_status: string }).print_status, 'Testing');
+    assert.equal(repository.getBrowseRevision(), before + 1);
+    assert.equal(notifications.at(-1)?.annotationsChanged, true);
+    assert.equal(notifications.at(-1)?.statsChanged, false);
+    assert.equal(notifications.at(-1)?.topologyChanged, false);
+  } finally {
+    db.close();
+  }
+});
+
+test('watcher unlink removes its current indexed identity and advances durable revisions', () => {
+  const db = createRepositoryDatabase();
+  try {
+    const repository = createFileIndexRepository(db);
+    repository.applyIndexBatch({ scanGeneration: 5, records: [{
+      path: '/models/a.stl', name: 'a', extension: 'stl', directory: '/models', sizeBytes: 10, modifiedAt: 20, scanGeneration: 5,
+    }] });
+    const identity = repository.getFileIdentityByPath('/models/a.stl')!;
+    const before = db.prepare('SELECT browse_revision, stats_revision, topology_revision FROM library_revisions WHERE singleton = 1').get() as Record<string, number>;
+
+    const result = repository.applyWatchUpdate({
+      kind: 'remove', path: identity.path, expectedContentRevision: identity.contentRevision,
+    });
+    const after = db.prepare('SELECT browse_revision, stats_revision, topology_revision FROM library_revisions WHERE singleton = 1').get() as Record<string, number>;
+    assert.equal(result.rowsChanged, true);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM files').get() as { count: number }).count, 0);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM file_scopes').get() as { count: number }).count, 0);
+    assert.equal(after.browse_revision, before.browse_revision + 1);
+    assert.equal(after.stats_revision, before.stats_revision + 1);
+    assert.equal(after.topology_revision, before.topology_revision + 1);
   } finally {
     db.close();
   }

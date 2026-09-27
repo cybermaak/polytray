@@ -7,7 +7,7 @@ import { extractMetadata, type MetadataSummary } from './metadata';
 import { scheduleSingleThumbnailGeneration } from './thumbnails';
 import { EXT_SET, IPC, RuntimeSettingsData } from '../shared/types';
 import { createWatcherLifecycleManager } from './watcherLifecycle';
-import { applyWatchedFileRecord } from './fileIndexing';
+import { applyWatchedFileRecord, createFileIndexRepository } from './fileIndexing';
 
 const watcherLifecycle = createWatcherLifecycleManager<UtilityProcess>({
   createProcess: () => {
@@ -138,6 +138,14 @@ function handleFileRemove(
   const ext = path.extname(filePath).toLowerCase().slice(1);
   if (!EXT_SET.has(ext)) return;
 
-  db.prepare('DELETE FROM files WHERE path = ?').run(filePath);
+  const repository = createFileIndexRepository(db);
+  const identity = repository.getFileIdentityByPath(filePath);
+  if (identity) {
+    repository.applyWatchUpdate({
+      kind: 'remove',
+      path: identity.path,
+      expectedContentRevision: identity.contentRevision,
+    });
+  }
   mainWindow.webContents.send(IPC.FILES_UPDATED, { type: 'unlink', filePath });
 }
