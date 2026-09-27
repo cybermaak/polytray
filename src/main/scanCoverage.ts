@@ -22,13 +22,16 @@ export interface ScanSnapshotRow {
   tags: string | null;
   notes: string | null;
   print_status: string | null;
+  content_revision: number;
+  scan_generation: number;
 }
 
 export function matchesScanSnapshot(snapshot: ScanSnapshotRow, current: ScanSnapshotRow) {
   return snapshot.id === current.id && snapshot.path === current.path &&
     snapshot.indexed_at === current.indexed_at && snapshot.modified_at === current.modified_at &&
     snapshot.size_bytes === current.size_bytes && snapshot.tags === current.tags &&
-    snapshot.notes === current.notes && snapshot.print_status === current.print_status;
+    snapshot.notes === current.notes && snapshot.print_status === current.print_status &&
+    snapshot.content_revision === current.content_revision && snapshot.scan_generation === current.scan_generation;
 }
 
 export function decidePruneCandidates(input: {

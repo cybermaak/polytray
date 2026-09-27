@@ -40,7 +40,9 @@ Read [contracts C2, C5, C6, C7](contracts.md), the [tracker](tracker.md), and th
 
 ## V03 - Cancel obsolete parsing through an owned preview runtime
 
-**Priority:** P2 responsiveness/correctness. **Dependencies:** F01, F02. **Owner:** V.
+**Priority:** P2 responsiveness/correctness. **Dependencies:** F01, F02, D01. **Owner:** V.
+
+D01 supplies the actual persisted content revision used by preview requests. V03 may implement against that reviewed contract while D01 finishes integration, but its runtime gate and completion require verified D01. Thread `currentFile.content_revision` through the existing caller without substituting timestamps or broadening into V02's state refactor.
 
 **Own:** `src/main/previewParseService.ts`, `src/preload/previewBridge.ts`, `src/renderer/lib/previewStrategies.ts`, extracted `previewParseRenderer.ts`; new `src/main/previewWindow.ts`, `src/renderer/preview.html`, `src/renderer/preview.ts`, broker tests, and `tests/product/e2e/preview-cancellation.e2e.ts`. Coordinator handles main registration/build entries and shared validation; T's window/service remains T-owned.
 

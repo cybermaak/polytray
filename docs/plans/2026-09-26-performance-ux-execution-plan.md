@@ -64,7 +64,7 @@ File names in the table are repository-relative. New paths in task specs are int
 ### Shared-file rules
 
 - One owner edits a file at a time. Workers do not revert unrelated edits or touch another stream's files to make their own test pass.
-- The coordinator alone updates this plan, the tracker, common IPC exports, preload root, main registration, settings schema, build configuration, and existing shared test helpers. Stream owners submit exact, small wiring requests in their handoffs; the coordinator applies and validates them before marking the task done.
+- The coordinator alone updates this plan and tracker and reserves common IPC exports, preload root, main registration, settings schema, build configuration, and existing shared test helpers. Stream owners submit exact, small wiring requests. The coordinator may explicitly delegate a bounded wiring change in an isolated task checkout as a separate commit, then review, reconcile, and validate it before marking the task done. This does not authorize unrelated shared-file edits.
 - D alone edits `database.ts` and `fileIndexing.ts`, including schema changes requested by another stream. Reserve migration 5 for D01 and migration 6 for P04; verify the current database version at execution time and append, never overwrite/reorder a migration if the baseline moved.
 - F01 moves preview parsing out of thumbnail-owned files before T and V work concurrently. S04 transfers the DOM-free fast 3MF parser into a shared location; V04 waits for that transfer. Other parser/viewer files stay V-owned.
 - T03 creates a shared thumbnail component. U installs it into grid/compare surfaces, and V installs it into its owned surface if needed. Neither T nor V edits U's files.

@@ -101,6 +101,7 @@ export const IPC = {
   PREVIEW_PARSE_PORT: "preview-parse-port",
   GET_MAIN_WINDOW_VISIBILITY: "get-main-window-visibility",
   MAIN_WINDOW_VISIBILITY: "main-window-visibility",
+  LIBRARY_CHANGED: "library-changed",
 } as const;
 
 // ── IPC Payload Types (single source of truth) ──────────────────────

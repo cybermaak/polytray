@@ -45,12 +45,22 @@ test('contained path matching does not confuse sibling prefixes', () => {
 });
 
 test('scan deletion snapshot changes when annotations are edited during discovery', () => {
-  const snapshot = { id: 12, path: path.join(root, 'model.stl'), indexed_at: 5, modified_at: 4, size_bytes: 10, tags: '["old"]', notes: 'before', print_status: 'unprinted' };
+  const snapshot = { id: 12, path: path.join(root, 'model.stl'), indexed_at: 5, modified_at: 4, size_bytes: 10, tags: '["old"]', notes: 'before', print_status: 'unprinted', content_revision: 2, scan_generation: 7 };
   assert.equal(matchesScanSnapshot(snapshot, { ...snapshot }), true);
   assert.equal(matchesScanSnapshot(snapshot, { ...snapshot, notes: 'edited during scan' }), false);
   assert.equal(matchesScanSnapshot(snapshot, { ...snapshot, tags: '["new"]' }), false);
   assert.equal(matchesScanSnapshot(snapshot, { ...snapshot, print_status: 'printed' }), false);
   assert.equal(matchesScanSnapshot(snapshot, { ...snapshot, id: 13 }), false);
+});
+
+test('same-timestamp file revisions and scan generations invalidate an older prune snapshot', () => {
+  const snapshot = {
+    id: 12, path: path.join(root, 'model.stl'), indexed_at: 5, modified_at: 4, size_bytes: 10,
+    tags: null, notes: null, print_status: 'Not Printed', content_revision: 3, scan_generation: 8,
+  };
+  assert.equal(matchesScanSnapshot(snapshot, { ...snapshot }), true);
+  assert.equal(matchesScanSnapshot(snapshot, { ...snapshot, content_revision: 4 }), false);
+  assert.equal(matchesScanSnapshot(snapshot, { ...snapshot, scan_generation: 9 }), false);
 });
 
 test('successful empty directory is complete while a corrupt existing ZIP is an error', async () => {

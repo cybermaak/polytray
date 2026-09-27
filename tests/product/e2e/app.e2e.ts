@@ -123,14 +123,11 @@ async function ensureFixtureFilesLoaded() {
   await resetUiState();
   await scanFolderInApp(FIXTURE_DIR);
   await resetUiState();
-  await window.waitForFunction(async () => {
-    const result = await window.polytray.getFiles({ limit: 100, offset: 0 });
-    return result.files.length > 0;
-  }, { timeout: 30000 });
-  await window.waitForFunction(
-    () => document.querySelectorAll(".file-card").length > 0,
-    { timeout: 30000 },
-  );
+  await expect.poll(async () => {
+    const result = await window.evaluate((folder) => window.polytray.getFiles({ folder, limit: 100, offset: 0 }), FIXTURE_DIR);
+    return result.files.length;
+  }, { timeout: 30000 }).toBeGreaterThan(0);
+  await expect(window.locator(".file-card").first()).toBeVisible({ timeout: 30000 });
 }
 
 async function resetUiState() {
@@ -1015,6 +1012,9 @@ test("preview material uses a color saved while the viewer is closed", async () 
   await window.locator("#settings-close").click();
   await expect(window.locator("#settings-overlay")).toHaveClass(/hidden/);
 
+  const searchInput = window.locator("#search-input");
+  await searchInput.fill("test_cube");
+  await expect(searchInput).toHaveValue("test_cube");
   const cubeCard = window.locator(".file-card")
     .filter({ has: window.locator(".card-name[title='test_cube']") })
     .first();
