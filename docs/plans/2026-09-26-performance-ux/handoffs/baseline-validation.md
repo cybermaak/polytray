@@ -1,0 +1,37 @@
+# Performance and UX Baseline Validation
+
+Date: 2026-09-26 (America/Los_Angeles)
+Checkout: `/Users/maak/.codex/worktrees/polytray-review/polytray`
+Branch: `codex/perf-review`
+Baseline revision: `3d95fd3`
+
+## Environment
+
+- macOS Darwin 25.6.0, arm64
+- Node.js `v25.9.0`; npm `11.12.1`
+- Electron dependency declared as `^34.5.8`
+- Python selected by node-gyp: `3.14.6` at `/opt/homebrew/opt/python@3.14/bin/python3.14`
+- `better-sqlite3` rebuild uses the repository-installed `node-gyp@9.4.1`
+
+## Results
+
+| Check | Result | Details |
+| --- | --- | --- |
+| `npm run build` | PASS | `tsc --noEmit` passed; electron-vite built main, preload, and renderer bundles. The initial attempt was blocked by sandbox write permissions for electron-vite's temporary config. Retried with scoped write access to the assigned checkout and it passed. |
+| `npm run test:product` | PASS with environment override | `PYTHON=/usr/bin/python3 npm run test:product` completed the required sequence: host Node native rebuild, unit tests, Electron native rebuild, fixture generation, then Playwright E2E. 57/57 unit tests passed. E2E: 29 passed, 1 skipped, 0 failed; Playwright reports 2.0m. The skipped test is the optional `base.3mf` perf test because `POLYTRAY_REAL_BASE_3MF_PATH` was unset. |
+
+## Product test blocker
+
+The first attempt with default Python 3.14 failed: no prebuilt binary was available for Node `25.9.0` on Darwin arm64, so the installed node-gyp 9.4.1 attempted a source build and failed importing `distutils.version.StrictVersion`. Rerunning the unchanged test sequence with `/usr/bin/python3` (Python 3.9.6, which includes `distutils`) fixed the environment issue without package changes. Reuse this recipe: `PYTHON=/usr/bin/python3 npm run test:product`.
+
+The host also has a nominal `/opt/homebrew/opt/node@24` path, but it resolves to the Node 25.9.0 installation in this environment, so it does not provide an alternate Node runtime. No dependency or production-code changes were made to work around the blocker.
+
+## Baseline limitations
+
+- The optional real `base.3mf` performance test did not run because `POLYTRAY_REAL_BASE_3MF_PATH` was unset.
+- A direct `npx electron --version` probe exited with `SIGABRT`; the product E2E run nevertheless launched Electron and passed 29 tests.
+- The exact aggregate elapsed time for rebuilds and units was not captured; Playwright reports 2.0m for E2E.
+
+## Scope and safety
+
+Only this report was added. No application source, fixtures, test assertions, real library data, or slicer integrations were accessed or changed. The checkout was clean before baseline execution.
