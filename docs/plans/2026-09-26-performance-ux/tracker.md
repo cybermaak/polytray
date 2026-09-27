@@ -2,6 +2,8 @@
 
 [Execution plan](../2026-09-26-performance-ux-execution-plan.md) | [Shared contracts](contracts.md) | [Handoff template](handoff-template.md)
 
+**Execution paused (2026-09-27):** At the user's request for a progress/credit assessment, all workers are idle and no task-owned app/test process remains. Preserve current worktrees and partial merges. Do not resume implementation until the user instructs the coordinator. Current local main is `bf6cdfe`; S02/V03 code and reviewed archive corrections are merged and Type/Build pass, but their combined Product rerun is still pending.
+
 **Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01-D03, S01, T03, V01, and the P02/P03 backup services are reviewed and integrated. Six implementation lanes cover S02/S03/T02/V02/V03/U01; P04 is next after S02, with independent reviews. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. The original unregistered chat requests are superseded by the active assignments below.
 
 **Progress:** 13 / 33 DONE. Foundation 2/2; data 3/3; scanning 1/6; thumbnails 2/4; preview 1/5; browsing 1/6; product workflows 3/4; validation 0/3. D02's query service, IPC smoke, benchmark and reviews are complete; UI paging remains U01/V02.
@@ -24,7 +26,7 @@
 | D02 | [Complete SQL display pages](foundation-data.md#d02---query-complete-display-pages-in-sqlite) | P1 | D01 | DONE | d01_index_repository (Luna/medium) | [D02](handoffs/D02.md); independent spec/quality PASS, units/Build/IPC/benchmark PASS; integrated `288724e` through `516e79c` |
 | D03 | [Independent library summaries](foundation-data.md#d03---separate-library-summaries-from-list-queries) | P2 | D02 | DONE | d01_index_repository (Luna/medium) | [D03](handoffs/D03.md); independent spec and coordinator quality PASS; 164 units, Type/Build PASS; integrated `3bc4a2c`, `824be77`, `2f152af` |
 | S01 | [Safe enumeration and pruning](scanning.md#s01---require-proof-of-successful-enumeration-before-pruning) | P1 | F01, F02 | DONE | s01_safe_scanning (Luna/medium) | [S01](handoffs/S01.md); both reviews and runtime gate passed |
-| S02 | [Streaming discovery and early batches](scanning.md#s02---stream-discovery-and-commit-useful-batches-early) | P1 | S01, D01 | IN_PROGRESS | baseline_validation reassigned (Luna/medium) | Dispatch from verified local-main base |
+| S02 | [Streaming discovery and early batches](scanning.md#s02---stream-discovery-and-commit-useful-batches-early) | P1 | S01, D01 | REVIEW | baseline_validation reassigned (Luna/medium) | Source and reviewed archive corrections merged `3005977`; focused native PASS; combined Product pending at pause |
 | S03 | [Background metadata extraction](scanning.md#s03---move-metadata-cpu-work-out-of-the-main-process) | P1 | S02 | IN_PROGRESS | Luna/medium chat `01a0e293-6dd9-74d0-b51b-a11a33697713` | Metadata implementation starts against reviewed S02 interface; runtime/DONE awaits final S02 gate |
 | S04 | [Dimensions and units](scanning.md#s04---correct-dimensions-units-and-measurement-provenance) | P2 | S03 | PLANNED | Unassigned | - |
 | S05 | [Watcher ordering and thumbnail availability](scanning.md#s05---index-watcher-changes-before-thumbnail-work-and-preserve-ordering) | P1 | D01, S03, T01 | PLANNED | Unassigned | - |
