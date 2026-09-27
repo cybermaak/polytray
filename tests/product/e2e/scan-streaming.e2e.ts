@@ -3,6 +3,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
 
+async function findVisibleMainWindow(app: Awaited<ReturnType<typeof launchIsolatedApp>>['app']) {
+  await app.firstWindow();
+  await expect.poll(async () => {
+    for (const page of app.windows()) {
+      try {
+        await page.locator('#search-input').waitFor({ timeout: 200 });
+        return true;
+      } catch { /* Ignore the hidden thumbnail renderer. */ }
+    }
+    return false;
+  }, { timeout: 10_000 }).toBe(true);
+  for (const page of app.windows()) {
+    if (await page.locator('#search-input').isVisible().catch(() => false)) return page;
+  }
+  throw new Error('Visible main window did not become ready');
+}
+
 test('a 5k scan exposes the first indexed subtree before discovery completes', async () => {
   let root = '';
   let firstDirectory = '';
@@ -37,7 +54,7 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
         env.POLYTRAY_SCAN_TEST_HEARTBEAT_PATH = heartbeatPath;
       },
     });
-    const window = await isolated.app.firstWindow();
+    const window = await findVisibleMainWindow(isolated.app);
     await window.evaluate(({ firstDirectory, root }) => {
       const view = window as unknown as Window & {
         __scanStartedAt?: number;
@@ -52,8 +69,8 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
       window.polytray.onScanProgress((progress) => {
         if (queried || progress.total !== null || !progress.indexed) return;
         queried = true;
-        const elapsedMs = performance.now() - (view.__scanStartedAt ?? performance.now());
         void window.polytray.getFiles({ folder: firstDirectory, limit: 10, offset: 0 }).then((result) => {
+          const elapsedMs = performance.now() - (view.__scanStartedAt ?? performance.now());
           view.__scanProof = {
             total: progress.total,
             indexed: progress.indexed ?? progress.current,
