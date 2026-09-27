@@ -2,10 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  createFileIndexRepository,
+  type CommittedFileMutation,
   mergeScannedFileRecord,
   mergeWatchedFileRecord,
   type IndexedFileRecord,
 } from '../../../../src/main/fileIndexing';
+import Database from 'better-sqlite3';
+import { MIGRATIONS } from '../../../../src/main/database';
 
 function makeExistingRecord(overrides: Partial<IndexedFileRecord> = {}): IndexedFileRecord {
   return {
@@ -125,4 +129,167 @@ test('watcher merge applies thumbnail and metadata for a current file event', ()
   assert.equal(merged.modifiedAt, 320);
   assert.equal(merged.indexedAt, 7200);
   assert.deepEqual(merged.dimensions, { x: 4, y: 4, z: 4 });
+});
+
+test('a changed file at the same timestamp clears its old thumbnail identity', () => {
+  const existing = makeExistingRecord({
+    size: 100,
+    modifiedAt: 200,
+    vertexCount: 90,
+    thumbnailPath: null,
+  });
+  const merged = mergeScannedFileRecord(existing, {
+    path: existing.path,
+    name: existing.name,
+    ext: existing.ext,
+    dir: existing.dir,
+    size: 120,
+    mtime: 200,
+    vertexCount: 20,
+    faceCount: 10,
+    dimensions: { x: 1, y: 1, z: 1 },
+    indexedAt: 6000,
+  });
+
+  assert.equal(merged.size, 120);
+  assert.equal(merged.vertexCount, 20);
+  assert.equal(merged.thumbnailPath, null);
+});
+
+function createRepositoryDatabase() {
+  const db = new Database(':memory:');
+  db.exec(MIGRATIONS.map((migration) => migration.sql).join('\n'));
+  return db;
+}
+
+test('index batches preserve annotations and maintain scopes with the file row', () => {
+  const db = createRepositoryDatabase();
+  try {
+    const repository = createFileIndexRepository(db);
+    const record = {
+      path: '/models/a.stl', name: 'a', extension: 'stl', directory: '/models',
+      sizeBytes: 100, modifiedAt: 200, scanGeneration: 7,
+    };
+    repository.applyIndexBatch({ scanGeneration: 7, records: [record] });
+    db.prepare("UPDATE files SET tags = 'favorite', notes = 'keep', print_status = 'Testing', thumbnail = '/cache.png'").run();
+
+    repository.applyIndexBatch({ scanGeneration: 8, records: [{ ...record, name: 'renamed', scanGeneration: 8 }] });
+    const row = db.prepare('SELECT tags, notes, print_status, name FROM files WHERE path = ?').get(record.path) as Record<string, string>;
+    assert.deepEqual(row, { tags: 'favorite', notes: 'keep', print_status: 'Testing', name: 'renamed' });
+    assert.equal((db.prepare('SELECT thumbnail FROM files WHERE path = ?').get(record.path) as { thumbnail: string }).thumbnail, '/cache.png');
+    assert.deepEqual(db.prepare('SELECT scope_path FROM file_scopes').all(), [{ scope_path: '/' }, { scope_path: '/models' }]);
+
+    repository.applyIndexBatch({ scanGeneration: 9, records: [{ ...record, sizeBytes: 120, name: 'renamed', scanGeneration: 9 }] });
+    const changed = db.prepare('SELECT tags, notes, print_status, thumbnail, content_revision FROM files WHERE path = ?').get(record.path) as Record<string, unknown>;
+    assert.deepEqual(changed, { tags: 'favorite', notes: 'keep', print_status: 'Testing', thumbnail: null, content_revision: 3 });
+  } finally {
+    db.close();
+  }
+});
+
+test('metadata enrichment from an older content revision is rejected', () => {
+  const db = createRepositoryDatabase();
+  try {
+    const repository = createFileIndexRepository(db);
+    repository.applyIndexBatch({ scanGeneration: 1, records: [{
+      path: '/models/a.stl', name: 'a', extension: 'stl', directory: '/models', sizeBytes: 100, modifiedAt: 200, scanGeneration: 1,
+    }] });
+    const identity = db.prepare('SELECT id, content_revision FROM files WHERE path = ?').get('/models/a.stl') as { id: number; content_revision: number };
+    repository.applyWatchUpdate({
+      kind: 'change', path: '/models/a.stl', name: 'a', extension: 'stl', directory: '/models',
+      sizeBytes: 120, modifiedAt: 200, archivePath: null,
+    });
+    const staleScan = repository.applyIndexBatch({ scanGeneration: 1, records: [{
+      path: '/models/a.stl', name: 'stale-scan-name', extension: 'stl', directory: '/models',
+      sizeBytes: 100, modifiedAt: 200, scanGeneration: 1,
+      expectedContentRevision: identity.content_revision,
+    }] });
+    assert.equal(staleScan.unchanged, 1);
+
+    const result = repository.applyMetadataResult({
+      fileId: identity.id, path: '/models/a.stl', expectedContentRevision: identity.content_revision,
+      vertexCount: 10, faceCount: 5, dimensions: '{"x":1,"y":1,"z":1}',
+    });
+    assert.equal(result.status, 'stale');
+    assert.equal((db.prepare('SELECT vertex_count FROM files WHERE id = ?').get(identity.id) as { vertex_count: number }).vertex_count, 0);
+    assert.equal((db.prepare('SELECT name, size_bytes FROM files WHERE id = ?').get(identity.id) as { name: string; size_bytes: number }).name, 'a');
+  } finally {
+    db.close();
+  }
+});
+
+test('same-path delete and recreate cannot be pruned by an earlier scan candidate', () => {
+  const db = createRepositoryDatabase();
+  try {
+    const repository = createFileIndexRepository(db);
+    repository.applyIndexBatch({ scanGeneration: 9, records: [{
+      path: '/models/a.stl', name: 'a', extension: 'stl', directory: '/models', sizeBytes: 100, modifiedAt: 200, scanGeneration: 9,
+    }] });
+    const old = db.prepare('SELECT content_revision FROM files WHERE path = ?').get('/models/a.stl') as { content_revision: number };
+    repository.applyWatchUpdate({ kind: 'remove', path: '/models/a.stl', expectedContentRevision: old.content_revision });
+    repository.applyWatchUpdate({
+      kind: 'add', path: '/models/a.stl', name: 'a', extension: 'stl', directory: '/models',
+      sizeBytes: 100, modifiedAt: 200, archivePath: null,
+    });
+
+    repository.deleteContainedFiles('/models', [{ path: '/models/a.stl', scanGeneration: 9, expectedContentRevision: old.content_revision }]);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM files WHERE path = ?').get('/models/a.stl')?.count, 1);
+  } finally {
+    db.close();
+  }
+});
+
+test('repository publishes one typed mutation only after the indexed row commits', () => {
+  const db = createRepositoryDatabase();
+  try {
+    let eventCount = 0;
+    const repository = createFileIndexRepository(db, (mutation) => {
+      eventCount++;
+      assert.equal(mutation.rowsChanged, true);
+      assert.equal(mutation.affectedPaths[0], '/models/a.stl');
+      assert.equal((db.prepare('SELECT COUNT(*) AS count FROM files').get() as { count: number }).count, 1);
+    });
+    repository.applyIndexBatch({ scanGeneration: 1, records: [{
+      path: '/models/a.stl', name: 'a', extension: 'stl', directory: '/models', sizeBytes: 100, modifiedAt: 200, scanGeneration: 1,
+    }] });
+    assert.equal(eventCount, 1);
+  } finally {
+    db.close();
+  }
+});
+
+test('thumbnail updates are revision guarded and do not advance browse revision', () => {
+  const db = createRepositoryDatabase();
+  try {
+    const repository = createFileIndexRepository(db);
+    repository.applyIndexBatch({ scanGeneration: 1, records: [{
+      path: '/models/a.stl', name: 'a', extension: 'stl', directory: '/models', sizeBytes: 100, modifiedAt: 200, scanGeneration: 1,
+    }] });
+    const row = db.prepare('SELECT id, content_revision FROM files WHERE path = ?').get('/models/a.stl') as { id: number; content_revision: number };
+    const revision = repository.getBrowseRevision();
+    let event: CommittedFileMutation | undefined;
+    const withEvents = createFileIndexRepository(db, (mutation) => { event = mutation; });
+
+    const result = withEvents.updateThumbnailState({
+      fileId: row.id, expectedContentRevision: row.content_revision,
+      thumbnailPath: '/cache/a.png', thumbnailFailed: 0,
+    });
+    assert.equal(result.status, 'updated');
+    assert.equal(withEvents.getBrowseRevision(), revision);
+    assert.equal(event?.thumbnailOnly, true);
+
+    const changed = withEvents.applyWatchUpdate({
+      kind: 'change', path: '/models/a.stl', name: 'a', extension: 'stl', directory: '/models',
+      sizeBytes: 101, modifiedAt: 200, archivePath: null,
+    });
+    const stale = withEvents.updateThumbnailState({
+      fileId: row.id, expectedContentRevision: row.content_revision,
+      thumbnailPath: '/cache/stale.png', thumbnailFailed: 0,
+    });
+    assert.equal(changed.rowsChanged, true);
+    assert.equal(stale.status, 'stale');
+    assert.equal((db.prepare('SELECT thumbnail FROM files WHERE id = ?').get(row.id) as { thumbnail: string | null }).thumbnail, null);
+  } finally {
+    db.close();
+  }
 });

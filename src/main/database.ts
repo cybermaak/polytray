@@ -69,6 +69,52 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE files ADD COLUMN dimensions TEXT;
     `,
   },
+  {
+    version: 5,
+    description: "Add revisioned file identity, indexed scopes, and library revisions",
+    sql: `
+      ALTER TABLE files ADD COLUMN content_revision INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE files ADD COLUMN archive_path TEXT;
+      ALTER TABLE files ADD COLUMN scan_generation INTEGER NOT NULL DEFAULT 0;
+
+      CREATE TABLE file_scopes (
+        file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+        scope_path TEXT NOT NULL,
+        UNIQUE (scope_path, file_id)
+      );
+      CREATE INDEX idx_file_scopes_file ON file_scopes(file_id, scope_path);
+
+      CREATE TABLE library_revisions (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        content_sequence INTEGER NOT NULL,
+        browse_revision INTEGER NOT NULL,
+        stats_revision INTEGER NOT NULL,
+        topology_revision INTEGER NOT NULL
+      );
+      INSERT INTO library_revisions VALUES (1, 1, 0, 0, 0);
+
+      CREATE TABLE scope_backfill (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        cursor_file_id INTEGER NOT NULL,
+        complete INTEGER NOT NULL
+      );
+      INSERT INTO scope_backfill VALUES (1, 0, 0);
+
+      DROP INDEX IF EXISTS idx_files_name;
+      DROP INDEX IF EXISTS idx_files_size;
+      DROP INDEX IF EXISTS idx_files_modified;
+      DROP INDEX IF EXISTS idx_files_vertices;
+      DROP INDEX IF EXISTS idx_files_faces;
+      CREATE INDEX idx_files_name ON files(name COLLATE NOCASE, id);
+      CREATE INDEX idx_files_size ON files(size_bytes, id);
+      CREATE INDEX idx_files_modified ON files(modified_at, id);
+      CREATE INDEX idx_files_vertices ON files(vertex_count, id);
+      CREATE INDEX idx_files_faces ON files(face_count, id);
+
+      UPDATE library_revisions
+      SET content_sequence = MAX(1, COALESCE((SELECT MAX(content_revision) FROM files), 0));
+    `,
+  },
 ];
 
 export const LATEST_DB_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
