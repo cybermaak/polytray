@@ -24,6 +24,21 @@ test('plan uses the single real browse revision and shared public plan contract'
   assert.equal(isMetadataImportPlanCurrent(plan, { browseRevision:7, rendererRevision:5 }), false);
 });
 
+test('fingerprint and default transaction ID include normalized replacement intent', () => {
+  const source={backup:backup(),current:current()};
+  const omitted=createMetadataImportPlan(source);
+  const explicitFalse=createMetadataImportPlan({...source,options:{replaceSettings:false,replaceRoots:false}});
+  const settingsReplacement=createMetadataImportPlan({...source,options:{replaceSettings:true}});
+  const rootsReplacement=createMetadataImportPlan({...source,options:{replaceRoots:true}});
+  assert.equal(omitted.inputRevision,explicitFalse.inputRevision);
+  assert.equal(omitted.transactionId,explicitFalse.transactionId);
+  assert.notEqual(omitted.inputRevision,settingsReplacement.inputRevision);
+  assert.notEqual(omitted.transactionId,settingsReplacement.transactionId);
+  assert.notEqual(omitted.inputRevision,rootsReplacement.inputRevision);
+  assert.notEqual(omitted.transactionId,rootsReplacement.transactionId);
+  assert.equal(createMetadataImportPlan({...source,transactionId:'caller-token',options:{replaceRoots:true}}).transactionId,'caller-token');
+});
+
 test('online indexed and pending sources become one indexed update with deterministic unions and conflicts', () => {
   const doc=backup(
     [{path:'/models/a.stl',tags:['indexed'],notes:'indexed backup note'}],

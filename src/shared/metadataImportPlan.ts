@@ -163,12 +163,16 @@ export function createMetadataImportPlan(input: MetadataImportPlanInput): Metada
   }
 
   const settingsBefore = completeCurrentSettings(current.rendererState.preferences);
-  const settingsAfter = input.options?.replaceSettings
+  const options = {
+    replaceSettings: input.options?.replaceSettings ?? false,
+    replaceRoots: input.options?.replaceRoots ?? false,
+  };
+  const settingsAfter = options.replaceSettings
     ? { ...settingsBefore, ...normalizeAppSettings({ ...settingsBefore, ...importedSettingsOverlay(backup.preferences as Record<string, unknown>) }) }
     : settingsBefore;
   const rootsBefore = [...new Set(current.rendererState.libraryRoots.map(canonicalizeBackupPath))];
-  const rootsAfter = input.options?.replaceRoots ? [...new Set(backup.libraryRoots)] : [...rootsBefore];
-  const inputRevision = sha256(stable({ backup, current }));
+  const rootsAfter = options.replaceRoots ? [...new Set(backup.libraryRoots)] : [...rootsBefore];
+  const inputRevision = sha256(stable({ backup, current, options }));
 
   return {
     transactionId: input.transactionId ?? `plan-${inputRevision}`,
@@ -192,8 +196,8 @@ export function createMetadataImportPlan(input: MetadataImportPlanInput): Metada
     settingsAfter,
     rootsBefore,
     rootsAfter,
-    replaceSettings: input.options?.replaceSettings ?? false,
-    replaceRoots: input.options?.replaceRoots ?? false,
+    replaceSettings: options.replaceSettings,
+    replaceRoots: options.replaceRoots,
   };
 }
 
