@@ -58,7 +58,7 @@
 | --- | --- | --- | --- |
 | F01 | f01_foundation | `/Users/maak/.codex/worktrees/polytray-foundation/polytray` / `codex/perf-f01` | gpt-6-luna / medium |
 | F02 | f02_fixtures | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-f02` | gpt-6-luna / medium |
-| Baseline Build + Product | baseline_validation | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-review` | gpt-6-luna / medium |
+| Baseline Build + Product (passed) | baseline_validation | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-review` | gpt-6-luna / medium |
 
 Each worktree has its own dependency copy, so native Node/Electron rebuilds cannot affect another installation. Baseline for these checkouts: `3d95fd3`. No push is authorized.
 
@@ -68,6 +68,8 @@ Each worktree has its own dependency copy, so native Node/Electron rebuilds cann
 | --- | --- | --- | --- |
 | 2026-09-26 | Planning | Execution plan and tracker prepared | Complete |
 | 2026-09-26 | Execution authorization | Concurrent Luna/medium worktrees, commits, and local-main integration approved | F01/F02 dispatched; independent baseline validation running; no origin/main push |
+
+| 2026-09-26 | Baseline gate | Build PASS; 57 unit tests and 29 E2E tests PASS; 1 optional real-model test skipped | [Report](handoffs/baseline-validation.md); use `PYTHON=/usr/bin/python3` for native rebuilds |
 
 ## Blockers and decisions
 
