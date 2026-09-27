@@ -73,6 +73,14 @@ test('hidden renderer honors size, refreshes deleted cache output, and fences ne
   expect(regenerated[0]).toBe(regenerated[1]);
   expect(fs.existsSync(regenerated[0]!)).toBe(true);
 
+  const corrupt = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.from('truncated PNG')]);
+  fs.writeFileSync(regenerated[0]!, corrupt);
+  const repaired = await page.evaluate(({ path, settings }) => window.polytray.requestThumbnailGeneration(path, 'stl', settings), { path: modelPath, settings });
+  expect(repaired).toBe(regenerated[0]);
+  const repairedBytes = fs.readFileSync(repaired!);
+  expect(repairedBytes.length).toBeGreaterThan(corrupt.length);
+  expect([repairedBytes.readUInt32BE(16), repairedBytes.readUInt32BE(20)]).toEqual([128, 128]);
+
   writeModel(modelPath, '# changed content revision\n');
   await page.evaluate(({ libraryPath, runtimeSettings }) => window.polytray.scanFolder(libraryPath, runtimeSettings), { libraryPath: path.dirname(modelPath), runtimeSettings: settings });
   const revisedPath = await page.evaluate(({ path, settings }) => window.polytray.requestThumbnailGeneration(path, 'stl', settings), { path: modelPath, settings });

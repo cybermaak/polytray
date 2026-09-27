@@ -12,7 +12,7 @@ import { IPC } from "../../shared/types";
 import { DEFAULT_APP_SETTINGS, toRuntimeSettings } from "../../shared/settings";
 import { isPathContained } from "../pathContainment";
 import { createFileIndexRepository } from "../fileIndexing";
-import { createThumbnailIdentity } from "../thumbnailIdentity";
+import { createThumbnailIdentity, generateForCapturedThumbnailIdentity } from "../thumbnailIdentity";
 import {
   parseExtension,
   parseFilePath,
@@ -51,33 +51,38 @@ export function registerThumbnailHandlers(
 
   ipcMain.handle(
     IPC.REQUEST_THUMBNAIL_GENERATION,
-    async (event, filePath, ext, settings) => {
+    async (_event, filePath, ext, settings) => {
       const mainWindow = getMainWindow();
       if (!mainWindow) return null;
-      const thumbnailPath = await scheduleSingleThumbnailGeneration(
-        parseFilePath(filePath),
-        parseExtension(ext),
-        settings
-          ? parseRuntimeSettings(settings)
-          : toRuntimeSettings(DEFAULT_APP_SETTINGS),
-        "manual",
-      );
+      const parsedFilePath = parseFilePath(filePath);
+      const parsedExt = parseExtension(ext);
+      const normalizedSettings = settings ? parseRuntimeSettings(settings) : toRuntimeSettings(DEFAULT_APP_SETTINGS);
       const db = getDb();
       const repository = createFileIndexRepository(db);
-      const current = repository.getFileIdentityByPath(filePath);
-      if (!current) return null;
-      if (thumbnailPath) {
-        const update = repository.updateThumbnailState({ fileId: current.id, expectedContentRevision: current.contentRevision, thumbnailPath, thumbnailFailed: 0 });
-        if (update.status === "updated") {
-          const normalizedSettings = settings ? parseRuntimeSettings(settings) : toRuntimeSettings(DEFAULT_APP_SETTINGS);
-          const { identity } = createThumbnailIdentity(current.path, current.contentRevision, normalizedSettings.thumbnailColor, Number(normalizedSettings.thumbQuality ?? 256) as 128 | 256 | 512);
-          const target = getMainWindow();
-          if (target && !target.isDestroyed()) target.webContents.send(IPC.THUMBNAIL_READY, { fileId: current.id, thumbnailPath, identity, contentRevision: current.contentRevision });
-        }
-      } else {
-        repository.updateThumbnailState({ fileId: current.id, expectedContentRevision: current.contentRevision, thumbnailPath: null, thumbnailFailed: 1 });
-      }
-      return thumbnailPath;
+      return generateForCapturedThumbnailIdentity(
+        () => {
+          const indexed = repository.getFileIdentityByPath(parsedFilePath);
+          if (!indexed) return null;
+          const row = db.prepare("SELECT thumbnail FROM files WHERE id = ?").get(indexed.id) as { thumbnail: string | null } | undefined;
+          return row ? { ...indexed, thumbnailPath: row.thumbnail } : null;
+        },
+        () => scheduleSingleThumbnailGeneration(parsedFilePath, parsedExt, normalizedSettings, "manual"),
+        (captured, thumbnailPath) => {
+          const update = repository.updateThumbnailState({
+            fileId: captured.id,
+            expectedContentRevision: captured.contentRevision,
+            thumbnailPath: thumbnailPath ?? captured.thumbnailPath,
+            thumbnailFailed: thumbnailPath ? 0 : 1,
+          });
+          if (update.status !== "updated") return false;
+          if (thumbnailPath) {
+            const { identity } = createThumbnailIdentity(captured.path, captured.contentRevision, normalizedSettings.thumbnailColor, Number(normalizedSettings.thumbQuality ?? 256) as 128 | 256 | 512);
+            const target = getMainWindow();
+            if (target && !target.isDestroyed()) target.webContents.send(IPC.THUMBNAIL_READY, { fileId: captured.id, thumbnailPath, identity, contentRevision: captured.contentRevision });
+          }
+          return true;
+        },
+      );
     },
   );
 }

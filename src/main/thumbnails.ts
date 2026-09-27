@@ -1,4 +1,4 @@
-import { app, ipcMain, BrowserWindow, MessageChannelMain } from "electron";
+import { app, ipcMain, BrowserWindow, MessageChannelMain, nativeImage } from "electron";
 import path from "path";
 import fs from "fs/promises";
 import fsSync from "fs";
@@ -16,13 +16,24 @@ import { createThumbnailJobScheduler } from "./thumbnailJobScheduler";
 import { reconcileThumbnailCache } from "./thumbnailCacheLifecycle";
 import { parseRuntimeSettings } from "./ipc/runtimeValidation";
 import { registerPreviewParseHandler } from "./previewParseService";
-import { canonicalizeThumbnailPath, createThumbnailAttemptRegistry, createThumbnailIdentity, createThumbnailRequestRegistry, thumbnailCacheFilename } from "./thumbnailIdentity";
+import { canonicalizeThumbnailPath, createThumbnailAttemptRegistry, createThumbnailIdentity, createThumbnailRequestRegistry, readValidatedThumbnailCache, thumbnailCacheFilename, thumbnailRequestKey } from "./thumbnailIdentity";
 import type { ThumbnailAttempt } from "../shared/thumbnailContracts";
 
 let thumbnailDir: string | null = null;
 const pendingRequests = createThumbnailAttemptRegistry<string | null>();
 const inflightPromises = createThumbnailRequestRegistry<string | null>();
 const cacheEpochs = new Map<string, number>();
+
+function decodeThumbnailPng(data: Buffer) {
+  try {
+    const image = nativeImage.createFromBuffer(data);
+    if (image.isEmpty()) return null;
+    const { width, height } = image.getSize();
+    return { width, height };
+  } catch {
+    return null;
+  }
+}
 const thumbnailScheduler = createThumbnailJobScheduler({
   execute: async (job) => {
     const startedAt = Date.now();
@@ -101,7 +112,8 @@ export function initThumbnailService() {
     try {
       const base64Data = result.dataUrl.replace(/^data:image\/png;base64,/, "");
       const image = Buffer.from(base64Data, "base64");
-      if (image.length < 8 || image.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") throw new Error("Renderer result is not a PNG");
+      const dimensions = decodeThumbnailPng(image);
+      if (!dimensions || dimensions.width !== attempt.key.size || dimensions.height !== attempt.key.size) throw new Error("Renderer result is not a valid PNG of the requested size");
       await fs.writeFile(temporaryPath, image, { flag: "wx" });
       const current = getDb().prepare("SELECT path, content_revision FROM files WHERE id = ?").get(row.id) as { path: string; content_revision: number } | undefined;
       if (!current || current.path !== attempt.key.canonicalPath || current.content_revision !== attempt.key.contentRevision ||
@@ -141,16 +153,24 @@ export async function generateThumbnail(
   if (!identityRow) return null;
   const size = Number(settings.thumbQuality ?? 256) as 128 | 256 | 512;
   const { cacheKey, key } = createThumbnailIdentity(identityRow.path, identityRow.content_revision, settings.thumbnailColor, size);
-  return inflightPromises.run(key, async () => {
+  const cacheEpoch = getThumbnailCacheEpoch(identityRow.path);
+  const requestKey = thumbnailRequestKey(key, cacheEpoch);
+  return inflightPromises.run(requestKey, async () => {
     // 2. Check cache first
     const thumbPath = path.join(getThumbnailDir(), thumbnailCacheFilename(key));
-    try {
-      const cached = await fs.readFile(thumbPath);
-      if (cached.subarray(0, 8).toString("hex") === "89504e470d0a1a0a") return thumbPath;
-    } catch { /* Missing or unreadable cache entries are regenerated. */ }
-
-    if (identityRow.path !== canonicalizeThumbnailPath(filePath)) return null;
-    const cacheEpoch = cacheEpochs.get(identityRow.path) ?? 0;
+    const isCurrentIdentity = () => {
+      const current = db.prepare("SELECT path, content_revision FROM files WHERE id = ?").get(identityRow.id) as { path: string; content_revision: number } | undefined;
+      return !!current && current.path === identityRow.path && current.content_revision === identityRow.content_revision &&
+        identityRow.path === canonicalizeThumbnailPath(filePath) && getThumbnailCacheEpoch(identityRow.path) === cacheEpoch;
+    };
+    const cached = await readValidatedThumbnailCache(
+      () => fs.readFile(thumbPath),
+      size,
+      decodeThumbnailPng,
+      isCurrentIdentity,
+    );
+    if (cached) return thumbPath;
+    if (!isCurrentIdentity()) return null;
     const requestId = crypto.randomUUID();
     const attempt: ThumbnailAttempt = { requestId, cacheEpoch, key: cacheKey };
     const thumbWindow = getThumbnailWindow();
@@ -226,7 +246,7 @@ export async function generateThumbnailsInBackground(
         source: "scan",
         priority: 1,
         retries: 1,
-        dedupeKey: `${createThumbnailIdentity(currentIdentity.path, currentIdentity.contentRevision, settings.thumbnailColor, Number(settings.thumbQuality ?? 256) as 128 | 256 | 512).key}|epoch=${getThumbnailCacheEpoch(currentIdentity.path)}`,
+        dedupeKey: thumbnailRequestKey(createThumbnailIdentity(currentIdentity.path, currentIdentity.contentRevision, settings.thumbnailColor, Number(settings.thumbQuality ?? 256) as 128 | 256 | 512).key, getThumbnailCacheEpoch(currentIdentity.path)),
       });
       if (thumbnailPath) {
         const update = repository.updateThumbnailState({ fileId: currentIdentity.id, expectedContentRevision: currentIdentity.contentRevision, thumbnailPath, thumbnailFailed: 0 });
@@ -333,7 +353,7 @@ export function scheduleSingleThumbnailGeneration(
     source,
     priority: source === "manual" ? 3 : 2,
     retries: 1,
-    dedupeKey: `${key}|epoch=${getThumbnailCacheEpoch(identity.path)}`,
+    dedupeKey: thumbnailRequestKey(key, getThumbnailCacheEpoch(identity.path)),
   });
 }
 

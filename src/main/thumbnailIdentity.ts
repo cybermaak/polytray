@@ -32,6 +32,45 @@ export function thumbnailCacheFilename(key: string): string {
   return `${crypto.createHash('sha256').update(key).digest('hex').slice(0, 32)}.png`;
 }
 
+export function thumbnailRequestKey(cacheKey: string, cacheEpoch: number): string {
+  return JSON.stringify([cacheKey, cacheEpoch]);
+}
+
+export interface ThumbnailPngDimensions {
+  width: number;
+  height: number;
+}
+
+export async function readValidatedThumbnailCache(
+  read: () => Promise<Buffer>,
+  expectedSize: ThumbnailSize,
+  decode: (data: Buffer) => ThumbnailPngDimensions | null,
+  isCurrent: () => boolean | Promise<boolean>,
+): Promise<Buffer | null> {
+  let data: Buffer;
+  try {
+    data = await read();
+  } catch {
+    return null;
+  }
+  if (data.length < 8 || data.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') return null;
+  const dimensions = decode(data);
+  if (!dimensions || dimensions.width !== expectedSize || dimensions.height !== expectedSize) return null;
+  return await isCurrent() ? data : null;
+}
+
+export async function generateForCapturedThumbnailIdentity<TIdentity, TPath extends string | null>(
+  lookup: () => TIdentity | null,
+  generate: (identity: TIdentity) => Promise<TPath>,
+  publish: (identity: TIdentity, thumbnailPath: TPath) => boolean | Promise<boolean>,
+): Promise<string | null> {
+  const identity = lookup();
+  if (!identity) return null;
+  const thumbnailPath = await generate(identity);
+  if (!await publish(identity, thumbnailPath) || thumbnailPath === null) return null;
+  return thumbnailPath;
+}
+
 export function createThumbnailRequestRegistry<T>() {
   const requests = new Map<string, Promise<T>>();
   return {
