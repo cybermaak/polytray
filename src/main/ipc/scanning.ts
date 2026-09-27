@@ -5,7 +5,8 @@ import { BrowserWindow, ipcMain } from "electron";
 import { join } from "path";
 import fs from "fs";
 import { getDb, getSetting } from "../database";
-import { scanFolder } from "../scanner";
+import { discoverFolder } from "../scanner";
+import { decidePruneCandidates, matchesScanSnapshot } from "../scanCoverage";
 import { extractMetadata, type MetadataSummary } from "../metadata";
 import {
   cancelPendingThumbnailJobs,
@@ -38,18 +39,24 @@ export function registerScanningHandlers(
   ) {
     const db = getDb();
     const mainWindow = getMainWindow();
-    const files = await scanFolder(folderPath);
+    // Capture row identity before discovery. id protects delete/recreate ABA;
+    // indexed_at/mtime/size prevent pruning a row updated while discovery ran.
+    const snapshot = db.prepare("SELECT id, path, indexed_at, modified_at, size_bytes, tags, notes, print_status FROM files").all() as Array<{
+      id: number; path: string; indexed_at: number; modified_at: number; size_bytes: number;
+      tags: string | null; notes: string | null; print_status: string | null;
+    }>;
+    const containedSnapshot = snapshot.filter((row) => filterContainedPaths(folderPath, [row.path]).length > 0);
+    const discovery = await discoverFolder(folderPath);
+    const files = discovery.files;
     const total = files.length;
 
-    const existingRows = db.prepare("SELECT path FROM files").all() as Array<{
-      path: string;
-    }>;
-    const existingPaths = new Set(
-      filterContainedPaths(
-        folderPath,
-        existingRows.map((row) => row.path),
-      ),
-    );
+    const pruneDecision = decidePruneCandidates({
+      rootPath: folderPath,
+      state: discovery.state,
+      scopes: discovery.scopes,
+      discoveredPaths: files.map((file) => file.path),
+      candidates: containedSnapshot.map((row) => ({ id: row.id, path: row.path, generation: row.indexed_at })),
+    });
 
     // ── Pass 1: Index files quickly (metadata only, no thumbnails) ──
     const filesToThumbnail: ScannedFile[] = [];
@@ -62,7 +69,6 @@ export function registerScanningHandlers(
       }
       
       const file = files[i];
-      existingPaths.delete(file.path);
 
       const existing = db
         .prepare(
@@ -142,19 +148,43 @@ export function registerScanningHandlers(
       }
     }
 
-    for (const stalePath of existingPaths) {
-      db.prepare("DELETE FROM files WHERE path = ?").run(stalePath);
+    const deleteSnapshot = db.prepare(`
+      DELETE FROM files WHERE id = ? AND path = ? AND indexed_at = ? AND modified_at = ? AND size_bytes = ? AND tags IS ? AND notes IS ? AND print_status IS ?
+    `);
+    const readCurrentSnapshot = db.prepare("SELECT id, path, indexed_at, modified_at, size_bytes, tags, notes, print_status FROM files WHERE id = ?");
+    let deletedCount = 0;
+    for (const candidate of pruneDecision.prune) {
+      const row = containedSnapshot.find((entry) => entry.id === candidate.id);
+      if (!row) continue;
+      const current = readCurrentSnapshot.get(row.id) as typeof row | undefined;
+      if (!current || !matchesScanSnapshot(row, current)) continue;
+      deletedCount += deleteSnapshot.run(
+        row.id, row.path, row.indexed_at, row.modified_at, row.size_bytes,
+        row.tags, row.notes, row.print_status,
+      ).changes;
     }
 
     // Notify scan complete (cards are all visible now)
     if (mainWindow) {
-      mainWindow.webContents.send(IPC.SCAN_COMPLETE, { totalFiles: total });
+      mainWindow.webContents.send(IPC.SCAN_COMPLETE, {
+        totalFiles: total,
+        state: discovery.state,
+        affectedScopes: discovery.errors.map((error) => error.scopePath),
+        retainedCount: pruneDecision.retained + (pruneDecision.prune.length - deletedCount),
+      });
     }
 
     // ── Pass 2: Generate thumbnails in the background (fire-and-forget) ──
     queueThumbnailGeneration(folderPath, getMainWindow, settings);
 
-    return { totalFiles: total };
+    return {
+      totalFiles: total,
+      state: discovery.state,
+      affectedScopes: discovery.errors.map((error) => error.scopePath),
+      errors: discovery.errors,
+      retainedCount: pruneDecision.retained + (pruneDecision.prune.length - deletedCount),
+      deletedCount,
+    };
   }
 
   ipcMain.handle(IPC.SCAN_FOLDER, async (event, folderPath, settings: RuntimeSettingsData) => {

@@ -10,6 +10,7 @@ import {
   getArchiveEntryExtension,
   isSupportedArchiveEntry,
 } from "../shared/archivePaths";
+import { ScanScope, ScanTerminalState } from "./scanCoverage";
 
 interface ScannedFile {
   path: string;
@@ -25,34 +26,52 @@ interface ScannedFile {
  * @param {string} rootPath - Root directory to scan
  */
 export async function scanFolder(rootPath: string): Promise<ScannedFile[]> {
-  const results: ScannedFile[] = [];
-  await walkDir(rootPath, results);
-  return results;
+  return (await discoverFolder(rootPath)).files;
 }
 
-async function walkDir(dirPath: string, results: ScannedFile[]): Promise<void> {
+export interface ScanDiscovery {
+  files: ScannedFile[];
+  scopes: ScanScope[];
+  state: ScanTerminalState;
+  errors: Array<{ scopePath: string; phase: string; reason: string }>;
+}
+
+export async function discoverFolder(rootPath: string, signal?: AbortSignal): Promise<ScanDiscovery> {
+  const files: ScannedFile[] = [];
+  const scopes: ScanScope[] = [];
+  const errors: ScanDiscovery['errors'] = [];
+  let cancelled = false;
+  const addError = (scopePath: string, kind: 'directory' | 'archive', phase: ScanScope['phase'], error: unknown) => {
+    const reason = (error as Error)?.message ?? String(error);
+    scopes.push({ scopePath, kind, status: 'error', phase, reason });
+    errors.push({ scopePath, phase: phase ?? 'unknown', reason });
+  };
+  const walkDir = async (dirPath: string): Promise<void> => {
+    if (signal?.aborted) { cancelled = true; return; }
   let entries: fs.Dirent[];
   try {
     entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
   } catch (e: unknown) {
     console.warn(`Cannot read directory ${dirPath}:`, (e as Error).message);
+    addError(dirPath, 'directory', 'readdir', e);
     return;
   }
 
   for (const entry of entries) {
+    if (signal?.aborted) { cancelled = true; return; }
     const fullPath = path.join(dirPath, entry.name);
 
     if (entry.isDirectory()) {
       // Skip tests/fixtures directory
       if (entry.name === "fixtures" && dirPath.includes(path.sep + "tests"))
         continue;
-      await walkDir(fullPath, results);
+      await walkDir(fullPath);
     } else if (entry.isFile()) {
       const ext = path.extname(entry.name).toLowerCase().slice(1);
       if (EXT_SET.has(ext)) {
         try {
           const stat = await fs.promises.stat(fullPath);
-          results.push({
+          files.push({
             path: fullPath,
             name: path.basename(entry.name, "." + ext),
             ext,
@@ -62,18 +81,26 @@ async function walkDir(dirPath: string, results: ScannedFile[]): Promise<void> {
           });
         } catch (e: unknown) {
           console.warn(`Cannot stat ${fullPath}:`, (e as Error).message);
+          addError(fullPath, 'directory', 'stat', e);
         }
       } else if (ARCHIVE_EXT_SET.has(ext)) {
-        await scanArchive(fullPath, dirPath, results);
+        await scanArchive(fullPath, dirPath, files, scopes, errors);
       }
     }
   }
+    scopes.push({ scopePath: dirPath, kind: 'directory', status: 'complete' });
+  };
+  await walkDir(rootPath);
+  const state: ScanTerminalState = cancelled ? 'cancelled' : errors.length ? (scopes.some((scope) => scope.status === 'complete') ? 'partial' : 'failed') : 'completed';
+  return { files, scopes, state, errors };
 }
 
 async function scanArchive(
   archivePath: string,
   parentDir: string,
   results: ScannedFile[],
+  scopes: ScanScope[],
+  errors: ScanDiscovery['errors'],
 ) {
   try {
     const [directory, stat] = await Promise.all([
@@ -96,7 +123,11 @@ async function scanArchive(
         mtime: Math.floor(stat.mtimeMs),
       });
     }
+    scopes.push({ scopePath: archivePath, kind: 'archive', status: 'complete' });
   } catch (e: unknown) {
     console.warn(`Cannot inspect archive ${archivePath}:`, (e as Error).message);
+    const reason = (e as Error)?.message ?? String(e);
+    scopes.push({ scopePath: archivePath, kind: 'archive', status: 'error', phase: 'archive', reason });
+    errors.push({ scopePath: archivePath, phase: 'archive', reason });
   }
 }
