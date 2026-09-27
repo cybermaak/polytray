@@ -433,6 +433,10 @@ function createPreparedFileIndexRepository(
           const archivePath = parseArchiveEntryPath(record.path)?.archivePath ?? null;
           const now = indexedAtOverride ?? Date.now();
           if (!existing) {
+            if (record.expectedContentRevision !== undefined && record.expectedContentRevision !== 0) {
+              chunkUnchanged++;
+              continue;
+            }
             const contentRevision = allocateContentRevision(db);
             const result = insertFile.run(record.path, record.name, record.extension, record.directory,
               record.sizeBytes, record.modifiedAt, now, contentRevision, archivePath, input.scanGeneration);

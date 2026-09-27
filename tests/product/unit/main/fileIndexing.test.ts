@@ -245,6 +245,66 @@ test('same-path delete and recreate cannot be pruned by an earlier scan candidat
   }
 });
 
+test('a stale scan with an observed positive revision cannot resurrect a watcher-removed file', () => {
+  const db = createRepositoryDatabase();
+  try {
+    const notifications: CommittedFileMutation[] = [];
+    const repository = createFileIndexRepository(db, (mutation) => notifications.push(mutation));
+    const record = {
+      path: '/models/removed.stl', name: 'removed', extension: 'stl', directory: '/models',
+      sizeBytes: 10, modifiedAt: 20, scanGeneration: 1,
+    };
+    const inserted = repository.applyIndexBatch({ scanGeneration: 1, records: [record] });
+    const identity = inserted.committed[0];
+    repository.applyWatchUpdate({ kind: 'remove', path: record.path, expectedContentRevision: identity.contentRevision });
+    notifications.length = 0;
+    const revisionBeforeStaleScan = repository.getBrowseRevision();
+
+    const result = repository.applyIndexBatch({ scanGeneration: 1, records: [{
+      ...record, expectedContentRevision: identity.contentRevision,
+    }] });
+
+    assert.equal(result.inserted, 0);
+    assert.equal(result.unchanged, 1);
+    assert.deepEqual(result.committed, []);
+    assert.equal(db.prepare('SELECT id FROM files WHERE path = ?').get(record.path), undefined);
+    assert.equal(repository.getBrowseRevision(), revisionBeforeStaleScan);
+    assert.deepEqual(notifications, []);
+  } finally {
+    db.close();
+  }
+});
+
+test('an observed-absent scan add cannot overwrite a later watcher add', () => {
+  const db = createRepositoryDatabase();
+  try {
+    const notifications: CommittedFileMutation[] = [];
+    const repository = createFileIndexRepository(db, (mutation) => notifications.push(mutation));
+    const observedAbsent = {
+      path: '/models/added.stl', name: 'scan', extension: 'stl', directory: '/models',
+      sizeBytes: 10, modifiedAt: 20, scanGeneration: 1, expectedContentRevision: 0,
+    };
+    const watcherAdd = repository.applyWatchUpdate({
+      kind: 'add', path: observedAbsent.path, name: 'watcher', extension: 'stl', directory: '/models',
+      sizeBytes: 11, modifiedAt: 21, archivePath: null,
+    });
+    assert.equal(watcherAdd.rowsChanged, true);
+    notifications.length = 0;
+    const identityBeforeStaleAdd = repository.getFileIdentityByPath(observedAbsent.path)!;
+
+    const result = repository.applyIndexBatch({ scanGeneration: 1, records: [observedAbsent] });
+
+    assert.equal(result.inserted, 0);
+    assert.equal(result.unchanged, 1);
+    assert.deepEqual(result.committed, []);
+    assert.equal(repository.getFileIdentityByPath(observedAbsent.path)?.contentRevision, identityBeforeStaleAdd.contentRevision);
+    assert.equal((db.prepare('SELECT name FROM files WHERE path = ?').get(observedAbsent.path) as { name: string }).name, 'watcher');
+    assert.deepEqual(notifications, []);
+  } finally {
+    db.close();
+  }
+});
+
 test('repository publishes one typed mutation only after the indexed row commits', () => {
   const db = createRepositoryDatabase();
   try {

@@ -77,6 +77,7 @@ export interface IndexInput {
   modifiedAt: number;
   archivePath?: string | null;
   scanGeneration: number;
+  /** 0 means the scan observed absence; positive values require that content revision to still exist. */
   expectedContentRevision?: number;
 }
 
