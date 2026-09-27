@@ -2,9 +2,9 @@
 
 [Execution plan](../2026-09-26-performance-ux-execution-plan.md) | [Shared contracts](contracts.md) | [Handoff template](handoff-template.md)
 
-**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01-D03, S01, T03, V01, and the P02 export service are reviewed and integrated. Six implementation lanes cover S02/T01/V03/U03/P01/P03, with independent reviews. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. The original unregistered chat requests are superseded by the active assignments below.
+**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01-D03, S01, T03, V01, and the P02 export service are reviewed and integrated. Six implementation lanes cover S02/T01/V03/U01/P01/P03, with independent reviews. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. The original unregistered chat requests are superseded by the active assignments below.
 
-**Progress:** 9 / 33 DONE. Foundation 2/2; data 3/3; scanning 1/6; thumbnails 1/4; preview 1/5; browsing 0/6; product workflows 1/4; validation 0/3. D02's query service, IPC smoke, benchmark and reviews are complete; UI paging remains U01/V02.
+**Progress:** 10 / 33 DONE. Foundation 2/2; data 3/3; scanning 1/6; thumbnails 1/4; preview 1/5; browsing 1/6; product workflows 1/4; validation 0/3. D02's query service, IPC smoke, benchmark and reviews are complete; UI paging remains U01/V02.
 
 ## Status and update rules
 
@@ -38,9 +38,9 @@
 | V03 | [Owned cancellable preview runtime](preview.md#v03---cancel-obsolete-parsing-through-an-owned-preview-runtime) | P2 | F01, F02, D01 | IN_PROGRESS | s01_safe_scanning reassigned (Luna/medium) | Implementing against reviewed D01 contract; runtime gate waits for D01 integration |
 | V04 | [Background preparation and bounded assembly](preview.md#v04---prepare-orientation-in-the-background-and-budget-visible-mesh-assembly) | P2 | V01, V03, S04 | PLANNED | Unassigned | - |
 | V05 | [Progressive part thumbnails](preview.md#v05---make-part-thumbnails-small-progressive-and-independent) | P2 | V04 | PLANNED | Unassigned | - |
-| U01 | [Complete browsing and consistent selection](browsing.md#u01---load-every-result-and-keep-selection-consistent-across-pages) | P1 | D02, T03 | READY | Unassigned | Wait for U03's App/layout ownership to be released |
+| U01 | [Complete browsing and consistent selection](browsing.md#u01---load-every-result-and-keep-selection-consistent-across-pages) | P1 | D02, T03 | IN_PROGRESS | Luna/medium chat `01a0e202-8608-7f21-a52d-5e89ef92806b` | Reuses completed layout checkout on `codex/perf-u01`, base `b84ba09` |
 | U02 | [Search state and targeted refresh](browsing.md#u02---unify-search-state-and-refresh-only-what-changed) | P2 | U01, D03 | PLANNED | Unassigned | - |
-| U03 | [Responsive panel layout](browsing.md#u03---keep-browsing-usable-at-every-supported-window-size) | P2 | F01, F02 | IN_PROGRESS | Luna/medium chat `01a0e202-8608-7f21-a52d-5e89ef92806b` | Active registered chat supersedes unregistered request |
+| U03 | [Responsive panel layout](browsing.md#u03---keep-browsing-usable-at-every-supported-window-size) | P2 | F01, F02 | DONE | Luna/medium chat `01a0e202-8608-7f21-a52d-5e89ef92806b` | [U03](handoffs/U03.md); both reviews and full Product PASS; integrated `890e4ba` through `b84ba09` |
 | U04 | [Keyboard navigation and focus](browsing.md#u04---support-keyboard-navigation-and-predictable-focus) | P2 | U01, U03, V02 | PLANNED | Unassigned | - |
 | U05 | [Background work UI and watch preferences](browsing.md#u05---present-useful-progress-and-respect-watcher-preferences) | P2 | U02, S06, T04 | PLANNED | Unassigned | - |
 | U06 | [Workflow and measurement UI integration](browsing.md#u06---integrate-slicer-backuprestore-and-honest-measurements) | P2 | U04, P01, P02, P04, S04 | PLANNED | Unassigned | - |
@@ -61,7 +61,7 @@
 | S02 | baseline_validation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-s02` | Static reviews passed; owns native lane for startup diagnosis and held-subtree/heartbeat gate |
 | T03 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/61df/polytray`, `74d2e9e` | Preserved unreviewed alternative; active T03 producer already integrated |
 | T01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-thumbnails/polytray` / `codex/perf-t01` | Implementing |
-| U03 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-layout/polytray` / `codex/perf-u03` | Full Product and responsive matrix passed; final review |
+| U01 | Registered Luna/medium chat, U03 complete | `/Users/maak/.codex/worktrees/polytray-layout/polytray` / `codex/perf-u01` | Implementing complete paging and selection |
 | P03 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-import/polytray` / `codex/perf-p03` | Implementing |
 | P01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-slicer/polytray` / `codex/perf-p01` | Implementing |
 | Independent review | Luna/medium chat `01a0e1fe-a466-7810-9892-71009a512cc2` | Read-only exact candidate checkouts | U03 final review; T01 and P03 reviewed concurrently by free subagents |
@@ -97,6 +97,8 @@ S02 preparation exposed one additional D01 guard: a positive expected content re
 | 2026-09-27 | D02 gate | Independent spec/quality PASS; 157 unit passes/1 Windows-only skip, Type/Build PASS, actual IPC smoke 1/1 | 10k/50k grouped folder median 14.77/79.71 ms; 50k p95 81.35 ms; heartbeat max 143.96 ms; final G02 repeats on integrated app |
 
 | 2026-09-27 | D03 gate | Independent spec and coordinator quality PASS; 164 unit passes/1 Windows-only skip, Type/Build PASS; production summary IPC handlers exercised with real SQLite | Integrated revision-keyed summaries and precise mutation flags; renderer query reduction remains U02 |
+
+| 2026-09-27 | U03 gate | Independent spec/quality PASS; 154 units/1 skip, 36 E2E/1 optional skip, 18 responsive captures; combined main Type/Build and 9 focused tests PASS | Integrated; layout checkout reassigned U01; U04 owns keyboard/modal focus |
 
 ## Blockers and decisions
 
