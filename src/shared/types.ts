@@ -182,6 +182,7 @@ export interface ThumbnailReadyData {
 
 export const THUMBNAIL_INVALIDATION_PATH_BATCH_SIZE = 256;
 
+/** Larger path invalidations emit multiple events; modelPaths and thumbnailPaths are independent sets, not paired. */
 export type ThumbnailInvalidatedData =
   | { kind: "all" }
   | {
