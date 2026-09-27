@@ -16,6 +16,7 @@ import { registerScanningHandlers } from "./ipc/scanning";
 import { registerFileHandlers } from "./ipc/files";
 import { registerThumbnailHandlers } from "./ipc/thumbnails";
 import { registerSystemHandlers } from "./ipc/system";
+import { registerSlicerHandlers, startSlicerStartupCleanup } from "./ipc/slicer";
 import { createElectronPreviewWindowManager } from "./previewWindow";
 import { registerPreviewParseHandler } from "./previewParseService";
 
@@ -96,6 +97,7 @@ if (fs.existsSync(portableDataDir)) {
 // ───────────────────────────────────────────────────────────────────
 
 let mainWindow: BrowserWindow | null = null;
+let slicerHandlers: ReturnType<typeof registerSlicerHandlers> | null = null;
 let thumbnailWindow: BrowserWindow | null = null;
 let mainWindowVisibilityRevision = 0;
 function getWindowRendererPid(target: BrowserWindow | null): number {
@@ -260,6 +262,7 @@ function registerIpcHandlers() {
   });
   registerThumbnailHandlers(getMainWindow);
   registerSystemHandlers(getMainWindow);
+  slicerHandlers = registerSlicerHandlers(getMainWindow);
   previewParseRegistration = registerPreviewParseHandler(ipcMain, getMainWindow, previewRuntime);
   initThumbnailService();
 }
@@ -307,19 +310,22 @@ app.whenReady().then(() => {
   });
   createThumbnailWindow();
   registerIpcHandlers();
-
-  app.once("will-quit", () => {
-    void fileIndexRuntime?.dispose();
-    libraryMutationPublisher?.flush();
-    libraryMutationPublisher?.dispose();
-    void previewParseRegistration?.dispose();
-  });
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
-  });
+  startSlicerStartupCleanup(
+    () => {
+      app.once("will-quit", () => {
+        slicerHandlers?.dispose();
+        void fileIndexRuntime?.dispose();
+        libraryMutationPublisher?.flush();
+        libraryMutationPublisher?.dispose();
+        void previewParseRegistration?.dispose();
+      });
+      app.on("activate", () => {
+        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      });
+    },
+    () => slicerHandlers?.cleanup() ?? Promise.resolve(),
+    (report) => log.warn("[SlicerHandoff] startup cleanup was incomplete", report),
+  );
 });
 
 app.on("window-all-closed", () => {

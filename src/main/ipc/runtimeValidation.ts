@@ -8,7 +8,9 @@ import {
   RuntimeSettingsData,
   SortOptions,
   UpdateFileMetadataData,
+  SlicerHandoffRequest,
 } from "../../shared/types";
+import type { SlicerPlatform } from "../slicerHandoff";
 import { normalizeFileTags } from "../../shared/fileTags";
 import { normalizeRuntimeSettings } from "../../shared/settings";
 import { ARCHIVE_ENTRY_SEPARATOR, parseArchiveEntryPath } from "../../shared/archivePaths";
@@ -29,6 +31,39 @@ export function parseFilePath(value: unknown): string {
   if (!isNonEmptyString(value)) {
     throw new Error("Invalid file path");
   }
+  return value;
+}
+
+export function parseSlicerHandoffRequest(value: unknown, platform: SlicerPlatform): SlicerHandoffRequest {
+  if (!value || typeof value !== "object") throw new Error("Invalid slicer handoff request");
+  const request = value as Partial<SlicerHandoffRequest>;
+  if (typeof request.requestId !== "string" || !/^[\w-]{1,128}$/.test(request.requestId)) throw new Error("Invalid slicer request ID");
+  if (!Number.isSafeInteger(request.fileId) || (request.fileId ?? 0) < 1) throw new Error("Invalid slicer file ID");
+  if (!Number.isSafeInteger(request.contentRevision) || (request.contentRevision ?? -1) < 0) throw new Error("Invalid slicer content revision");
+  if (typeof request.path !== "string" || request.path.length > 32768) throw new Error("Invalid slicer source path");
+  const separator = request.path.indexOf(ARCHIVE_ENTRY_SEPARATOR);
+  const sourcePath = separator > 0 ? request.path.slice(0, separator) : request.path;
+  const absolute = platform === "win32" ? path.win32.isAbsolute(sourcePath) : path.posix.isAbsolute(sourcePath);
+  if (!absolute) throw new Error("Slicer source path must be absolute");
+  if (typeof request.extension !== "string" || !["stl", "obj", "3mf"].includes(request.extension.toLowerCase())) throw new Error("Unsupported slicer model extension");
+  const sourceExtension = path.posix.extname(separator > 0 ? request.path.slice(separator + ARCHIVE_ENTRY_SEPARATOR.length) : sourcePath).slice(1).toLowerCase();
+  if (sourceExtension !== request.extension.toLowerCase()) throw new Error("Slicer model extension does not match source path");
+  const configuration = request.configuration;
+  if (configuration !== null && (!configuration || typeof configuration !== "object")) throw new Error("Invalid slicer configuration");
+  if (configuration && typeof configuration.useSystemDefault !== "boolean") throw new Error("Invalid slicer configuration");
+  if (configuration && configuration.useSystemDefault === true && configuration.applicationPath !== null) throw new Error("Invalid slicer configuration");
+  if (configuration && configuration.useSystemDefault === false) {
+    if (typeof configuration.applicationPath !== "string" || configuration.applicationPath.length > 32768) throw new Error("Invalid slicer application path");
+    const appAbsolute = platform === "win32" ? path.win32.isAbsolute(configuration.applicationPath) : path.posix.isAbsolute(configuration.applicationPath);
+    if (!appAbsolute) throw new Error("Slicer application path must be absolute");
+    if (platform === "win32" && !/\.exe$/i.test(configuration.applicationPath)) throw new Error("Windows slicer selection must be an executable");
+    if (platform === "darwin" && !configuration.applicationPath.toLowerCase().endsWith(".app")) throw new Error("macOS slicer selection must be an application bundle");
+  }
+  return request as SlicerHandoffRequest;
+}
+
+export function parseSlicerRequestId(value: unknown): string {
+  if (typeof value !== "string" || !/^[\w-]{1,128}$/.test(value)) throw new Error("Invalid slicer request ID");
   return value;
 }
 
