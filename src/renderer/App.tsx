@@ -161,7 +161,7 @@ export const App: React.FC = () => {
     return () => observer.disconnect();
   }, []);
 
-  const applySettingsToDocument = useCallback((nextSettings: AppSettings) => {
+  const applySettingsToDocument = useCallback((nextSettings: AppSettings, previewColorChanged = true) => {
     document.body.classList.toggle("light", nextSettings.lightMode);
     document.body.style.setProperty(
       "--accent-primary",
@@ -175,11 +175,13 @@ export const App: React.FC = () => {
       "--thumbnail-model-color",
       nextSettings.accentColor,
     );
-    window.dispatchEvent(
-      new CustomEvent("polytray-preview-color", {
-        detail: nextSettings.previewColor,
-      }),
-    );
+    if (previewColorChanged) {
+      window.dispatchEvent(
+        new CustomEvent("polytray-preview-color", {
+          detail: nextSettings.previewColor,
+        }),
+      );
+    }
   }, []);
 
   const persistSettings = useCallback((nextSettings: AppSettings) => {
@@ -776,7 +778,7 @@ export const App: React.FC = () => {
         const merged = normalizeAppSettings({ ...prev, ...newSettings });
         settingsRef.current = merged;
         persistSettings(merged);
-        applySettingsToDocument(merged);
+        applySettingsToDocument(merged, prev.previewColor !== merged.previewColor);
         return merged;
       });
     },

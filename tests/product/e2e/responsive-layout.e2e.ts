@@ -172,6 +172,11 @@ test("responsive panels preserve browsing space across supported window sizes", 
 
           if (sizeCase.name === "maximum" && windowCase.width === 900 && !lightMode) {
             const sidebarBeforeDrag = measurements.sidebarWidth;
+            await mainWindow.evaluate(() => {
+              const probe = window as Window & { __previewColorEvents: number };
+              probe.__previewColorEvents = 0;
+              window.addEventListener("polytray-preview-color", () => { probe.__previewColorEvents += 1; });
+            });
             const sidebarHandle = await mainWindow.locator(".sidebar-resize-handle").boundingBox();
             await mainWindow.mouse.move(sidebarHandle.x + sidebarHandle.width / 2, sidebarHandle.y + sidebarHandle.height / 2);
             await mainWindow.mouse.down();
@@ -211,6 +216,9 @@ test("responsive panels preserve browsing space across supported window sizes", 
               sidebarWidth: sidebarBeforeDrag - 12,
               previewWidth: previewBeforeDrag - 12,
             });
+            expect(await mainWindow.evaluate(() =>
+              (window as Window & { __previewColorEvents: number }).__previewColorEvents,
+            )).toBe(0);
 
             await nativeWindow.evaluate((win) => win.setSize(1920, 1080));
             await expect.poll(() => mainWindow.locator("#sidebar").evaluate((element) => element.getBoundingClientRect().width))
