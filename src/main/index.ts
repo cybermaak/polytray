@@ -14,6 +14,8 @@ import { registerScanningHandlers } from "./ipc/scanning";
 import { registerFileHandlers } from "./ipc/files";
 import { registerThumbnailHandlers } from "./ipc/thumbnails";
 import { registerSystemHandlers } from "./ipc/system";
+import { createElectronPreviewWindowManager } from "./previewWindow";
+import { registerPreviewParseHandler } from "./previewParseService";
 
 // Set the application name for macOS menu bar
 app.setName("PolyTray");
@@ -94,6 +96,8 @@ if (fs.existsSync(portableDataDir)) {
 let mainWindow: BrowserWindow | null = null;
 let thumbnailWindow: BrowserWindow | null = null;
 let mainWindowVisibilityRevision = 0;
+const previewRuntime = createElectronPreviewWindowManager();
+let previewParseRegistration: ReturnType<typeof registerPreviewParseHandler> | null = null;
 
 function readMainWindowVisibility(target: BrowserWindow): MainWindowVisibilityData {
   return {
@@ -168,6 +172,7 @@ function createWindow() {
   // Force quit when the main window is closed, especially on macOS
   mainWindow.on("closed", () => {
     mainWindow = null;
+    void previewParseRegistration?.dispose();
     if (thumbnailWindow) {
       thumbnailWindow.close();
     }
@@ -232,6 +237,7 @@ function registerIpcHandlers() {
   registerFileHandlers();
   registerThumbnailHandlers(getMainWindow);
   registerSystemHandlers(getMainWindow);
+  previewParseRegistration = registerPreviewParseHandler(ipcMain, getMainWindow, previewRuntime);
   initThumbnailService();
 }
 

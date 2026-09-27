@@ -28,6 +28,7 @@ export default defineConfig({
         input: {
           index: "./src/renderer/index.html",
           thumbnail: "./src/renderer/thumbnail.html",
+          preview: "./src/renderer/preview.html",
         },
       },
     },

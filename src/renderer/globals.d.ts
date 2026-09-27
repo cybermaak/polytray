@@ -10,13 +10,14 @@ import type {
   ThumbnailProgressData,
   ThumbnailRequestData,
   ThumbnailResultData,
-  PreviewParseRequestData,
+  PreviewParseCancelRequestData,
+  PreviewParseDispatchData,
   PreviewMetricData,
   MainWindowVisibilityData,
-  SerializedMesh,
   RuntimeSettingsData,
   UpdateFileMetadataData,
 } from "../shared/types";
+import type { PreparedPreview, PreviewParseRequest } from "../shared/previewContracts";
 
 export type { FileRecord };
 
@@ -47,9 +48,14 @@ interface PolytrayAPI {
     settings?: RuntimeSettingsData,
   ) => Promise<string | null>;
   requestPreviewParse: (
-    filePath: string,
-    ext: string,
-  ) => Promise<SerializedMesh[]>;
+    request: PreviewParseRequest,
+  ) => Promise<PreparedPreview>;
+  cancelPreviewParse: (
+    requestId: string,
+    reason: PreviewParseCancelRequestData["reason"],
+  ) => void;
+  readPreviewArchiveBuffer: (request: PreviewParseRequest) => Promise<ArrayBuffer>;
+  markPreviewRuntimeReady: () => void;
   emitPreviewMetric: (metric: PreviewMetricData) => void;
   startDrag: (filePath: string) => void;
   showContextMenu: (filePath: string) => void;
@@ -83,7 +89,7 @@ interface PolytrayAPI {
   ) => () => void;
   sendThumbnailResult: (result: ThumbnailResultData) => void;
   onPreviewParseRequest: (
-    callback: (data: PreviewParseRequestData) => void,
+    callback: (data: PreviewParseDispatchData) => void,
   ) => () => void;
 }
 

@@ -1,4 +1,4 @@
-import { app, ipcMain, BrowserWindow, MessageChannelMain } from "electron";
+import { app, ipcMain, BrowserWindow } from "electron";
 import path from "path";
 import fs from "fs/promises";
 import fsSync from "fs";
@@ -15,7 +15,6 @@ import { filterContainedPaths } from "./pathContainment";
 import { createThumbnailJobScheduler } from "./thumbnailJobScheduler";
 import { reconcileThumbnailCache } from "./thumbnailCacheLifecycle";
 import { parseRuntimeSettings } from "./ipc/runtimeValidation";
-import { registerPreviewParseHandler } from "./previewParseService";
 
 let thumbnailDir: string | null = null;
 const pendingRequests = new Map<string, Array<{ resolve: (val: string | null) => void }>>();
@@ -88,7 +87,6 @@ export function initThumbnailService() {
     callbacks.forEach((cb) => cb.resolve(savedPath));
   });
 
-  registerPreviewParseHandler(ipcMain, getThumbnailWindow, () => new MessageChannelMain());
 }
 
 function generatePathHash(filePath: string): string {

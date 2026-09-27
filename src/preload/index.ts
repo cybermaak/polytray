@@ -11,7 +11,6 @@ import {
   ThumbnailRequestData,
   ThumbnailResultData,
   SortOptions,
-  PreviewParseRequestData,
   PreviewMetricData,
   MainWindowVisibilityData,
   RuntimeSettingsData,
@@ -90,6 +89,9 @@ contextBridge.exposeInMainWorld("polytray", {
     settings?: RuntimeSettingsData,
   ) => ipcRenderer.invoke(IPC.REQUEST_THUMBNAIL_GENERATION, filePath, ext, settings),
   requestPreviewParse: previewBridge.requestPreviewParse,
+  cancelPreviewParse: previewBridge.cancelPreviewParse,
+  readPreviewArchiveBuffer: previewBridge.readPreviewArchiveBuffer,
+  markPreviewRuntimeReady: previewBridge.markPreviewRuntimeReady,
   emitPreviewMetric: (metric: PreviewMetricData) => {
     ipcRenderer.send(IPC.PREVIEW_METRIC, metric);
   },
