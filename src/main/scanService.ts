@@ -30,7 +30,7 @@ export interface ScanServiceOptions {
   db: Database;
   repository?: FileIndexRepository;
   discover?: (rootPath: string, signal: AbortSignal, generation: number) => AsyncIterable<DiscoveryEvent>;
-  extractMetadata?: (filePath: string, extension: string) => Promise<MetadataSummary>;
+  extractMetadata?: (filePath: string, extension: string, context: { identity: { id: number; path: string; contentRevision: number }; requestId: string; signal: AbortSignal }) => Promise<MetadataSummary>;
   onProgress?: (progress: ScanProgressData) => void;
   onFileIndexed?: (path: string, current: number, total: number | null, jobId: string) => void;
   onJobChanged?: (job: BackgroundJob) => void;
@@ -278,7 +278,12 @@ export class ScanService {
     const metadataQueue = new BoundedMetadataQueue(batchSize * 2, async ({ identity, file }) => {
       if (job.controller.signal.aborted) return;
       try {
-        const metadata = await (this.options.extractMetadata ?? extractMetadata)(file.path, file.extension);
+        const requestId = randomUUID();
+        const extract = this.options.extractMetadata ?? ((filePath, extension, context) =>
+          extractMetadata(filePath, extension, { signal: context.signal }));
+        const metadata = await extract(file.path, file.extension, {
+          identity, requestId, signal: job.controller.signal,
+        });
         if (job.controller.signal.aborted) return;
         ownedWrite = true;
         try {
@@ -290,6 +295,7 @@ export class ScanService {
           if (result.status === 'updated') { job.counts.metadataCompleted++; this.bump(job); }
         } finally { ownedWrite = false; }
       } catch (error: unknown) {
+        if (job.controller.signal.aborted) return;
         const reason = error instanceof Error ? error.message : String(error);
         job.counts.metadataFailed++;
         if (errors.length < 100) errors.push({ scopePath: file.path, phase: 'metadata', reason });

@@ -1,5 +1,6 @@
 import fs from "fs";
 import readline from "readline";
+import { Readable } from "stream";
 import * as unzipper from "unzipper";
 import type { ModelDimensions } from "../shared/types";
 import { parseArchiveEntryPath } from "../shared/archivePaths";
@@ -27,21 +28,28 @@ interface Bounds {
 export async function extractMetadata(
   filePath: string,
   ext: string,
+  options: { signal?: AbortSignal } = {},
 ): Promise<MetadataSummary> {
+  if (options.signal?.aborted) throw new Error("Metadata extraction cancelled");
   const archiveEntry = parseArchiveEntryPath(filePath);
   if (archiveEntry) {
-    const entryBuffer = await readArchiveEntryBuffer(archiveEntry.archivePath, archiveEntry.entryPath);
-    if (!entryBuffer) {
+    if (ext.toLowerCase() === "3mf") {
+      const buffer = await readArchiveEntryBuffer(archiveEntry.archivePath, archiveEntry.entryPath);
+      return buffer ? extractMetadataFromBuffer(buffer, ext) : { vertexCount: 0, faceCount: 0, dimensions: null };
+    }
+    const entryStream = await openArchiveEntryStream(archiveEntry.archivePath, archiveEntry.entryPath);
+    if (!entryStream) {
       return { vertexCount: 0, faceCount: 0, dimensions: null };
     }
-    return extractMetadataFromBuffer(entryBuffer, ext);
+    try { return await extractMetadataFromStream(entryStream.stream, ext, options.signal, entryStream.size); }
+    finally { await entryStream.close(); }
   }
 
   switch (ext.toLowerCase()) {
     case "stl":
-      return extractSTL(filePath);
+      return extractSTL(filePath, options.signal);
     case "obj":
-      return extractOBJ(filePath);
+      return extractOBJ(filePath, options.signal);
     case "3mf":
       return extract3MF(filePath);
     default:
@@ -65,29 +73,74 @@ export async function extractMetadataFromBuffer(
   }
 }
 
-async function readArchiveEntryBuffer(
+async function openArchiveEntryStream(
   archivePath: string,
   entryPath: string,
-): Promise<Buffer | null> {
+): Promise<{ stream: NodeJS.ReadableStream; size: number; close: () => Promise<void> } | null> {
+  const streams = new Set<fs.ReadStream>();
+  const source = {
+    size: async () => (await fs.promises.stat(archivePath)).size,
+    stream: (start: number, length?: number) => {
+      const stream = fs.createReadStream(archivePath, { start, end: length ? start + length - 1 : undefined });
+      streams.add(stream);
+      return stream;
+    },
+  };
+  const close = async () => Promise.all([...streams].map((stream) => new Promise<void>((resolve) => {
+    if (stream.closed) return resolve();
+    stream.once("close", resolve);
+    stream.destroy();
+    if (stream.closed) resolve();
+  }))).then(() => undefined);
   try {
-    const directory = await unzipper.Open.file(archivePath);
+    const directory = await unzipper.Open.custom(source);
     const entry = directory.files.find((file) => file.path === entryPath && file.type === "File");
     if (!entry) {
+      await close();
       return null;
     }
-    return entry.buffer();
+    return { stream: entry.stream(), size: entry.uncompressedSize, close };
   } catch (e: unknown) {
-    console.warn(`[Metadata] Failed to read archive entry ${archivePath} :: ${entryPath}:`, (e as Error).message);
-    return null;
+    await close();
+    const reason = e instanceof Error ? e.message : String(e);
+    throw new Error(`Failed to read archive entry ${archivePath} :: ${entryPath}: ${reason}`, { cause: e });
   }
+}
+
+async function readArchiveEntryBuffer(archivePath: string, entryPath: string): Promise<Buffer | null> {
+  const opened = await openArchiveEntryStream(archivePath, entryPath);
+  if (!opened) return null;
+  const chunks: Buffer[] = [];
+  try {
+    for await (const chunk of opened.stream as AsyncIterable<Buffer>) chunks.push(Buffer.from(chunk));
+    return Buffer.concat(chunks);
+  } finally { await opened.close(); }
 }
 
 /**
  * Parse STL file — supports both binary and ASCII formats.
  */
-async function extractSTL(filePath: string): Promise<MetadataSummary> {
-  const buffer = await fs.promises.readFile(filePath);
-  return extractSTLFromBuffer(buffer);
+async function extractSTL(filePath: string, signal?: AbortSignal): Promise<MetadataSummary> {
+  const handle = await fs.promises.open(filePath, "r");
+  try {
+    const stat = await handle.stat();
+    const probe = Buffer.alloc(Math.min(84, stat.size));
+    await handle.read(probe, 0, probe.length, 0);
+    if (stat.size < 84) throw new Error("Malformed or truncated STL header");
+    const expectedFaces = probe.readUInt32LE(80);
+    const expectedSize = 84 + expectedFaces * 50;
+    const header = probe.subarray(0, 80).toString("ascii").trim().toLowerCase();
+    if (stat.size === expectedSize) {
+      return streamBinarySTL(filePath, expectedFaces, signal);
+    }
+    if (!header.startsWith("solid")) {
+      throw new Error("Malformed STL: binary face count does not match file size");
+    }
+    const stream = fs.createReadStream(filePath, { encoding: "utf8" });
+    return streamSTLAscii(stream, signal);
+  } finally {
+    await handle.close();
+  }
 }
 
 function extractSTLFromBuffer(buffer: Buffer): MetadataSummary {
@@ -104,29 +157,71 @@ function extractSTLFromBuffer(buffer: Buffer): MetadataSummary {
 
   if (buffer.length < 84) return { vertexCount: 0, faceCount: 0, dimensions: null };
   const faceCount = buffer.readUInt32LE(80);
+  if (buffer.length !== 84 + faceCount * 50) throw new Error("Malformed or truncated binary STL data");
   return extractSTLBinaryFromBuffer(buffer, faceCount);
 }
 
-async function extractSTLAscii(filePath: string): Promise<MetadataSummary> {
-  const fileStream = fs.createReadStream(filePath, { encoding: "utf8" });
-  return extractSTLAsciiFromLineSource(fileStream);
+async function streamBinarySTL(filePath: string, faceCount: number, signal?: AbortSignal): Promise<MetadataSummary> {
+  return streamBinarySTLRecords(fs.createReadStream(filePath, { start: 84 }), faceCount, signal);
+}
+
+async function streamBinarySTLRecords(input: NodeJS.ReadableStream, faceCount: number, signal?: AbortSignal): Promise<MetadataSummary> {
+  if (signal?.aborted) { destroyReadable(input); throw new Error("Metadata extraction cancelled"); }
+  const bounds = createBounds();
+  let carry: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+  let faces = 0;
+  try {
+    for await (const chunkValue of input) {
+      if (signal?.aborted) throw new Error("Metadata extraction cancelled");
+      const chunk = Buffer.isBuffer(chunkValue) ? chunkValue : Buffer.from(String(chunkValue));
+      const data = carry.length ? Buffer.concat([carry, chunk]) : chunk;
+      const complete = data.length - (data.length % 50);
+      for (let offset = 0; offset < complete; offset += 50) {
+        if (faces >= faceCount) throw new Error("Malformed binary STL: excess triangle data");
+        for (let vertex = 0; vertex < 3; vertex++) {
+          const position = offset + 12 + vertex * 12;
+          updateBounds(bounds, data.readFloatLE(position), data.readFloatLE(position + 4), data.readFloatLE(position + 8));
+        }
+        faces++;
+      }
+      carry = data.subarray(complete);
+    }
+    if (carry.length || faces !== faceCount) throw new Error("Malformed or truncated binary STL data");
+    return { vertexCount: faceCount * 3, faceCount, dimensions: boundsToDimensions(bounds) };
+  } catch (error) {
+    (input as NodeJS.ReadableStream & { destroy?: () => void }).destroy?.();
+    throw error;
+  }
+}
+
+async function streamSTLAscii(input: NodeJS.ReadableStream, signal?: AbortSignal): Promise<MetadataSummary> {
+  if (signal?.aborted) { destroyReadable(input); throw new Error("Metadata extraction cancelled"); }
+  let faceCount = 0;
+  const bounds = createBounds();
+  const rl = readline.createInterface({ input, crlfDelay: Infinity });
+  const cancel = () => { (input as NodeJS.ReadableStream & { destroy?: () => void }).destroy?.(); rl.close(); };
+  signal?.addEventListener("abort", cancel, { once: true });
+  try {
+    for await (const line of rl) {
+      if (signal?.aborted) throw new Error("Metadata extraction cancelled");
+      const trimmed = line.trimStart().toLowerCase();
+      if (trimmed.startsWith("facet normal")) faceCount++;
+      else if (trimmed.startsWith("vertex ")) {
+        const parts = trimmed.split(/\s+/, 4);
+        if (parts.length >= 4) updateBounds(bounds, Number(parts[1]), Number(parts[2]), Number(parts[3]));
+      }
+    }
+    return { vertexCount: faceCount * 3, faceCount, dimensions: boundsToDimensions(bounds) };
+  } catch (error) {
+    cancel();
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", cancel);
+  }
 }
 
 function extractSTLAsciiFromText(text: string): MetadataSummary {
   return extractSTLAsciiFromLines(text.split(/\r?\n/));
-}
-
-async function extractSTLAsciiFromLineSource(input: NodeJS.ReadableStream): Promise<MetadataSummary> {
-  const rl = readline.createInterface({
-    input,
-    crlfDelay: Infinity,
-  });
-
-  const lines: string[] = [];
-  for await (const line of rl) {
-    lines.push(line);
-  }
-  return extractSTLAsciiFromLines(lines);
 }
 
 function extractSTLAsciiFromLines(lines: Iterable<string>): MetadataSummary {
@@ -175,19 +270,74 @@ function extractSTLBinaryFromBuffer(buffer: Buffer, faceCount: number): Metadata
   };
 }
 
-async function extractOBJ(filePath: string): Promise<MetadataSummary> {
+async function extractOBJ(filePath: string, signal?: AbortSignal): Promise<MetadataSummary> {
   const fileStream = fs.createReadStream(filePath, { encoding: "utf8" });
   const rl = readline.createInterface({
     input: fileStream,
     crlfDelay: Infinity,
   });
 
-  const lines: string[] = [];
-  for await (const line of rl) {
-    lines.push(line);
-  }
+  return extractOBJFromLineSource(rl, fileStream, signal);
+}
 
-  return extractOBJFromText(lines.join("\n"));
+async function extractMetadataFromStream(input: NodeJS.ReadableStream, ext: string, signal?: AbortSignal, expectedSize?: number): Promise<MetadataSummary> {
+  if (signal?.aborted) { destroyReadable(input); throw new Error("Metadata extraction cancelled"); }
+  if (ext.toLowerCase() === "obj") return extractOBJFromLineSource(readline.createInterface({ input, crlfDelay: Infinity }), input, signal);
+  if (ext.toLowerCase() === "stl") {
+    const iterator = (input as NodeJS.ReadableStream & AsyncIterable<Buffer>)[Symbol.asyncIterator]();
+    let prefix = Buffer.alloc(0);
+    while (prefix.length < 84) {
+      const next = await iterator.next();
+      if (next.done) break;
+      prefix = Buffer.concat([prefix, Buffer.isBuffer(next.value) ? next.value : Buffer.from(String(next.value))]);
+    }
+    if (prefix.length < 84) {
+      (input as NodeJS.ReadableStream & { destroy?: () => void }).destroy?.();
+      throw new Error("Malformed or truncated STL header in archive entry");
+    }
+    const header = prefix.subarray(0, 80).toString("ascii").trim().toLowerCase();
+    const faceCount = prefix.readUInt32LE(80);
+    const isBinary = expectedSize === 84 + faceCount * 50;
+    const replay = Readable.from((async function* () {
+      yield prefix;
+      for await (const chunk of { [Symbol.asyncIterator]: () => iterator }) yield chunk;
+    })());
+    if (isBinary) return streamBinarySTLRecords(Readable.from((async function* () {
+      if (prefix.length > 84) yield prefix.subarray(84);
+      for await (const chunk of { [Symbol.asyncIterator]: () => iterator }) yield chunk;
+    })()), faceCount, signal);
+    if (header.startsWith("solid")) return streamSTLAscii(replay, signal);
+    (input as NodeJS.ReadableStream & { destroy?: () => void }).destroy?.();
+    throw new Error("Malformed STL archive entry: binary face count does not match entry size");
+  }
+  (input as NodeJS.ReadableStream & { destroy?: () => void }).destroy?.();
+  return { vertexCount: 0, faceCount: 0, dimensions: null };
+}
+
+async function extractOBJFromLineSource(rl: AsyncIterable<string>, stream: NodeJS.ReadableStream, signal?: AbortSignal): Promise<MetadataSummary> {
+  if (signal?.aborted) { destroyReadable(stream); throw new Error("Metadata extraction cancelled"); }
+  let vertexCount = 0;
+  let faceCount = 0;
+  const bounds = createBounds();
+  const cancel = () => { (stream as NodeJS.ReadableStream & { destroy?: () => void }).destroy?.(); };
+  signal?.addEventListener("abort", cancel, { once: true });
+  try {
+    for await (const line of rl) {
+      if (signal?.aborted) throw new Error("Metadata extraction cancelled");
+      const trimmed = line.trimStart();
+      if (trimmed.startsWith("v ")) {
+        vertexCount++;
+        const parts = trimmed.split(/\s+/, 4);
+        if (parts.length >= 4) updateBounds(bounds, Number(parts[1]), Number(parts[2]), Number(parts[3]));
+      } else if (trimmed.startsWith("f ")) faceCount++;
+    }
+    return { vertexCount, faceCount, dimensions: boundsToDimensions(bounds) };
+  } catch (error) {
+    cancel();
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", cancel);
+  }
 }
 
 function extractOBJFromText(text: string): MetadataSummary {
@@ -278,6 +428,10 @@ function createBounds(): Bounds {
     maxY: Number.NEGATIVE_INFINITY,
     maxZ: Number.NEGATIVE_INFINITY,
   };
+}
+
+function destroyReadable(stream: NodeJS.ReadableStream) {
+  (stream as NodeJS.ReadableStream & { destroy?: () => void }).destroy?.();
 }
 
 function updateBounds(bounds: Bounds, x: number, y: number, z: number) {

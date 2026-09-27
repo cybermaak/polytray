@@ -77,3 +77,17 @@ test('extractMetadata reads geometry metadata from archive-backed virtual paths'
     await cleanupArchiveFixture(tempDir);
   }
 });
+
+test('extractMetadata streams binary STL data from an archive entry', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-archive-binary-stl-'));
+  const archivePath = path.join(tempDir, 'binary.zip');
+  const zip = new JSZip();
+  zip.file('nested/model.stl', fs.readFileSync(path.resolve(process.cwd(), 'tests/support/fixtures/test_model_a.stl')));
+  fs.writeFileSync(archivePath, await zip.generateAsync({ type: 'nodebuffer' }));
+  try {
+    const metadata = await extractMetadata(`${archivePath}${ARCHIVE_ENTRY_SEPARATOR}nested/model.stl`, 'stl');
+    assert.equal(metadata.vertexCount, 36);
+    assert.equal(metadata.faceCount, 12);
+    assert.deepEqual(metadata.dimensions, { x: 1, y: 1, z: 1 });
+  } finally { await cleanupArchiveFixture(tempDir); }
+});
