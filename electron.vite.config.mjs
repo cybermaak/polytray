@@ -10,6 +10,7 @@ export default defineConfig({
         input: {
           index: "./src/main/index.ts",
           worker: "./src/main/worker.ts",
+          metadataWorker: "./src/main/metadataWorker.ts",
         },
       },
     },

@@ -17,13 +17,19 @@ import {
 import { filterContainedPaths } from "../pathContainment";
 import { DEFAULT_APP_SETTINGS } from "../../shared/settings";
 import { createScanService } from "../scanService";
+import { MetadataWorkerClient } from "../metadataWorkerClient";
 import { parseFolderPath, parseRuntimeSettings } from "./runtimeValidation";
 
 export function registerScanningHandlers(
   getMainWindow: () => BrowserWindow | null,
+  metadataWorker = new MetadataWorkerClient({ maxQueuedRequests: 2 }),
 ) {
   const scanService = createScanService({
     db: getDb(),
+    extractMetadata: (filePath, extension, context) => metadataWorker.extract({
+      requestId: context.requestId, fileId: context.identity.id,
+      contentRevision: context.identity.contentRevision, filePath, extension,
+    }, { signal: context.signal }),
     onProgress: (progress) => {
       const mainWindow = getMainWindow();
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.SCAN_PROGRESS, progress);
@@ -148,4 +154,6 @@ export function registerScanningHandlers(
     );
     return true;
   });
+
+  return { dispose: async () => { await scanService.dispose(); await metadataWorker.shutdown(); } };
 }

@@ -114,6 +114,7 @@ const previewRuntime = createElectronPreviewWindowManager(() => [
 ]);
 let previewParseRegistration: ReturnType<typeof registerPreviewParseHandler> | null = null;
 let fileIndexRuntime: FileIndexRuntime | null = null;
+let scanningHandlers: ReturnType<typeof registerScanningHandlers> | null = null;
 let libraryMutationPublisher: LibraryMutationPublisher | null = null;
 
 function readMainWindowVisibility(target: BrowserWindow): MainWindowVisibilityData {
@@ -250,7 +251,7 @@ function registerIpcHandlers() {
     return readMainWindowVisibility(currentWindow);
   });
   registerLibraryHandlers(getMainWindow);
-  registerScanningHandlers(getMainWindow);
+  scanningHandlers = registerScanningHandlers(getMainWindow);
   registerFileHandlers({
     isScopeIndexReady: () => fileIndexRuntime?.canUseScopeReader() === true,
     ensureScopeIndexReady: async () => {
@@ -314,6 +315,7 @@ app.whenReady().then(() => {
     () => {
       app.once("will-quit", () => {
         slicerHandlers?.dispose();
+        void scanningHandlers?.dispose();
         void fileIndexRuntime?.dispose();
         libraryMutationPublisher?.flush();
         libraryMutationPublisher?.dispose();
