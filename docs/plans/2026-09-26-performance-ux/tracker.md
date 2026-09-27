@@ -4,7 +4,7 @@
 
 **Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01, S01, T03, V01, and the P02 export service are reviewed and integrated. Seven implementation lanes now cover D02/S02/T01/V03/U03/P01/P03, with an independent review chat. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. The original unregistered chat requests are superseded by the active assignments below.
 
-**Progress:** 7 / 33 DONE. Foundation 2/2; data 1/3; scanning 1/6; thumbnails 1/4; preview 1/5; browsing 0/6; product workflows 1/4; validation 0/3. D01's guarded missing-row follow-up is reviewed and integrated.
+**Progress:** 8 / 33 DONE. Foundation 2/2; data 2/3; scanning 1/6; thumbnails 1/4; preview 1/5; browsing 0/6; product workflows 1/4; validation 0/3. D02's query service, IPC smoke, benchmark and reviews are complete; UI paging remains U01/V02.
 
 ## Status and update rules
 
@@ -21,8 +21,8 @@
 | F01 | [Contracts and preview seam](foundation-data.md#f01---freeze-contracts-and-extract-the-preview-seam) | Foundation | - | DONE | f01_foundation (Luna/medium) | [F01](handoffs/F01.md); integrated `9430eb9`, `da1adf8` |
 | F02 | [Fixtures and diagnostics](foundation-data.md#f02---establish-portable-fixtures-and-trustworthy-diagnostics) | Foundation | - | DONE | f02_fixtures (Luna/medium) | [F02](handoffs/F02.md); spec/quality and combined gate passed |
 | D01 | [Indexed scopes and batched writes](foundation-data.md#d01---indexed-folder-membership-and-a-batched-write-repository) | P1 | F01, F02 | DONE | d01_index_repository (Luna/medium) | [D01](handoffs/D01.md); core through `fa38a6d`, guarded missing-row follow-up `8265dd2`/`37eb013`; reviews/checks passed |
-| D02 | [Complete SQL display pages](foundation-data.md#d02---query-complete-display-pages-in-sqlite) | P1 | D01 | IN_PROGRESS | d01_index_repository (Luna/medium) | Dispatch from verified local-main base |
-| D03 | [Independent library summaries](foundation-data.md#d03---separate-library-summaries-from-list-queries) | P2 | D02 | PLANNED | Unassigned | - |
+| D02 | [Complete SQL display pages](foundation-data.md#d02---query-complete-display-pages-in-sqlite) | P1 | D01 | DONE | d01_index_repository (Luna/medium) | [D02](handoffs/D02.md); independent spec/quality PASS, units/Build/IPC/benchmark PASS; integrated `288724e` through `516e79c` |
+| D03 | [Independent library summaries](foundation-data.md#d03---separate-library-summaries-from-list-queries) | P2 | D02 | IN_PROGRESS | d01_index_repository (Luna/medium) | Dispatch from integrated D02 base |
 | S01 | [Safe enumeration and pruning](scanning.md#s01---require-proof-of-successful-enumeration-before-pruning) | P1 | F01, F02 | DONE | s01_safe_scanning (Luna/medium) | [S01](handoffs/S01.md); both reviews and runtime gate passed |
 | S02 | [Streaming discovery and early batches](scanning.md#s02---stream-discovery-and-commit-useful-batches-early) | P1 | S01, D01 | IN_PROGRESS | baseline_validation reassigned (Luna/medium) | Dispatch from verified local-main base |
 | S03 | [Background metadata extraction](scanning.md#s03---move-metadata-cpu-work-out-of-the-main-process) | P1 | S02 | PLANNED | Unassigned | - |
@@ -38,7 +38,7 @@
 | V03 | [Owned cancellable preview runtime](preview.md#v03---cancel-obsolete-parsing-through-an-owned-preview-runtime) | P2 | F01, F02, D01 | IN_PROGRESS | s01_safe_scanning reassigned (Luna/medium) | Implementing against reviewed D01 contract; runtime gate waits for D01 integration |
 | V04 | [Background preparation and bounded assembly](preview.md#v04---prepare-orientation-in-the-background-and-budget-visible-mesh-assembly) | P2 | V01, V03, S04 | PLANNED | Unassigned | - |
 | V05 | [Progressive part thumbnails](preview.md#v05---make-part-thumbnails-small-progressive-and-independent) | P2 | V04 | PLANNED | Unassigned | - |
-| U01 | [Complete browsing and consistent selection](browsing.md#u01---load-every-result-and-keep-selection-consistent-across-pages) | P1 | D02, T03 | PLANNED | Unassigned | - |
+| U01 | [Complete browsing and consistent selection](browsing.md#u01---load-every-result-and-keep-selection-consistent-across-pages) | P1 | D02, T03 | READY | Unassigned | Wait for U03's App/layout ownership to be released |
 | U02 | [Search state and targeted refresh](browsing.md#u02---unify-search-state-and-refresh-only-what-changed) | P2 | U01, D03 | PLANNED | Unassigned | - |
 | U03 | [Responsive panel layout](browsing.md#u03---keep-browsing-usable-at-every-supported-window-size) | P2 | F01, F02 | IN_PROGRESS | Luna/medium chat `01a0e202-8608-7f21-a52d-5e89ef92806b` | Active registered chat supersedes unregistered request |
 | U04 | [Keyboard navigation and focus](browsing.md#u04---support-keyboard-navigation-and-predictable-focus) | P2 | U01, U03, V02 | PLANNED | Unassigned | - |
@@ -56,7 +56,7 @@
 
 | Assignment | Worker | Worktree / branch | State |
 | --- | --- | --- | --- |
-| D02 | d01_index_repository, Luna/medium | `/Users/maak/.codex/worktrees/polytray-foundation/polytray` / `codex/perf-d02` | Implementing paging/query service |
+| D03 | d01_index_repository, Luna/medium | `/Users/maak/.codex/worktrees/polytray-foundation/polytray` / `codex/perf-d03` | Implementing independent cached summaries |
 | V03 | s01_safe_scanning reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-v03` | Implementing |
 | S02 | baseline_validation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-s02` | Implementing streaming scans |
 | T03 old dispatch | Unregistered chat request | Client `eec1883f-42d5-4431-ad0b-955c2867d1b1` | Superseded for ownership; reconcile if it later registers |
@@ -94,6 +94,7 @@ S02 preparation exposed one additional D01 guard: a positive expected content re
 | 2026-09-27 | P02 producer gate | Independent spec and quality PASS; 14 focused and 98 product units, Type/Build PASS | Integrated export-only service and registration adapter; live revision/provider/UI consumer wiring remains P04/U06 |
 | 2026-09-27 | T03 producer gate | Coordinator spec and independent quality PASS; 12 focused renderer tests, Type/Build/lint PASS | Integrated bounded shared image loader; U01/T02 must wire path-only updates and invalidate same-path ready events |
 | 2026-09-27 | D01 gate | Core/adapters/IPC reviews PASS; 133 unit passes/1 native-Windows skip; all 35 non-optional E2E cases pass across Product plus corrected app-file rerun; portability follow-up focused tests/Type/Build PASS | Integrated migration5, guarded repository, bounded backfill and typed notifications; Windows/Linux app runs remain outstanding |
+| 2026-09-27 | D02 gate | Independent spec/quality PASS; 157 unit passes/1 Windows-only skip, Type/Build PASS, actual IPC smoke 1/1 | 10k/50k grouped folder median 14.77/79.71 ms; 50k p95 81.35 ms; heartbeat max 143.96 ms; final G02 repeats on integrated app |
 
 ## Blockers and decisions
 
