@@ -110,6 +110,26 @@ test('LRU limits use recency and encoded bytes', async () => {
   assert.equal(byteLimitedReads.length, 2);
 });
 
+test('total byte budget evicts the least-recently-used fitting entry', async () => {
+  const reads: string[] = [];
+  const dataUrl = image('AAAA');
+  const cache = createThumbnailImageCache(async (thumbnailPath) => {
+    reads.push(thumbnailPath);
+    return dataUrl;
+  }, { maxEntries: 8, maxEncodedBytes: dataUrl.length * 2 });
+
+  await cache.load('/cache/one.png');
+  await cache.load('/cache/two.png');
+  await cache.load('/cache/one.png'); // Touch one; two is now least recently used.
+  await cache.load('/cache/three.png'); // All entries fit individually; total bytes evict two.
+  await cache.load('/cache/one.png');
+  await cache.load('/cache/two.png'); // Evicted two must be read again.
+
+  assert.deepEqual(reads, [
+    '/cache/one.png', '/cache/two.png', '/cache/three.png', '/cache/two.png',
+  ]);
+});
+
 test('invalidation fences an in-flight result and allows a fresh read for the same key', async () => {
   const oldRead = deferred<string | null>();
   const newRead = deferred<string | null>();
