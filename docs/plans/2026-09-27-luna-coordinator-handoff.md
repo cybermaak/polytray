@@ -5,11 +5,12 @@
 The user requested a new **GPT-6 Luna coordinator**, retaining the existing Astra chat for the **final integration review**. The new coordinator chat is `01a0e49e-6109-77d0-9035-574d005c8bd2` on host `local`. This document changes execution order and coordination ownership, not the approved product scope or acceptance criteria.
 
 - Coordinator and implementation/review workers: `gpt-6-luna`, medium reasoning. Do not silently upgrade or wake Astra for routine work.
-- Implementation is paused. The new coordinator initially reads this handoff, verifies the checkpoint read-only, acknowledges readiness, and waits for the user's instruction to resume.
+- Coordinator onboarding is complete. The user explicitly resumed implementation; continue through the staged execution queue below.
 - Existing authorization permits isolated worktrees, task commits, and integration into local main. **Do not push to origin/main without explicit user permission.** No release or website publication is authorized.
 - Follow `AGENTS.md`, `DEV_CONTEXT.md`, and the existing [33-task tracker](2026-09-26-performance-ux/tracker.md). Original task specifications and [C1-C10 contracts](2026-09-26-performance-ux/contracts.md) remain authoritative. A producer's DONE does not imply its later UI consumer is finished.
-- **13 tasks are DONE; 20 remain.** S02/V03 are implemented and merged but await the combined Product gate. S03/T02/U01/V02 have preserved work in progress. Fourteen tasks are unstarted.
+- **15 tasks are DONE; 18 remain.** S02/V03 passed the combined Type/Build/Product gate and are complete. S03/T02/U01/V02 have preserved work in progress. Fourteen tasks are unstarted.
 - Current product source checkpoint: `bf6cdfe` (S02 merge `3005977`, V03 merge `bf6cdfe`). Typecheck and Build passed on that combination. Subsequent commits may be documentation-only; verify HEAD before acting.
+- Stage 1 gate passed on 2026-09-27: `npm run build` PASS; full `PYTHON=/usr/bin/python3 npm run test:product` PASS (257 unit passes/1 Windows-only skip; 40 E2E passes/1 optional real-model skip). The S02 held-subtree metrics were 5.1 ms to first query and 35.21 ms maximum main heartbeat gap; V03 stopped the obsolete renderer in 73 ms. The E2E mutation-event assertion was corrected for the documented notification coalescing contract and independently reviewed.
 - Last fully green Product checkpoint before these final scanner/preview merges: **219 unit passes + 1 Windows-only skip; 38 E2E passes + 1 optional real-model skip**. This is not a pass for the newer combined source.
 - Focused evidence already obtained: S02 first queryable batch **5.9 ms** before held-subtree release, main heartbeat max **35.16 ms**; V03 obsolete renderer stopped **73 ms**, with distinct PIDs, A/B rejected, C successful, independent thumbnail work, fallback and cleanup assertions.
 - The shared empty-ZIP stream bug that interrupted the last two full Product runs was corrected in `f07baf7` and `6e3da0e`, independently reviewed, and merged. Do not diagnose it from an older checkout again.
@@ -37,8 +38,8 @@ The order below deliberately postpones persistence recovery until scanner/watche
 
 | Stage | Task IDs | Assignment and allowed concurrency | Required exit |
 | --- | --- | --- | --- |
-| 0 | Takeover only | Luna coordinator, read-only. Inventory the four WIP checkouts and the V02 approval constraint. Keep all workers paused until user resumes. | Correct checkpoint/ownership/lease record; no lost edits or new implementation. |
-| 1 | S02, V03 | One validation owner on the current combined source. No new feature work while establishing this baseline. | Type + Build + full Product pass with corrected ZIP cleanup; record new counts and runtime evidence, then mark both DONE. |
+| 0 | Takeover only | Luna coordinator, read-only. Inventory WIP checkouts and the V02 approval constraint. | Completed: checkpoint, ownership, lease, and rejection constraint recorded. |
+| 1 | S02, V03 | One validation owner on the current combined source. No new feature work while establishing this baseline. | Completed: Type + Build + full Product pass with corrected ZIP cleanup; both marked DONE with runtime evidence. |
 | 2 | T02, S03 | Two workers: thumbnail invalidation and metadata utility process. Coordinator serializes their narrow scan/startup wiring. | Both producer APIs reviewed; real renderer/utility-process tests and combined Product pass. T02 event consumer remains explicitly in stage 3. |
 | 3 | U01, V02 | Two coordinated UI owners: App/grid versus PreviewPanel. Resolve the preserved merge safely first; exchange the existing PreviewTarget and T02 event contracts. | Joint paging/preview/thumbnail-arrival E2E and Product pass. All 600+ records and multi-page archives reachable; metadata edits preserve geometry/camera. |
 | 4 | U02, T04 | Search/targeted refresh and thumbnail job controls can run concurrently in disjoint modules. | Search cannot revive after clear; warm summary request counts remain stable; thumbnail pause/cancel/retry and accounting pass. |

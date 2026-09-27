@@ -485,6 +485,7 @@ test('annotation edits use the revisioned repository and preserve print status',
     assert.equal(result.file.notes, null);
     assert.equal((db.prepare('SELECT print_status FROM files WHERE id = ?').get(identity.id) as { print_status: string }).print_status, 'Testing');
     assert.equal(repository.getBrowseRevision(), before + 1);
+    assert.equal(notifications.at(-1)?.rowsChanged, false);
     assert.equal(notifications.at(-1)?.annotationsChanged, true);
     assert.equal(notifications.at(-1)?.statsChanged, false);
     assert.equal(notifications.at(-1)?.topologyChanged, false);
