@@ -21,7 +21,7 @@ const { _electron: electron } = require("playwright");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
-const { buildElectronLaunchEnv } = require("../../support/helpers/electronLaunch");
+const { buildElectronLaunchArgs, buildElectronLaunchEnv } = require("../../support/helpers/electronLaunch");
 
 const FIXTURE_DIR = path.join(__dirname, "../../support/fixtures");
 const APP_DIR = path.resolve(__dirname, "../../..");
@@ -226,10 +226,7 @@ test.beforeAll(async () => {
   // Create isolated userData
   tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), "polytray-test-"));
 
-  const args = [
-    path.join(APP_DIR, "out/main/index.js"),
-    `--user-data-dir=${tempUserData}`,
-  ];
+  const args = buildElectronLaunchArgs(path.join(APP_DIR, "out/main/index.js"), tempUserData);
 
   if (process.platform === "linux") {
     args.push("--no-sandbox", "--disable-gpu");

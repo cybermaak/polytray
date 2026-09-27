@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { _electron as electron, ElectronApplication } from 'playwright';
-import { buildElectronLaunchEnv } from './electronLaunch';
+import { buildElectronLaunchArgs, buildElectronLaunchEnv } from './electronLaunch';
 
 export interface IsolatedAppOptions {
   mainEntry: string;
@@ -27,7 +27,7 @@ export async function launchIsolatedApp(options: IsolatedAppOptions): Promise<Is
   fs.mkdirSync(userDataDir); fs.mkdirSync(scratchDir);
   try { await options.beforeLaunch?.({ ownerDir, userDataDir, scratchDir }); }
   catch (error) { fs.rmSync(ownerDir, { recursive: true, force: true }); throw error; }
-  const args = [options.mainEntry, `--user-data-dir=${userDataDir}`, ...(options.args ?? [])];
+  const args = buildElectronLaunchArgs(options.mainEntry, userDataDir, options.args ?? []);
   if (process.platform === 'linux') args.push('--no-sandbox', '--disable-gpu');
   let app: ElectronApplication;
   try {
