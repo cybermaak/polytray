@@ -4,7 +4,7 @@ import { normalizeFileTags } from './fileTags';
 import { normalizeCollectionsState } from './libraryCollections';
 import { normalizeLibraryState } from './libraryState';
 import { DEFAULT_APP_SETTINGS, normalizeAppSettings } from './settings';
-import { createArchiveEntryPath, normalizeArchiveEntryPath, parseArchiveEntryPath } from './archivePaths';
+import { ARCHIVE_ENTRY_SEPARATOR, parseArchiveEntryPath } from './archivePaths';
 
 export interface MetadataBackupAnnotation {
   path: string;
@@ -29,6 +29,11 @@ export interface BuildMetadataBackupInput {
   pendingAnnotations: MetadataBackupAnnotation[];
 }
 
+declare const normalizedSnapshotBrand: unique symbol;
+export type NormalizedMetadataBackupSnapshot = MetadataBackupSnapshot & {
+  readonly [normalizedSnapshotBrand]: true;
+};
+
 const BACKUP_PREFERENCE_KEYS = [
   'lightMode', 'gridSize', 'autoScan', 'accentColor', 'previewColor',
   'thumbnailColor', 'thumbQuality', 'showGrid', 'watch',
@@ -40,12 +45,21 @@ export const METADATA_BACKUP_MANIFEST_STATEMENT =
 
 export function canonicalizeBackupPath(value: string): string {
   if (!value || !value.trim()) throw new Error('Backup path must not be empty');
-  const archiveEntry = parseArchiveEntryPath(value);
-  if (!archiveEntry) return path.resolve(value);
-  return createArchiveEntryPath(
-    path.resolve(archiveEntry.archivePath),
-    normalizeArchiveEntryPath(archiveEntry.entryPath),
-  );
+  const separatorIndex = value.indexOf(ARCHIVE_ENTRY_SEPARATOR);
+  if (separatorIndex < 0) return canonicalizePhysicalPath(value);
+  if (!parseArchiveEntryPath(value)) throw new Error('Invalid archive member path');
+  const archivePath = value.slice(0, separatorIndex);
+  const memberIdentifier = value.slice(separatorIndex + ARCHIVE_ENTRY_SEPARATOR.length);
+  if (!memberIdentifier) throw new Error('Archive member path must not be empty');
+  return `${canonicalizePhysicalPath(archivePath)}${ARCHIVE_ENTRY_SEPARATOR}${memberIdentifier}`;
+}
+
+function canonicalizePhysicalPath(value: string) {
+  const hasWindowsDrive = /^[A-Za-z]:[\\/]/.test(value);
+  const hasUncAuthority = /^(?:\\\\|\/\/)[^\\/]+[\\/][^\\/]+/.test(value);
+  if (hasWindowsDrive || hasUncAuthority) return path.win32.normalize(value);
+  if (path.posix.isAbsolute(value)) return path.posix.normalize(value);
+  throw new Error(`Backup physical paths must be absolute: ${value}`);
 }
 
 function stableCompare(left: string, right: string) {
@@ -123,7 +137,7 @@ export function normalizeMetadataBackupSnapshot(input: unknown): MetadataBackupS
   };
 }
 
-export function parseMetadataBackupSnapshot(input: unknown): MetadataBackupSnapshot {
+export function parseMetadataBackupSnapshot(input: unknown): NormalizedMetadataBackupSnapshot {
   if (!input || typeof input !== 'object') throw new Error('Invalid metadata backup snapshot');
   const raw = input as Partial<MetadataBackupSnapshot>;
   if (!Number.isSafeInteger(raw.rendererRevision) || (raw.rendererRevision as number) < 0) {
@@ -159,13 +173,22 @@ export function parseMetadataBackupSnapshot(input: unknown): MetadataBackupSnaps
       throw new Error(`Invalid metadata backup preference: ${key}`);
     }
   }
-  return normalizeMetadataBackupSnapshot(raw);
+  return normalizeMetadataBackupSnapshot(raw) as NormalizedMetadataBackupSnapshot;
 }
 
 export function buildMetadataBackupV1(input: BuildMetadataBackupInput): MetadataBackupDocumentV1 {
+  return buildMetadataBackupV1FromNormalizedSnapshot({
+    ...input,
+    snapshot: parseMetadataBackupSnapshot(input.snapshot),
+  });
+}
+
+export function buildMetadataBackupV1FromNormalizedSnapshot(
+  input: Omit<BuildMetadataBackupInput, 'snapshot'> & { snapshot: NormalizedMetadataBackupSnapshot },
+): MetadataBackupDocumentV1 {
   if (!Number.isFinite(Date.parse(input.exportedAt))) throw new Error('Invalid export timestamp');
   if (!input.appVersion.trim()) throw new Error('Invalid app version');
-  const snapshot = parseMetadataBackupSnapshot(input.snapshot);
+  const snapshot = input.snapshot;
   return {
     format: METADATA_BACKUP_FORMAT,
     version: 1,
@@ -210,6 +233,7 @@ export function validateMetadataBackupV1(input: unknown): MetadataBackupDocument
   });
 }
 
+/** Serialize a document already created by the builder or checked by the V1 validator. */
 export function serializeMetadataBackup(input: MetadataBackupDocumentV1): string {
-  return `${JSON.stringify(validateMetadataBackupV1(input), null, 2)}\n`;
+  return `${JSON.stringify(input, null, 2)}\n`;
 }

@@ -134,6 +134,46 @@ test('renderer revision changing before atomic rename preserves the existing bac
   }
 });
 
+test('pending annotations are captured before the native save dialog can mutate their source', async () => {
+  const db = createDatabase();
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'polytray-backup-pending-snapshot-'));
+  const target = path.join(root, 'metadata.json');
+  const pendingRecords = [{ path: '/offline/model.stl', tags: ['before'], notes: 'before dialog' }];
+  let openDialog!: () => void;
+  let choosePath!: () => void;
+  const dialogOpened = new Promise<void>((resolve) => { openDialog = resolve; });
+  const dialogResult = new Promise<{ canceled: false; filePath: string }>((resolve) => {
+    choosePath = () => resolve({ canceled: false, filePath: target });
+  });
+  const service = createMetadataBackupService({
+    db,
+    showSaveDialog: () => { openDialog(); return dialogResult; },
+    appVersion: '1.1.1',
+    getCurrentRendererRevision: () => 7,
+    getPendingAnnotations: (snapshotDb) => {
+      assert.equal(snapshotDb, db);
+      assert.equal(snapshotDb.inTransaction, true);
+      return pendingRecords;
+    },
+    now: () => new Date('2026-09-26T12:00:00.000Z'),
+  });
+  try {
+    const pendingExport = service.exportMetadata(makeSnapshot());
+    await dialogOpened;
+    pendingRecords[0].tags[0] = 'after';
+    pendingRecords[0].notes = 'after dialog';
+    choosePath();
+    assert.equal((await pendingExport).status, 'exported');
+    const backup = JSON.parse(await fs.readFile(target, 'utf8'));
+    assert.deepEqual(backup.pendingAnnotations[0], {
+      path: '/offline/model.stl', tags: ['before'], notes: 'before dialog',
+    });
+  } finally {
+    db.close();
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('write failure preserves the pre-existing target', async () => {
   const db = createDatabase();
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'polytray-backup-failure-'));
