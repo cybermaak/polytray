@@ -178,17 +178,27 @@ test('cancellation while opening an empty archive cannot complete the archive sc
   const archive = path.join(temp, 'empty.zip');
   fs.writeFileSync(archive, await new JSZip().generateAsync({ type: 'nodebuffer' }));
   const controller = new AbortController();
-  const originalOpen = unzipper.Open.file;
+  const originalOpen = unzipper.Open.custom;
+  const openedStreams: NodeJS.ReadableStream[] = [];
   let release!: () => void;
   let entered!: () => void;
   const didEnter = new Promise<void>((resolve) => { entered = resolve; });
   const gate = new Promise<void>((resolve) => { release = resolve; });
   try {
-    unzipper.Open.file = (async (target: string) => {
-      const result = await originalOpen(target);
-      if (target === archive) { entered(); await gate; }
+    unzipper.Open.custom = (async (source: Parameters<typeof unzipper.Open.custom>[0]) => {
+      const trackedSource = {
+        size: source.size,
+        stream: (start: number, length?: number) => {
+          const stream = source.stream(start, length);
+          openedStreams.push(stream);
+          return stream;
+        },
+      };
+      const result = await originalOpen(trackedSource);
+      entered();
+      await gate;
       return result;
-    }) as typeof unzipper.Open.file;
+    }) as typeof unzipper.Open.custom;
     const pending = discoverFolder(temp, controller.signal);
     await didEnter;
     controller.abort();
@@ -196,8 +206,10 @@ test('cancellation while opening an empty archive cannot complete the archive sc
     const result = await pending;
     assert.equal(result.state, 'cancelled');
     assert.equal(result.scopes.some((scope) => scope.scopePath === archive && scope.status === 'complete'), false);
+    assert.ok(openedStreams.length > 0);
+    assert.ok(openedStreams.every((stream) => (stream as fs.ReadStream).closed), 'archive streams must be closed before discovery resolves');
   } finally {
-    unzipper.Open.file = originalOpen;
+    unzipper.Open.custom = originalOpen;
     fs.rmSync(temp, { recursive: true, force: true });
   }
 });

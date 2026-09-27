@@ -23,6 +23,44 @@ interface ScannedFile {
   mtime: number;
 }
 
+/**
+ * unzipper.Open.file leaves its central-directory ReadStream alive after the
+ * directory records have been parsed (notably for an empty archive). Keep
+ * ownership of those lazy streams so cancellation cannot outlive the scan.
+ */
+async function openArchiveDirectory(archivePath: string) {
+  const streams = new Set<fs.ReadStream>();
+  const source = {
+    size: async () => (await fs.promises.stat(archivePath)).size,
+    stream: (start: number, length?: number) => {
+      const end = length ? start + length : undefined;
+      const stream = fs.createReadStream(archivePath, { start, end });
+      streams.add(stream);
+      return stream;
+    },
+  };
+
+  const close = async () => {
+    await Promise.all([...streams].map((stream) => new Promise<void>((resolve) => {
+      if (stream.closed) {
+        resolve();
+        return;
+      }
+      stream.once('close', resolve);
+      stream.destroy();
+      if (stream.closed) resolve();
+    })));
+  };
+
+  try {
+    const directory = await unzipper.Open.custom(source);
+    return { directory, close };
+  } catch (error) {
+    await close();
+    throw error;
+  }
+}
+
 function isolatedScanHold(rootPath: string, scopePath: string) {
   if (process.env.POLYTRAY_ISOLATED_TEST !== '1') return null;
   const configuredScope = process.env.POLYTRAY_SCAN_TEST_HOLD_PATH;
@@ -146,8 +184,11 @@ export async function* streamDiscoverFolder(
   }
 
   async function* scanArchive(archivePath: string, parentDir: string): AsyncGenerator<DiscoveryEvent> {
+    let closeArchive: (() => Promise<void>) | undefined;
     try {
-      const directory = await unzipper.Open.file(archivePath);
+      const opened = await openArchiveDirectory(archivePath);
+      closeArchive = opened.close;
+      const { directory } = opened;
       if (cancelled()) return;
       const stat = await fs.promises.stat(archivePath);
       if (cancelled()) return;
@@ -172,6 +213,8 @@ export async function* streamDiscoverFolder(
       const reason = (error as Error)?.message ?? String(error);
       console.warn(`Cannot inspect archive ${archivePath}:`, reason);
       yield scopeError(archivePath, 'ARCHIVE_FAILED', reason, 'archive');
+    } finally {
+      await closeArchive?.();
     }
   }
 
