@@ -2,6 +2,8 @@
 
 [Execution plan](../2026-09-26-performance-ux-execution-plan.md) | [Shared contracts](contracts.md) | [Handoff template](handoff-template.md)
 
+**Coordination handoff:** [Luna execution plan](../2026-09-27-luna-coordinator-handoff.md). Luna/medium coordinator chat `01a0e49e-6109-77d0-9035-574d005c8bd2` owns routine dispatch, integration and verification; the original Astra chat is reserved for the final integration review. Existing task statuses and acceptance criteria remain unchanged. Implementation stays paused during coordinator onboarding.
+
 **Execution paused (2026-09-27):** At the user's request for a progress/credit assessment, all workers are idle and no task-owned app/test process remains. Preserve current worktrees and partial merges. Do not resume implementation until the user instructs the coordinator. Current local main is `bf6cdfe`; S02/V03 code and reviewed archive corrections are merged and Type/Build pass, but their combined Product rerun is still pending.
 
 **Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01-D03, S01, T03, V01, and the P02/P03 backup services are reviewed and integrated. Six implementation lanes cover S02/S03/T02/V02/V03/U01; P04 is next after S02, with independent reviews. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. The original unregistered chat requests are superseded by the active assignments below.
@@ -37,7 +39,7 @@
 | T04 | [Thumbnail queue controls and accounting](thumbnails.md#t04---centralize-thumbnail-queue-state-controls-and-retry-accounting) | P2 | T02 | PLANNED | Unassigned | - |
 | V01 | [Viewer lifetime and idle rendering](preview.md#v01---give-each-viewer-a-lifecycle-and-stop-drawing-when-idle) | P2 | F01, F02 | DONE | f01_foundation + s01_safe_scanning (Luna/medium) | [V01](handoffs/V01.md); reviewed and integrated through `cb63f7a` |
 | V02 | [Stable preview state and lazy archive navigation](preview.md#v02---decouple-metadata-from-geometry-and-show-durable-preview-states) | P2 | V01, D02 | IN_PROGRESS | Luna/medium chat `01a0e202-0863-7f30-bfb8-c159d2e58053` | Reuses completed import checkout `codex/perf-v02`, base reviewed V03 `cba30cb`; joint U01 preview-target seam |
-| V03 | [Owned cancellable preview runtime](preview.md#v03---cancel-obsolete-parsing-through-an-owned-preview-runtime) | P2 | F01, F02, D01 | REVIEW | s01_safe_scanning reassigned (Luna/medium) | corrected static reviews PASS; focused native cancellation PASS (73ms); full Product awaits shared ZIP cleanup correction |
+| V03 | [Owned cancellable preview runtime](preview.md#v03---cancel-obsolete-parsing-through-an-owned-preview-runtime) | P2 | F01, F02, D01 | REVIEW | s01_safe_scanning reassigned (Luna/medium) | corrected static reviews PASS; focused native cancellation PASS (73ms); reviewed ZIP corrections merged in main; combined Product rerun pending |
 | V04 | [Background preparation and bounded assembly](preview.md#v04---prepare-orientation-in-the-background-and-budget-visible-mesh-assembly) | P2 | V01, V03, S04 | PLANNED | Unassigned | - |
 | V05 | [Progressive part thumbnails](preview.md#v05---make-part-thumbnails-small-progressive-and-independent) | P2 | V04 | PLANNED | Unassigned | - |
 | U01 | [Complete browsing and consistent selection](browsing.md#u01---load-every-result-and-keep-selection-consistent-across-pages) | P1 | D02, T03 | IN_PROGRESS | Luna/medium chat `01a0e202-8608-7f21-a52d-5e89ef92806b` | Reuses completed layout checkout on `codex/perf-u01`, base `b84ba09` |
@@ -59,19 +61,19 @@
 | Assignment | Worker | Worktree / branch | State |
 | --- | --- | --- | --- |
 | D03 | d01_index_repository, Luna/medium | `/Users/maak/.codex/worktrees/polytray-d03/polytray` / `codex/perf-d03` | DONE: integrated; checkout free after handoff |
-| V03 | s01_safe_scanning reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-v03` | Focused native PASS; full Product blocked by shared empty-ZIP cleanup regression; no app lease |
-| S02 | baseline_validation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-s02` | Focused streaming runtime PASS (5.9ms first query,35.16ms heartbeat); shared ZIP stream correction f07baf7 under review |
+| V03 | s01_safe_scanning reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-v03` | Focused native PASS; ZIP correction now merged in main; combined Product rerun pending; no app lease |
+| S02 | baseline_validation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-s02` | Focused streaming runtime PASS (5.9ms first query,35.16ms heartbeat); archive corrections `f07baf7`/`6e3da0e` reviewed and merged; combined gate pending |
 | S03 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-foundation/polytray` / `codex/perf-s03` | Independent metadata implementation from S02 `f07baf7`; final scan fixes merged later |
 | T03 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/61df/polytray`, `74d2e9e` | Preserved unreviewed alternative; active T03 producer already integrated |
 | T02 | Registered Luna/medium chat, T01 complete | `/Users/maak/.codex/worktrees/polytray-thumbnails/polytray` / `codex/perf-t02` | Implementing authoritative refresh/invalidation; no current native lease |
 | U01 | Registered Luna/medium chat, U03 complete | `/Users/maak/.codex/worktrees/polytray-layout/polytray` / `codex/perf-u01` | Implementing complete paging and selection |
 | V02 | Registered Luna/medium chat, P03 complete | `/Users/maak/.codex/worktrees/polytray-import/polytray` / `codex/perf-v02` | Implementing stable preview state and lazy archive navigation |
-| P01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-slicer/polytray` / `codex/perf-p01` | Implementing |
+| P01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-slicer/polytray` / `codex/perf-p01` | DONE; checkout available for later P04 after status check |
 | Independent review | Luna/medium chat `01a0e1fe-a466-7810-9892-71009a512cc2` | Read-only exact candidate checkouts | V03 static spec/quality PASS; P01 correction review active in free subagent |
 | U03 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/1221/polytray`, `3a3b13c` | Preserved unreviewed alternative; active owner is the registered layout chat |
 | P01 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/861a/polytray`, `b9701b5` | Preserved unreviewed alternative; active owner is the registered slicer chat |
 
-Active agents use separate dependency copies. Current dispatch baseline: `c6868e7`.
+Active agents use separate dependency copies. Current integrated product source: `bf6cdfe`; `c6868e7` is the historical execution baseline.
 App-level/Electron checks use a serial coordinator lane; units/builds can run concurrently.
 The three original worktree-chat requests never returned usable task IDs. Later repository inspection found completed draft commits in their worktrees, recorded above; they are preserved and superseded rather than silently merged. The working coordination route creates a managed worktree first, then a local project chat instructed to operate exclusively in that isolated checkout. Four implementation chats and one read-only review chat are now registered, in addition to the three subagents. All active implementations have private dependency copies. P01 and P03 are explicitly allowed concurrently because their source ownership is disjoint.
 
