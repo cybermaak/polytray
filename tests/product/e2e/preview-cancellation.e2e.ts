@@ -197,7 +197,7 @@ test('held 3MF parsing is cancelled by latest request without stopping main or t
     await expect.poll(() => pidIsAlive(heldPid), { timeout: 1500, intervals: [20, 50, 100] }).toBe(false);
     const stoppedInMs = Date.now() - replacementStartedAt;
     console.log('[preview-e2e] old renderer stopped', stoppedInMs);
-    expect(stoppedInMs, 'obsolete renderer is stopped within the C10 replacement budget').toBeLessThan(1000);
+    expect(stoppedInMs, 'obsolete renderer is stopped within the C10 replacement budget').toBeLessThanOrEqual(500);
     await expect.poll(() => replacementDispatchFinished, { timeout: 5000 }).toBe(true);
     expect(replacementDispatchError).toBeUndefined();
     await replacementDispatch;
