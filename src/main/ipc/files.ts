@@ -1,9 +1,10 @@
 /**
  * IPC handlers for file queries and data access.
  */
-import { ipcMain } from "electron";
+import { ipcMain, type IpcMain } from "electron";
 import fs from "fs";
 import * as unzipper from "unzipper";
+import type { Database } from "better-sqlite3";
 import { getDb } from "../database";
 import {
   FileRecord,
@@ -31,6 +32,18 @@ export interface FileHandlerReadiness {
   ensureScopeIndexReady(): Promise<void>;
 }
 
+export function registerLibrarySummaryHandlers(
+  summaryIpc: Pick<IpcMain, "handle"> = ipcMain,
+  getSummaryDb: () => Database = getDb,
+) {
+  summaryIpc.handle(IPC.GET_DIRECTORIES, () => {
+    return getLibrarySummaryService(getSummaryDb()).getDirectories();
+  });
+  summaryIpc.handle(IPC.GET_STATS, (): LibraryStats => {
+    return getLibrarySummaryService(getSummaryDb()).getStats();
+  });
+}
+
 
 async function readArchiveEntryBuffer(archivePath: string, entryPath: string) {
   const directory = await unzipper.Open.file(archivePath);
@@ -44,6 +57,7 @@ async function readArchiveEntryBuffer(archivePath: string, entryPath: string) {
 }
 
 export function registerFileHandlers(readiness: FileHandlerReadiness) {
+  registerLibrarySummaryHandlers();
   ipcMain.handle(IPC.GET_FILES, (event, opts: SortOptions = {}) => {
     const db = getDb();
     const parsedOptions = parseSortOptions(opts);
@@ -162,10 +176,6 @@ export function registerFileHandlers(readiness: FileHandlerReadiness) {
     throw new Error("File changed while metadata was being updated");
   });
 
-  ipcMain.handle(IPC.GET_DIRECTORIES, () => {
-    return getLibrarySummaryService(getDb()).getDirectories();
-  });
-
   ipcMain.handle(IPC.READ_FILE_BUFFER, async (event, filePath) => {
     const parsedFilePath = parseFilePath(filePath);
     const db = getDb();
@@ -186,7 +196,4 @@ export function registerFileHandlers(readiness: FileHandlerReadiness) {
     );
   });
 
-  ipcMain.handle(IPC.GET_STATS, (): LibraryStats => {
-    return getLibrarySummaryService(getDb()).getStats();
-  });
 }
