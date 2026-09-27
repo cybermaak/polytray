@@ -40,7 +40,7 @@ async function writeFallback3mf(filePath) {
   zip.file('3D/3dmodel.model', `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
   <resources>
-    <basematerials id="2"><base name="red" displaycolor="#FF0000"/></basematerials>
+    <colorgroup id="2"><color color="#FF0000"/></colorgroup>
     <object id="1" type="model" pid="2" pindex="0"><mesh>
       <vertices><vertex x="0" y="0" z="0"/><vertex x="10" y="0" z="0"/><vertex x="0" y="10" z="0"/></vertices>
       <triangles><triangle v1="0" v2="1" v3="2"/></triangles>
@@ -133,6 +133,11 @@ test('held 3MF parsing is cancelled by latest request without stopping main or t
     isolated.app.on('window', (page) => {
       page.on('console', (message) => {
         previewConsole.push(message.text());
+        for (const argument of message.args()) {
+          void argument.jsonValue().then((value) => {
+            previewConsole.push(typeof value === 'string' ? value : JSON.stringify(value));
+          }).catch(() => {});
+        }
       });
     });
 
