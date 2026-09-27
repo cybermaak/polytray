@@ -4,7 +4,7 @@
 
 **Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01, S01, T03, V01, and the P02 export service are reviewed and integrated. D02/S02 are dispatched from that verified base while V03 continues. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. Extra-chat registration is unresolved; the active subagent pool owns execution.
 
-**Progress:** 7 / 33 DONE. Foundation 2/2; data 1/3; scanning 1/6; thumbnails 1/4; preview 1/5; browsing 0/6; product workflows 1/4; validation 0/3.
+**Progress:** 6 / 33 DONE. Foundation 2/2; data 0/3; scanning 1/6; thumbnails 1/4; preview 1/5; browsing 0/6; product workflows 1/4; validation 0/3. D01's integrated core is temporarily reopened for the guarded missing-row case exposed while preparing S02.
 
 ## Status and update rules
 
@@ -20,7 +20,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | F01 | [Contracts and preview seam](foundation-data.md#f01---freeze-contracts-and-extract-the-preview-seam) | Foundation | - | DONE | f01_foundation (Luna/medium) | [F01](handoffs/F01.md); integrated `9430eb9`, `da1adf8` |
 | F02 | [Fixtures and diagnostics](foundation-data.md#f02---establish-portable-fixtures-and-trustworthy-diagnostics) | Foundation | - | DONE | f02_fixtures (Luna/medium) | [F02](handoffs/F02.md); spec/quality and combined gate passed |
-| D01 | [Indexed scopes and batched writes](foundation-data.md#d01---indexed-folder-membership-and-a-batched-write-repository) | P1 | F01, F02 | DONE | d01_index_repository (Luna/medium) | [D01](handoffs/D01.md); reviews and composite app gate PASS; integrated through `fa38a6d` |
+| D01 | [Indexed scopes and batched writes](foundation-data.md#d01---indexed-folder-membership-and-a-batched-write-repository) | P1 | F01, F02 | REVIEW | d01_index_repository (Luna/medium) | [D01](handoffs/D01.md); core integrated through `fa38a6d`; follow-up prevents guarded scans recreating watcher-deleted rows |
 | D02 | [Complete SQL display pages](foundation-data.md#d02---query-complete-display-pages-in-sqlite) | P1 | D01 | IN_PROGRESS | d01_index_repository (Luna/medium) | Dispatch from verified local-main base |
 | D03 | [Independent library summaries](foundation-data.md#d03---separate-library-summaries-from-list-queries) | P2 | D02 | PLANNED | Unassigned | - |
 | S01 | [Safe enumeration and pruning](scanning.md#s01---require-proof-of-successful-enumeration-before-pruning) | P1 | F01, F02 | DONE | s01_safe_scanning (Luna/medium) | [S01](handoffs/S01.md); both reviews and runtime gate passed |
@@ -70,6 +70,8 @@ The three requested chat tasks do not yet have usable task IDs and are not count
 The coordinator explicitly delegated D01's startup/library-change bridge and V03's preview IPC/readiness/build-entry wiring in their separate checkouts. Each wiring delta is committed separately and receives coordinator review; common-file conflicts are resolved once at integration. V03 may mechanically remove the old preview hookup from thumbnail-owned files, while preserving thumbnail behavior.
 
 V03 also needs the persisted D01 content revision at its existing preview caller. This runtime prerequisite was exposed during source tracing and is now explicit; no timestamp/size substitute is permitted. Its narrow caller adaptation is authorized, while V02 retains geometry-identity and state refactoring. T03 has moved to the active subagent pool because the extra-chat request has not registered; no second active implementation is known.
+
+S02 preparation exposed one additional D01 guard: a positive expected content revision must not insert a now-missing row. D is fixing this in a separate tested repository commit before continuing D02. S02 owns the in-flight path-mutation fence, including observed-absent add/remove races. D02/S02 may prepare against the reviewed core, but their integration gates wait for this correction; no unguarded substitute is allowed.
 
 ## Integration log
 
