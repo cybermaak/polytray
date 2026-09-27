@@ -7,6 +7,7 @@ import type {
   FilesUpdatedData,
   FileIndexedData,
   ThumbnailReadyData,
+  ThumbnailInvalidatedData,
   ThumbnailProgressData,
   ThumbnailRequestData,
   ThumbnailResultData,
@@ -96,6 +97,9 @@ interface PolytrayAPI {
   onFileIndexed: (callback: (data: FileIndexedData) => void) => () => void;
   onThumbnailReady: (
     callback: (data: ThumbnailReadyData) => void,
+  ) => () => void;
+  onThumbnailInvalidated: (
+    callback: (data: ThumbnailInvalidatedData) => void,
   ) => () => void;
   onThumbnailProgress: (
     callback: (data: ThumbnailProgressData) => void,

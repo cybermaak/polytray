@@ -7,6 +7,7 @@ import {
   FilesUpdatedData,
   FileIndexedData,
   ThumbnailReadyData,
+  ThumbnailInvalidatedData,
   ThumbnailProgressData,
   ThumbnailRequestData,
   ThumbnailResultData,
@@ -153,6 +154,8 @@ contextBridge.exposeInMainWorld("polytray", {
     onChannel<FileIndexedData>(IPC.FILE_INDEXED, cb),
   onThumbnailReady: (cb: (data: ThumbnailReadyData) => void) =>
     onChannel<ThumbnailReadyData>(IPC.THUMBNAIL_READY, cb),
+  onThumbnailInvalidated: (cb: (data: ThumbnailInvalidatedData) => void) =>
+    onChannel<ThumbnailInvalidatedData>(IPC.THUMBNAIL_INVALIDATED, cb),
   onThumbnailProgress: (cb: (data: ThumbnailProgressData) => void) =>
     onChannel<ThumbnailProgressData>(IPC.THUMBNAIL_PROGRESS, cb),
 

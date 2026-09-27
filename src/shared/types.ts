@@ -102,6 +102,7 @@ export const IPC = {
   FILES_UPDATED: "files-updated",
   FILE_INDEXED: "file-indexed",
   THUMBNAIL_READY: "thumbnail-ready",
+  THUMBNAIL_INVALIDATED: "thumbnail-invalidated",
   THUMBNAIL_PROGRESS: "thumbnail-progress",
   GENERATE_THUMBNAIL_REQUEST: "generate-thumbnail-request",
   GENERATE_PREVIEW_PARSE_REQUEST: "generate-preview-parse-request",
@@ -178,6 +179,10 @@ export interface ThumbnailReadyData {
   identity: ThumbnailIdentity;
   contentRevision: number;
 }
+
+export type ThumbnailInvalidatedData =
+  | { kind: "all" }
+  | { kind: "paths"; modelPaths: string[]; thumbnailPaths: string[] };
 
 /** THUMBNAIL_PROGRESS event payload */
 export interface ThumbnailProgressData {
