@@ -59,7 +59,16 @@ test('GET_LIBRARY_PAGE IPC pages files and archive summaries after scope readine
   });
 
   try {
-    const mainWindow = await findVisibleMainWindow(isolated.app);
+    const appProcess = isolated.app.process();
+    const earlyLogs: string[] = [];
+    appProcess.stderr?.on('data', (chunk) => earlyLogs.push(String(chunk)));
+    appProcess.on('exit', (code, signal) => earlyLogs.push(`Electron exited: code=${code}, signal=${signal}`));
+    let mainWindow;
+    try {
+      mainWindow = await findVisibleMainWindow(isolated.app);
+    } catch (error) {
+      throw new Error(`${String(error)}\nElectron diagnostics:\n${earlyLogs.join('') || '(no stderr/exit diagnostics captured)'}`);
+    }
     const scanResult = await mainWindow.evaluate(async ({ folder, settings }) =>
       window.polytray.scanFolder(folder, settings), { folder: libraryRoot, settings: SETTINGS });
     expect(scanResult.state).toBe('completed');
