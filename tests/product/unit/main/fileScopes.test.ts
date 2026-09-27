@@ -23,9 +23,9 @@ test('archive entry scopes include its physical archive ancestry and virtual anc
   const scopes = enumerateFileScopesForPlatform('/models/kits.zip::entry::set\\large\\part.3mf', 'posix');
 
   assert.deepEqual(scopes, [
-    path.resolve('/'),
-    path.resolve('/models'),
-    path.resolve('/models/kits.zip'),
+    path.posix.resolve('/'),
+    path.posix.resolve('/models'),
+    path.posix.resolve('/models/kits.zip'),
     '/models/kits.zip::entry::',
     '/models/kits.zip::entry::set',
     '/models/kits.zip::entry::set/large',
