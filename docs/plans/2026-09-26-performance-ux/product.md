@@ -28,7 +28,7 @@ Read [contracts C8-C9](contracts.md) and the [tracker](tracker.md). P builds ser
 
 **Steps:**
 
-1. Define and validate version-1 backup serialization per C9. Include current and pending annotations keyed by source path, normalized collections, roots, and portable preferences. Export print status already stored in SQLite even though its editing UI is not part of this plan.
+1. Define and validate version-1 backup serialization per C9. Include current annotations and a separate `pendingAnnotations` array, each unique by canonical path, plus normalized collections, roots, and portable preferences. Preserve overlapping current/pending values without export-time merging. Export print status already stored in SQLite even though its editing UI is not part of this plan.
 2. Capture a consistent database annotation snapshot with a renderer state revision. If the renderer changes collections/settings while preparing export, retry or ask it for the matching snapshot; do not silently combine different acknowledged revisions.
 3. Use a native save dialog and atomic temp-write/rename. Cancellation produces no output; a failed write preserves any previous file and returns a visible error. Handle Unicode paths/notes and large collections without buffering multiple copies needlessly.
 4. Exclude cache paths, model content, native application paths, SQLite row IDs, and transient runtime state. Add an explicit manifest statement that source files are external and required for full recovery.
@@ -46,7 +46,7 @@ Read [contracts C8-C9](contracts.md) and the [tracker](tracker.md). P builds ser
 
 **Steps:**
 
-1. Reject oversized, malformed, unsupported-version, and invalid-path inputs before any mutation. Test C9 limits, duplicate annotation keys, invalid tags/collections/settings, and future versions.
+1. Reject oversized, malformed, unsupported-version, and invalid-path inputs before any mutation. Test C9 combined limits across both annotation arrays, duplicates within either array, valid overlap across current/pending arrays, invalid tags/collections/settings, and future versions. Default an absent pendingAnnotations array to empty for compatibility.
 2. Compute a pure plan from backup plus current normalized annotations/renderer state. Match canonical paths exactly, including virtual entries; never guess a new library root or map files by name alone. Separate matched, unmatched/pending, changed, unchanged, and conflicting records.
 3. Implement fixed merge rules: union tags/membership; fill empty notes; apply imported print status when current status is absent/default `Not Printed`; retain a different existing nondefault status or nonempty note as a reported conflict. Do not create duplicate tags/collections on retry.
 4. For collection ID/name collisions, allocate a new stable ID once in the import plan and retain it for retries of that import. Validate collection member paths without requiring that all models are currently online.

@@ -2,7 +2,7 @@
 
 [Execution plan](../2026-09-26-performance-ux-execution-plan.md) | [Shared contracts](contracts.md) | [Handoff template](handoff-template.md)
 
-**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01 and F02 are reviewed and integrated. Combined foundation gate passed: Build, 66 unit tests, 29 E2E tests, 1 optional real-model test skipped. S01 is reviewed and integrated; D01/V01 are addressing review corrections. T03/U03/P01 chat creation remains pending registration.
+**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01 and F02 are reviewed and integrated. Combined foundation gate passed: Build, 66 unit tests, 29 E2E tests, 1 optional real-model test skipped. S01 is reviewed and integrated; D01/V01 are in review/verification, and P02 export is implementing independently. T03/U03/P01 chat creation remains pending registration.
 
 **Progress:** 3 / 33 DONE. Foundation 2/2; data 0/3; scanning 1/6; thumbnails 0/4; preview 0/5; browsing 0/6; product workflows 0/4; validation 0/3.
 
@@ -45,7 +45,7 @@
 | U05 | [Background work UI and watch preferences](browsing.md#u05---present-useful-progress-and-respect-watcher-preferences) | P2 | U02, S06, T04 | PLANNED | Unassigned | - |
 | U06 | [Workflow and measurement UI integration](browsing.md#u06---integrate-slicer-backuprestore-and-honest-measurements) | P2 | U04, P01, P02, P04, S04 | PLANNED | Unassigned | - |
 | P01 | [Local slicer and archive handoff](product.md#p01---add-explicit-local-slicer-handoff-including-zip-members) | P2 | F01, F02 | READY | Unassigned | - |
-| P02 | [Versioned metadata export](product.md#p02---export-complete-versioned-metadata-backups) | P2 | F01, F02 | READY | Unassigned | - |
+| P02 | [Versioned metadata export](product.md#p02---export-complete-versioned-metadata-backups) | P2 | F01, F02 | IN_PROGRESS | s01_safe_scanning reassigned (Luna/medium) | Export service checkpoint pending |
 | P03 | [Deterministic import preview](product.md#p03---preview-imports-and-compute-deterministic-mergeconflict-results) | P2 | P02, D01 | PLANNED | Unassigned | - |
 | P04 | [Recoverable restore transaction](product.md#p04---apply-restores-with-crash-recovery-across-both-stores) | P2 | P03, S02 | PLANNED | Unassigned | - |
 | G01 | [Integrated correctness and recovery](validation.md#g01---prove-integrated-correctness-and-recovery) | Gate | U05, U06, V05 | PLANNED | Unassigned | - |
@@ -57,7 +57,7 @@
 | Assignment | Worker | Worktree / branch | State |
 | --- | --- | --- | --- |
 | D01 | d01_index_repository, Luna/medium | `/Users/maak/.codex/worktrees/polytray-foundation/polytray` / `codex/perf-d01` | Implementing |
-| S01 | s01_safe_scanning, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-s01` | Done; checkout available after coordination |
+| P02 | s01_safe_scanning reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-p02` | Implementing export in disjoint files from pending P01 |
 | V01 | f01_foundation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-v01` | Implementing |
 | T03 | New Luna/medium chat requested | Client `eec1883f-42d5-4431-ad0b-955c2867d1b1` | Worktree created; waiting for task registration |
 | U03 | New Luna/medium chat requested | Client `0a22ffff-ae10-4583-a008-f381c43fc15d` | Worktree created; waiting for task registration |
@@ -80,7 +80,7 @@ The three requested chat tasks do not yet have usable task IDs and are not count
 
 ## Blockers and decisions
 
-Execution is active. The default Python native-rebuild issue is resolved by selecting `/usr/bin/python3`; no package change was needed. Both foundation tasks and their review corrections are integrated. Approved defaults are in `contracts.md`; any contract revision must be coordinated before consumer dispatch. Graph tooling was unavailable during the audit; future agents must check its availability/freshness and otherwise use source fallback rather than claiming graph coverage. The existing marketing/media changes are unrelated and must remain intact.
+Execution is active. The default Python native-rebuild issue is resolved by selecting `/usr/bin/python3`; no package change was needed. Both foundation tasks and their review corrections are integrated. P02 is explicitly allowed alongside the pending P01 request because their files are disjoint. The V1 export format now separates current and pending annotation arrays to preserve overlapping values; imports merge only after preview. Approved defaults are in `contracts.md`; any contract revision must be coordinated before consumer dispatch. Graph tooling was unavailable during the audit; future agents must check its availability/freshness and otherwise use source fallback rather than claiming graph coverage. The existing marketing/media changes are unrelated and must remain intact.
 
 ## Completion evidence checklist
 
