@@ -92,6 +92,8 @@ export const IPC = {
   GENERATE_THUMBNAIL_REQUEST: "generate-thumbnail-request",
   GENERATE_PREVIEW_PARSE_REQUEST: "generate-preview-parse-request",
   PREVIEW_PARSE_PORT: "preview-parse-port",
+  GET_MAIN_WINDOW_VISIBILITY: "get-main-window-visibility",
+  MAIN_WINDOW_VISIBILITY: "main-window-visibility",
 } as const;
 
 // ── IPC Payload Types (single source of truth) ──────────────────────
@@ -235,6 +237,11 @@ export interface UpdateFileMetadataData {
   id: number;
   tags?: string[] | null;
   notes?: string | null;
+}
+
+export interface MainWindowVisibilityData {
+  visible: boolean;
+  revision: number;
 }
 
 // Domain contracts are re-exported here as the stable shared type entrypoint.

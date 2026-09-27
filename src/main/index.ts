@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol, net } from "electron";
+import { app, BrowserWindow, ipcMain, protocol, net } from "electron";
 import { join } from "path";
 import { getDb, initDatabase } from "./database";
 import { stopWatcher } from "./watcher";
@@ -6,6 +6,7 @@ import { initThumbnailService } from "./thumbnails";
 import fs from "fs";
 import { getThumbnailDir } from "./thumbnails";
 import { toAllowedLocalFileUrl } from "./localFileProtocol";
+import { IPC, type MainWindowVisibilityData } from "../shared/types";
 
 // IPC handler modules
 import { registerLibraryHandlers } from "./ipc/library";
@@ -92,6 +93,20 @@ if (fs.existsSync(portableDataDir)) {
 
 let mainWindow: BrowserWindow | null = null;
 let thumbnailWindow: BrowserWindow | null = null;
+let mainWindowVisibilityRevision = 0;
+
+function readMainWindowVisibility(target: BrowserWindow): MainWindowVisibilityData {
+  return {
+    visible: !target.isDestroyed() && target.isVisible() && !target.isMinimized(),
+    revision: mainWindowVisibilityRevision,
+  };
+}
+
+function publishMainWindowVisibility(target: BrowserWindow) {
+  if (target.isDestroyed()) return;
+  mainWindowVisibilityRevision++;
+  target.webContents.send(IPC.MAIN_WINDOW_VISIBILITY, readMainWindowVisibility(target));
+}
 
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow;
@@ -117,6 +132,13 @@ function createWindow() {
       backgroundThrottling: true, // Visible viewer pauses while hidden; background workers stay unthrottled.
     },
   });
+  const visibleWindow = mainWindow;
+  const publishVisibility = () => publishMainWindowVisibility(visibleWindow);
+  visibleWindow.on("minimize", publishVisibility);
+  visibleWindow.on("restore", publishVisibility);
+  visibleWindow.on("show", publishVisibility);
+  visibleWindow.on("hide", publishVisibility);
+  visibleWindow.webContents.on("did-finish-load", publishVisibility);
 
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -198,6 +220,13 @@ function createThumbnailWindow() {
 // ── IPC Registration ──────────────────────────────────────────
 
 function registerIpcHandlers() {
+  ipcMain.handle(IPC.GET_MAIN_WINDOW_VISIBILITY, (event) => {
+    const currentWindow = mainWindow;
+    if (!currentWindow || currentWindow.isDestroyed() || event.sender !== currentWindow.webContents) {
+      throw new Error("Main window visibility is unavailable to this renderer");
+    }
+    return readMainWindowVisibility(currentWindow);
+  });
   registerLibraryHandlers(getMainWindow);
   registerScanningHandlers(getMainWindow);
   registerFileHandlers();

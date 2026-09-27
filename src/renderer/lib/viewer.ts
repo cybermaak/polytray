@@ -12,7 +12,11 @@ import { applySmartOrientation } from "./orientation";
 import { computeCameraFit } from "./cameraUtils";
 import type { SerializedMesh } from "../../shared/types";
 import { loadPreviewMeshes } from "./previewStrategies";
-import { disposeOwnedViewerResources, ViewerSession } from "./viewerSession";
+import {
+  createMainWindowVisibilityGate,
+  disposeOwnedViewerResources,
+  ViewerSession,
+} from "./viewerSession";
 
 // ── Re-exports for backward compatibility ─────────────────────────
 export { VIEWER_CONFIG } from "./viewerConfig";
@@ -77,14 +81,26 @@ function installSessionListeners(session: ViewerSession<ViewerState>) {
     state.multiModelMeshes.forEach((mesh) => mesh.traverse(recolor));
     session.invalidate();
   };
-  const visibilityHandler = () => {
-    session.setVisible(document.visibilityState === "visible");
+  let nativeWindowVisible = true;
+  const synchronizeVisibility = () => {
+    session.setVisible(nativeWindowVisible && document.visibilityState === "visible");
   };
+  const acceptNativeVisibility = createMainWindowVisibilityGate((visible) => {
+    if (activeSession !== session || session.isDisposed) return;
+    nativeWindowVisible = visible;
+    synchronizeVisibility();
+  });
+  const unsubscribeNativeVisibility = window.polytray.onMainWindowVisibility(acceptNativeVisibility);
+  session.addCleanup(unsubscribeNativeVisibility);
+  void window.polytray.getMainWindowVisibility().then(acceptNativeVisibility).catch((error) => {
+    if (!session.isDisposed) console.warn("Could not read main window visibility", error);
+  });
+  const visibilityHandler = synchronizeVisibility;
   window.addEventListener("polytray-preview-color", colorHandler);
   document.addEventListener("visibilitychange", visibilityHandler);
   session.addCleanup(() => window.removeEventListener("polytray-preview-color", colorHandler));
   session.addCleanup(() => document.removeEventListener("visibilitychange", visibilityHandler));
-  session.setVisible(document.visibilityState === "visible");
+  synchronizeVisibility();
 }
 
 // ── Initialization ────────────────────────────────────────────────

@@ -5,6 +5,23 @@ export interface ViewerFrameScheduler {
   draw(): void;
 }
 
+export interface MainWindowVisibilityData {
+  visible: boolean;
+  revision: number;
+}
+
+export function createMainWindowVisibilityGate(onChange: (visible: boolean) => void) {
+  let acceptedRevision = -1;
+  let currentVisibility = true;
+  return (update: MainWindowVisibilityData) => {
+    if (!Number.isSafeInteger(update.revision) || update.revision <= acceptedRevision) return false;
+    acceptedRevision = update.revision;
+    currentVisibility = update.visible;
+    onChange(currentVisibility);
+    return true;
+  };
+}
+
 export type ViewerSessionResourceDisposer<TResources> = (
   resources: TResources,
   owner: ViewerSession<TResources>,

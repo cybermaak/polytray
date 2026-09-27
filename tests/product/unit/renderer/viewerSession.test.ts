@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { disposeOwnedViewerResources, ViewerSession } from "../../../../src/renderer/lib/viewerSession";
+import { createMainWindowVisibilityGate, disposeOwnedViewerResources, ViewerSession } from "../../../../src/renderer/lib/viewerSession";
 
 function createFrameHarness() {
   let nextId = 1;
@@ -123,4 +123,14 @@ test("disposing an old session tears down only its own resources", () => {
   replacement.dispose();
   assert.equal(activeSession, null);
   assert.deepEqual(disposedResources, ["old", "replacement"]);
+});
+
+test("stale initial visibility replies cannot override newer native events", () => {
+  const states: boolean[] = [];
+  const acceptVisibility = createMainWindowVisibilityGate((visible) => states.push(visible));
+
+  assert.equal(acceptVisibility({ revision: 1, visible: true }), true);
+  assert.equal(acceptVisibility({ revision: 2, visible: false }), true);
+  assert.equal(acceptVisibility({ revision: 1, visible: true }), false);
+  assert.deepEqual(states, [true, false]);
 });

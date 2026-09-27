@@ -17,6 +17,7 @@ const RUNTIME_SETTINGS = {
 
 let app;
 let window;
+let nativeWindow;
 let tempUserData;
 
 async function findMainWindow(electronApp) {
@@ -44,6 +45,7 @@ test.beforeAll(async () => {
   });
   await app.firstWindow();
   window = await findMainWindow(app);
+  nativeWindow = await app.browserWindow(window);
   await window.waitForLoadState("domcontentloaded");
   await window.evaluate(() => {
     const probe = {
@@ -141,14 +143,14 @@ test("resize, reset camera, and grid changes each invalidate the viewer", async 
     { timeout: 5000 },
   ).toBeGreaterThan(0);
 
-  const originalSize = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize());
-  const initialViewerWidth = await window.locator("#viewer-container").evaluate((element) => element.clientWidth);
+  const originalSize = await nativeWindow.evaluate((mainWindow) => mainWindow.getSize());
+  const initialViewerHeight = await window.locator("#viewer-container").evaluate((element) => element.getBoundingClientRect().height);
   await clearFrames();
-  await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size[0] - 120, size[1] - 80), originalSize);
+  await nativeWindow.evaluate((mainWindow, size) => mainWindow.setSize(size[0], size[1] - 90), originalSize);
   await expect.poll(
-    () => window.locator("#viewer-container").evaluate((element) => element.clientWidth),
+    () => window.locator("#viewer-container").evaluate((element) => element.getBoundingClientRect().height),
     { timeout: 5000 },
-  ).not.toBe(initialViewerWidth);
+  ).not.toBe(initialViewerHeight);
   await expectFrame();
 
   await clearFrames();
@@ -164,7 +166,7 @@ test("resize, reset camera, and grid changes each invalidate the viewer", async 
   await expectFrame();
   await window.locator("#settings-close").click();
 
-  await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size[0], size[1]), originalSize);
+  await nativeWindow.evaluate((mainWindow, size) => mainWindow.setSize(size[0], size[1]), originalSize);
   await window.locator("#btn-close-viewer").click();
   await expect(window.locator("#preview-panel")).toHaveClass(/hidden/);
 });
@@ -177,16 +179,20 @@ test("minimizing pauses viewer frames and restore draws a catch-up frame", async
   await expect(window.locator("#viewer-container canvas")).toHaveCount(1);
   await expect(window.locator("#viewer-loading")).toHaveClass(/hidden/);
 
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize());
+  await nativeWindow.evaluate((mainWindow) => mainWindow.minimize());
   await expect.poll(
-    () => window.evaluate(() => document.visibilityState),
+    () => nativeWindow.evaluate((mainWindow) => ({
+      minimized: mainWindow.isMinimized(),
+      visible: mainWindow.isVisible(),
+    })),
     { timeout: 15000 },
-  ).toBe("hidden");
+  ).toMatchObject({ minimized: true, visible: false });
   await window.evaluate(() => {
     window.__POLYTRAY_RENDERER_PROBE.viewerFrames = 0;
     window.__POLYTRAY_RENDERER_PROBE.webglDrawCalls = 0;
+    window.dispatchEvent(new Event("resize"));
   });
-  await window.waitForTimeout(500);
+  await new Promise((resolve) => setTimeout(resolve, 1500));
   const hiddenCounts = await window.evaluate(() => ({
     viewerFrames: window.__POLYTRAY_RENDERER_PROBE.viewerFrames,
     webglDrawCalls: window.__POLYTRAY_RENDERER_PROBE.webglDrawCalls,
@@ -194,12 +200,15 @@ test("minimizing pauses viewer frames and restore draws a catch-up frame", async
   expect(hiddenCounts.viewerFrames).toBe(0);
   expect(hiddenCounts.webglDrawCalls).toBe(0);
 
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].restore());
+  await nativeWindow.evaluate((mainWindow) => mainWindow.restore());
   await window.bringToFront();
   await expect.poll(
-    () => window.evaluate(() => document.visibilityState),
+    () => nativeWindow.evaluate((mainWindow) => ({
+      minimized: mainWindow.isMinimized(),
+      visible: mainWindow.isVisible(),
+    })),
     { timeout: 15000 },
-  ).toBe("visible");
+  ).toMatchObject({ minimized: false, visible: true });
   await expect.poll(
     () => window.evaluate(() => window.__POLYTRAY_RENDERER_PROBE.viewerFrames),
     { timeout: 10000 },

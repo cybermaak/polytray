@@ -12,6 +12,7 @@ import type {
   ThumbnailResultData,
   PreviewParseRequestData,
   PreviewMetricData,
+  MainWindowVisibilityData,
   SerializedMesh,
   RuntimeSettingsData,
   UpdateFileMetadataData,
@@ -57,6 +58,10 @@ interface PolytrayAPI {
 
   startWatching: (folderPaths: string[], settings: RuntimeSettingsData) => Promise<void>;
   stopWatching: () => Promise<void>;
+  getMainWindowVisibility: () => Promise<MainWindowVisibilityData>;
+  onMainWindowVisibility: (
+    callback: (data: MainWindowVisibilityData) => void,
+  ) => () => void;
 
   onFolderAction: (
     callback: (action: "refresh" | "rescan", folderPath: string) => void,

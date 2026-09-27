@@ -13,6 +13,7 @@ import {
   SortOptions,
   PreviewParseRequestData,
   PreviewMetricData,
+  MainWindowVisibilityData,
   RuntimeSettingsData,
   UpdateFileMetadataData,
 } from "../shared/types";
@@ -21,6 +22,22 @@ function onChannel<T>(channel: string, callback: (data: T) => void) {
   const subscription = (_event: IpcRendererEvent, data: T) => callback(data);
   ipcRenderer.on(channel, subscription);
   return () => ipcRenderer.removeListener(channel, subscription);
+}
+
+let latestMainWindowVisibility: MainWindowVisibilityData | null = null;
+const mainWindowVisibilityListeners = new Set<(data: MainWindowVisibilityData) => void>();
+
+ipcRenderer.on(IPC.MAIN_WINDOW_VISIBILITY, (_event, value: MainWindowVisibilityData) => {
+  if (!value || typeof value.visible !== "boolean" || !Number.isSafeInteger(value.revision)) return;
+  if (latestMainWindowVisibility && value.revision <= latestMainWindowVisibility.revision) return;
+  latestMainWindowVisibility = value;
+  for (const listener of [...mainWindowVisibilityListeners]) listener(value);
+});
+
+function onMainWindowVisibility(callback: (data: MainWindowVisibilityData) => void) {
+  mainWindowVisibilityListeners.add(callback);
+  if (latestMainWindowVisibility) callback(latestMainWindowVisibility);
+  return () => mainWindowVisibilityListeners.delete(callback);
 }
 
 const previewBridge = createPreviewBridge(ipcRenderer, window);
@@ -81,6 +98,9 @@ contextBridge.exposeInMainWorld("polytray", {
   startWatching: (folderPaths: string[], settings: RuntimeSettingsData) =>
     ipcRenderer.invoke(IPC.START_WATCHING, folderPaths, settings),
   stopWatching: () => ipcRenderer.invoke(IPC.STOP_WATCHING),
+  getMainWindowVisibility: () =>
+    ipcRenderer.invoke(IPC.GET_MAIN_WINDOW_VISIBILITY) as Promise<MainWindowVisibilityData>,
+  onMainWindowVisibility,
 
   // ── Event Listeners (return generic unsubscribe functions) ──────────
 
