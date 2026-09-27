@@ -16,6 +16,7 @@ import { registerScanningHandlers } from "./ipc/scanning";
 import { registerFileHandlers } from "./ipc/files";
 import { registerThumbnailHandlers } from "./ipc/thumbnails";
 import { registerSystemHandlers } from "./ipc/system";
+import { registerSlicerHandlers } from "./ipc/slicer";
 
 // Set the application name for macOS menu bar
 app.setName("PolyTray");
@@ -94,6 +95,7 @@ if (fs.existsSync(portableDataDir)) {
 // ───────────────────────────────────────────────────────────────────
 
 let mainWindow: BrowserWindow | null = null;
+let slicerHandlers: ReturnType<typeof registerSlicerHandlers> | null = null;
 let thumbnailWindow: BrowserWindow | null = null;
 let mainWindowVisibilityRevision = 0;
 let fileIndexRuntime: FileIndexRuntime | null = null;
@@ -244,12 +246,13 @@ function registerIpcHandlers() {
   });
   registerThumbnailHandlers(getMainWindow);
   registerSystemHandlers(getMainWindow);
+  slicerHandlers = registerSlicerHandlers(getMainWindow);
   initThumbnailService();
 }
 
 // ── App Lifecycle ─────────────────────────────────────────────
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   protocol.handle("polytray", (request) => {
     const fileUrl = toAllowedLocalFileUrl(request.url, {
       thumbnailDir: getThumbnailDir(),
@@ -290,8 +293,10 @@ app.whenReady().then(() => {
   });
   createThumbnailWindow();
   registerIpcHandlers();
+  await slicerHandlers?.cleanup();
 
   app.once("will-quit", () => {
+    slicerHandlers?.dispose();
     void fileIndexRuntime?.dispose();
     libraryMutationPublisher?.flush();
     libraryMutationPublisher?.dispose();

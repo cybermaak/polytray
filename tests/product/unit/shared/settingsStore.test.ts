@@ -69,6 +69,15 @@ test('serializeAppSettings writes a normalized localStorage payload', () => {
   assert.equal(SETTINGS_STORAGE_KEY, 'polytray-settings');
 });
 
+test('normalizes an explicit local slicer choice without adding it to portable preferences', () => {
+  const selected = normalizeAppSettings({ slicerConfiguration: { applicationPath: '/Applications/Slicer.app', useSystemDefault: false } });
+  const fallback = normalizeAppSettings({ slicerConfiguration: { applicationPath: null, useSystemDefault: true } });
+  const invalid = normalizeAppSettings({ slicerConfiguration: { applicationPath: 'slicer', useSystemDefault: false } });
+  assert.deepEqual(selected.slicerConfiguration, { applicationPath: '/Applications/Slicer.app', useSystemDefault: false });
+  assert.deepEqual(fallback.slicerConfiguration, { applicationPath: null, useSystemDefault: true });
+  assert.equal(invalid.slicerConfiguration, null);
+});
+
 test('applySettingsPreset returns tuned advanced settings profiles', () => {
   const performance = applySettingsPreset(DEFAULT_APP_SETTINGS, 'performance');
   const fidelity = applySettingsPreset(DEFAULT_APP_SETTINGS, 'fidelity');
