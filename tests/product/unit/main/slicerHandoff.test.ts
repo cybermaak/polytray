@@ -228,6 +228,25 @@ test('startup cleanup prunes only stale regular files inside the owned directory
   await fs.rm(f.root, { recursive: true, force: true });
 });
 
+test('startup cleanup keeps going after delete failures and bounds its error sample', async () => {
+  const f = await fixture();
+  const handoffDir = path.join(f.root, 'slicer-handoff'); await fs.mkdir(handoffDir);
+  for (let index = 0; index < 5; index += 1) {
+    const stale = path.join(handoffDir, `stale-${index}.stl`);
+    await fs.writeFile(stale, 'old'); await fs.utimes(stale, new Date(0), new Date(0));
+  }
+  const result = await service(f.root, () => null, async () => {}, {
+    removeOwnedFile: async filePath => { throw new Error(`cannot remove ${path.basename(filePath)}`); },
+  }).cleanupOldFiles();
+  assert.deepEqual(result, {
+    removed: 0,
+    failed: 5,
+    errors: ['cannot remove stale-0.stl', 'cannot remove stale-1.stl', 'cannot remove stale-2.stl'],
+  });
+  assert.equal((await fs.readdir(handoffDir)).length, 5);
+  await fs.rm(f.root, { recursive: true, force: true });
+});
+
 test('configuration preserves paths with spaces, quotes, leading dashes, and Unicode as one value', () => {
   const pathValue = '/Applications/--Slicer "猫".app';
   assert.deepEqual(normalizeSlicerConfiguration({ applicationPath: pathValue, useSystemDefault: false }, 'darwin'), { applicationPath: pathValue, useSystemDefault: false });

@@ -20,6 +20,7 @@ interface Dependencies {
   afterPreparation?(): Promise<void>;
   afterOutputOpen?(): void;
   createOutputPath?(): string;
+  removeOwnedFile?(filePath: string): Promise<void>;
   onEntryChunk?: () => void;
   maxUncompressedBytes?: number;
 }
@@ -172,14 +173,26 @@ export function createSlicerHandoff(deps: Dependencies) {
   return {
     handoffDir,
     async cleanupOldFiles(now = Date.now()) {
-      try { await ensureHandoffDirectory(false); } catch { return; }
-      const entries = await fsp.readdir(handoffDir, { withFileTypes: true }).catch(() => []);
+      let removed = 0;
+      let failed = 0;
+      const errors: string[] = [];
+      const noteFailure = (error: unknown) => {
+        failed += 1;
+        if (errors.length < 3) errors.push((error instanceof Error ? error.message : String(error)).slice(0, 200));
+      };
+      try { await ensureHandoffDirectory(false); } catch (error) { noteFailure(error); return { removed, failed, errors }; }
+      let entries: fs.Dirent[];
+      try { entries = await fsp.readdir(handoffDir, { withFileTypes: true }); }
+      catch (error) { noteFailure(error); return { removed, failed, errors }; }
       for (const item of entries) {
         if (!item.isFile()) continue;
         const target = path.join(handoffDir, item.name);
-        const stat = await fsp.lstat(target).catch(() => null);
-        if (stat?.isFile() && now - stat.mtimeMs > 24 * 60 * 60 * 1000) await fsp.rm(target, { force: true });
+        const stat = await fsp.lstat(target).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') noteFailure(error); return null; });
+        if (!stat?.isFile() || now - stat.mtimeMs <= 24 * 60 * 60 * 1000) continue;
+        try { await (deps.removeOwnedFile ?? (filePath => fsp.rm(filePath, { force: true })))(target); removed += 1; }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') noteFailure(error); }
       }
+      return { removed, failed, errors };
     },
     async open(request: SlicerHandoffRequest, signal?: AbortSignal): Promise<SlicerHandoffResult> {
       let outputPath: string | null = null;

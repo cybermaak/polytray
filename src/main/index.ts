@@ -16,7 +16,7 @@ import { registerScanningHandlers } from "./ipc/scanning";
 import { registerFileHandlers } from "./ipc/files";
 import { registerThumbnailHandlers } from "./ipc/thumbnails";
 import { registerSystemHandlers } from "./ipc/system";
-import { registerSlicerHandlers } from "./ipc/slicer";
+import { registerSlicerHandlers, startSlicerStartupCleanup } from "./ipc/slicer";
 
 // Set the application name for macOS menu bar
 app.setName("PolyTray");
@@ -252,7 +252,7 @@ function registerIpcHandlers() {
 
 // ── App Lifecycle ─────────────────────────────────────────────
 
-app.whenReady().then(async () => {
+app.whenReady().then(() => {
   protocol.handle("polytray", (request) => {
     const fileUrl = toAllowedLocalFileUrl(request.url, {
       thumbnailDir: getThumbnailDir(),
@@ -293,20 +293,21 @@ app.whenReady().then(async () => {
   });
   createThumbnailWindow();
   registerIpcHandlers();
-  await slicerHandlers?.cleanup();
-
-  app.once("will-quit", () => {
-    slicerHandlers?.dispose();
-    void fileIndexRuntime?.dispose();
-    libraryMutationPublisher?.flush();
-    libraryMutationPublisher?.dispose();
-  });
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
-  });
+  startSlicerStartupCleanup(
+    () => {
+      app.once("will-quit", () => {
+        slicerHandlers?.dispose();
+        void fileIndexRuntime?.dispose();
+        libraryMutationPublisher?.flush();
+        libraryMutationPublisher?.dispose();
+      });
+      app.on("activate", () => {
+        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      });
+    },
+    () => slicerHandlers?.cleanup() ?? Promise.resolve(),
+    (report) => log.warn("[SlicerHandoff] startup cleanup was incomplete", report),
+  );
 });
 
 app.on("window-all-closed", () => {

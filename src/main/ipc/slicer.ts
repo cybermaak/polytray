@@ -12,6 +12,11 @@ interface DialogAdapter {
 interface HandoffService {
   open(request: SlicerHandoffRequest, signal?: AbortSignal): Promise<SlicerHandoffResult>;
 }
+export interface SlicerCleanupReport {
+  removed: number;
+  failed: number;
+  errors: string[];
+}
 interface IpcDependencies {
   platform: SlicerPlatform;
   getMainWindow: MainWindowGetter;
@@ -126,13 +131,29 @@ export function registerSlicerHandlers(getMainWindow: MainWindowGetter) {
   ipcMain.handle(IPC.CANCEL_SLICER_HANDOFF, handlers.cancel);
   ipcMain.handle(IPC.PICK_SLICER_APPLICATION, handlers.pick);
   return {
-    async cleanup() { await handoff.cleanupOldFiles(); },
+    async cleanup() { return handoff.cleanupOldFiles(); },
     dispose() { cancelAllSlicerHandoffs(); },
   };
 }
 
 export function cancelAllSlicerHandoffs() {
   for (const registry of [...activeBySender.values()]) disposeSenderRegistry(registry);
+}
+
+export function startSlicerStartupCleanup(
+  installLifecycle: () => void,
+  cleanup: () => Promise<SlicerCleanupReport | void>,
+  reportError: (error: unknown) => void,
+) {
+  installLifecycle();
+  const report = (error: unknown) => { try { reportError(error); } catch { /* reporting must not block app startup */ } };
+  try {
+    void Promise.resolve(cleanup()).then(result => {
+      if (result && result.failed > 0) report(result);
+    }).catch(report);
+  } catch (error) {
+    report(error);
+  }
 }
 
 function disposeSenderRegistry(registry: SenderRequestRegistry) {
