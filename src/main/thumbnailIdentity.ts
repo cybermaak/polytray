@@ -62,11 +62,13 @@ export async function readValidatedThumbnailCache(
 export async function generateForCapturedThumbnailIdentity<TIdentity, TPath extends string | null>(
   lookup: () => TIdentity | null,
   generate: (identity: TIdentity) => Promise<TPath>,
+  canPublish: (identity: TIdentity) => boolean | Promise<boolean>,
   publish: (identity: TIdentity, thumbnailPath: TPath) => boolean | Promise<boolean>,
 ): Promise<string | null> {
   const identity = lookup();
   if (!identity) return null;
   const thumbnailPath = await generate(identity);
+  if (!await canPublish(identity)) return null;
   if (!await publish(identity, thumbnailPath) || thumbnailPath === null) return null;
   return thumbnailPath;
 }

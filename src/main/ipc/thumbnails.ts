@@ -4,10 +4,12 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { getDb } from "../database";
 import {
+  getThumbnailCacheEpoch,
   getThumbnailDir,
+  readThumbnailCacheBytes,
   scheduleSingleThumbnailGeneration,
+  waitForThumbnailCacheReady,
 } from "../thumbnails";
-import fs from "fs";
 import { IPC } from "../../shared/types";
 import { DEFAULT_APP_SETTINGS, toRuntimeSettings } from "../../shared/settings";
 import { isPathContained } from "../pathContainment";
@@ -25,6 +27,7 @@ export function registerThumbnailHandlers(
 ) {
   ipcMain.handle(IPC.READ_THUMBNAIL, async (event, thumbnailPath) => {
     if (!thumbnailPath) return null;
+    await waitForThumbnailCacheReady();
     const parsedThumbnailPath = parseThumbnailPath(thumbnailPath);
 
     // Security check: Ensure we only read from the dedicated thumbnail directory
@@ -33,15 +36,12 @@ export function registerThumbnailHandlers(
       throw new Error("Access denied: Path is outside thumbnail directory");
     }
 
-    try {
-      const data = await fs.promises.readFile(parsedThumbnailPath);
-      return `data:image/png;base64,${data.toString("base64")}`;
-    } catch (_e) {
-      return null;
-    }
+    const data = await readThumbnailCacheBytes(parsedThumbnailPath);
+    return data ? `data:image/png;base64,${data.toString("base64")}` : null;
   });
 
-  ipcMain.handle(IPC.GET_THUMBNAIL_PATH, (event, fileId) => {
+  ipcMain.handle(IPC.GET_THUMBNAIL_PATH, async (event, fileId) => {
+    await waitForThumbnailCacheReady();
     const db = getDb();
     const row = db
       .prepare("SELECT thumbnail FROM files WHERE id = ?")
@@ -57,6 +57,8 @@ export function registerThumbnailHandlers(
       const parsedFilePath = parseFilePath(filePath);
       const parsedExt = parseExtension(ext);
       const normalizedSettings = settings ? parseRuntimeSettings(settings) : toRuntimeSettings(DEFAULT_APP_SETTINGS);
+      await waitForThumbnailCacheReady();
+      const capturedCacheEpoch = getThumbnailCacheEpoch(parsedFilePath);
       const db = getDb();
       const repository = createFileIndexRepository(db);
       return generateForCapturedThumbnailIdentity(
@@ -67,6 +69,7 @@ export function registerThumbnailHandlers(
           return row ? { ...indexed, thumbnailPath: row.thumbnail } : null;
         },
         () => scheduleSingleThumbnailGeneration(parsedFilePath, parsedExt, normalizedSettings, "manual"),
+        (captured) => getThumbnailCacheEpoch(captured.path) === capturedCacheEpoch,
         (captured, thumbnailPath) => {
           const update = repository.updateThumbnailState({
             fileId: captured.id,

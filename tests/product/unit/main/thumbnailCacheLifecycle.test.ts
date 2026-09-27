@@ -175,8 +175,8 @@ test('a barrier-held manual completion cannot restore its pre-invalidation thumb
   const manualRequest = generateForCapturedThumbnailIdentity(
     () => row,
     async () => heldGeneration,
+    (captured) => captured.cacheEpoch === epochs.current(captured.path),
     (captured, resultPath) => {
-      if (captured.cacheEpoch !== epochs.current(captured.path)) return false;
       databaseThumbnail = resultPath ?? captured.thumbnailPath;
       thumbnailFailed = resultPath ? 0 : 1;
       return true;
@@ -198,6 +198,18 @@ test('a barrier-held manual completion cannot restore its pre-invalidation thumb
   assert.equal(await manualRequest, null);
   assert.equal(databaseThumbnail, null);
   assert.equal(thumbnailFailed, 0);
+});
+
+test('manual identity helper calls the publisher only after its current-state guard passes', async () => {
+  let publisherCalls = 0;
+  const result = await generateForCapturedThumbnailIdentity(
+    () => ({ path: '/models/a.stl', cacheEpoch: 3 }),
+    async () => '/cache/current.png',
+    (captured) => captured.cacheEpoch === 3,
+    () => { publisherCalls++; return true; },
+  );
+  assert.equal(result, '/cache/current.png');
+  assert.equal(publisherCalls, 1);
 });
 
 test('global and per-path cache epochs fence old results without enumerating all indexed paths', () => {

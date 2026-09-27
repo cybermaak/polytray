@@ -89,8 +89,8 @@ test('manual publication uses the identity captured before generation', async ()
       currentRevision = 4;
       return '/cache/revision-3.png';
     },
+    (captured) => captured.contentRevision === currentRevision,
     async (captured, thumbnailPath) => {
-      if (captured.contentRevision !== currentRevision) return false;
       published.push(captured.contentRevision);
       return thumbnailPath !== null;
     },

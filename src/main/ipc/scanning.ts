@@ -2,19 +2,15 @@
  * IPC handlers for folder scanning and thumbnail generation orchestration.
  */
 import { BrowserWindow, ipcMain } from "electron";
-import { join } from "path";
-import fs from "fs";
 import { getDb, getSetting } from "../database";
 import {
-  cancelPendingThumbnailJobs,
-  getThumbnailDir,
+  invalidateThumbnails,
   queueThumbnailGeneration,
 } from "../thumbnails";
 import {
   IPC,
   RuntimeSettingsData,
 } from "../../shared/types";
-import { filterContainedPaths } from "../pathContainment";
 import { DEFAULT_APP_SETTINGS } from "../../shared/settings";
 import { createScanService } from "../scanService";
 import { MetadataWorkerClient } from "../metadataWorkerClient";
@@ -84,32 +80,14 @@ export function registerScanningHandlers(
 
   ipcMain.handle(IPC.REFRESH_FOLDER_THUMBNAILS, async (event, folderPath, settings: RuntimeSettingsData) => {
     const parsedFolderPath = parseFolderPath(folderPath);
-    const parsedSettings = settings ? parseRuntimeSettings(settings) : undefined;
-    cancelPendingThumbnailJobs((job) =>
-      filterContainedPaths(parsedFolderPath, [job.filePath]).length > 0,
-    );
-    const db = getDb();
-    const rows = db.prepare("SELECT path FROM files").all() as Array<{ path: string }>;
-    const containedPaths = filterContainedPaths(
-      parsedFolderPath,
-      rows.map((row) => row.path),
-    );
-    const resetThumbs = db.transaction((paths: string[]) => {
-      const stmt = db.prepare(
-        "UPDATE files SET thumbnail = null, thumbnail_failed = 0 WHERE path = ?",
-      );
-      for (const filePath of paths) {
-        stmt.run(filePath);
-      }
-    });
-    resetThumbs(containedPaths);
-    queueThumbnailGeneration(parsedFolderPath, getMainWindow, parsedSettings ?? {
+    const parsedSettings = settings ? parseRuntimeSettings(settings) : {
       thumbnail_timeout: DEFAULT_APP_SETTINGS.thumbnail_timeout,
       scanning_batch_size: DEFAULT_APP_SETTINGS.scanning_batch_size,
       watcher_stability: DEFAULT_APP_SETTINGS.watcher_stability,
       page_size: DEFAULT_APP_SETTINGS.page_size,
       thumbnailColor: DEFAULT_APP_SETTINGS.thumbnailColor,
-    });
+    };
+    await invalidateThumbnails({ kind: "folder", folderPath: parsedFolderPath }, parsedSettings, getMainWindow);
   });
 
   ipcMain.handle(
@@ -133,25 +111,7 @@ export function registerScanningHandlers(
       page_size: DEFAULT_APP_SETTINGS.page_size,
       thumbnailColor: DEFAULT_APP_SETTINGS.thumbnailColor,
     };
-    cancelPendingThumbnailJobs();
-    const db = getDb();
-    const thumbDir = getThumbnailDir();
-    try {
-      const files = await fs.promises.readdir(thumbDir);
-      await Promise.all(
-        files
-          .filter((file) => file.endsWith(".png"))
-          .map((file) => fs.promises.unlink(join(thumbDir, file))),
-      );
-    } catch {
-      // Directory may not exist yet
-    }
-    db.prepare("UPDATE files SET thumbnail = null, thumbnail_failed = 0").run();
-    queueThumbnailGeneration(
-      null,
-      getMainWindow,
-      parsedSettings,
-    );
+    await invalidateThumbnails({ kind: "all" }, parsedSettings, getMainWindow);
     return true;
   });
 
