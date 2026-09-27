@@ -78,6 +78,9 @@ export const IPC = {
   RESCAN: "rescan",
   REFRESH_FOLDER_THUMBNAILS: "refresh-folder-thumbnails",
   UPDATE_SETTING: "update-setting",
+  OPEN_IN_SLICER: "open-in-slicer",
+  CANCEL_SLICER_HANDOFF: "cancel-slicer-handoff",
+  PICK_SLICER_APPLICATION: "pick-slicer-application",
 
   // send channels (renderer → main, fire-and-forget)
   ON_DRAG_START: "ondragstart",

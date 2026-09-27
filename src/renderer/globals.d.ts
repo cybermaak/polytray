@@ -19,6 +19,9 @@ import type {
   IndexMutationResult,
   LibraryQuery,
   LibraryPageResult,
+  SlicerHandoffRequest,
+  SlicerHandoffResult,
+  SlicerConfiguration,
 } from "../shared/types";
 
 export type { FileRecord };
@@ -42,6 +45,9 @@ interface PolytrayAPI {
   getFileById: (id: number) => Promise<FileRecord>;
   updateFileMetadata: (payload: UpdateFileMetadataData) => Promise<FileRecord>;
   getStats: () => Promise<LibraryStats>;
+  openInSlicer: (request: SlicerHandoffRequest) => Promise<SlicerHandoffResult>;
+  cancelSlicerHandoff: (requestId: string) => Promise<boolean>;
+  pickSlicerApplication: () => Promise<SlicerConfiguration | null>;
 
   readFileBuffer: (filePath: string) => Promise<ArrayBuffer>;
   readThumbnail: (thumbnailPath: string) => Promise<string | null>;

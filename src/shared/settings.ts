@@ -2,6 +2,7 @@ import {
   DEFAULT_PANEL_PREFERENCES,
   normalizePanelPreferences,
 } from "./panelPreferences";
+import type { SlicerConfiguration } from "./backupContracts";
 
 export const SETTINGS_STORAGE_KEY = "polytray-settings";
 
@@ -25,6 +26,7 @@ export interface AppSettings {
   page_size: number;
   sidebarWidth: number;
   previewWidth: number;
+  slicerConfiguration: SlicerConfiguration | null;
 }
 
 export interface RuntimeSettings {
@@ -51,6 +53,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   watcher_stability: 1000,
   page_size: 500,
   ...DEFAULT_PANEL_PREFERENCES,
+  slicerConfiguration: null,
 };
 
 const THUMB_QUALITIES: ThumbnailQuality[] = ["128", "256", "512"];
@@ -82,6 +85,21 @@ function normalizeHexColor(value: unknown, fallback: string) {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value)
     ? value
     : fallback;
+}
+
+function normalizeSlicerConfiguration(value: unknown): SlicerConfiguration | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<SlicerConfiguration>;
+  if (candidate.useSystemDefault === true && candidate.applicationPath === null) {
+    return { useSystemDefault: true, applicationPath: null };
+  }
+  if (
+    candidate.useSystemDefault !== false ||
+    typeof candidate.applicationPath !== "string" ||
+    !candidate.applicationPath.trim() ||
+    !/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(candidate.applicationPath)
+  ) return null;
+  return { useSystemDefault: false, applicationPath: candidate.applicationPath };
 }
 
 function normalizeChoice<T extends string>(
@@ -153,6 +171,7 @@ export function normalizeAppSettings(input: unknown): AppSettings {
       2000,
     ),
     ...panelPreferences,
+    slicerConfiguration: normalizeSlicerConfiguration(raw.slicerConfiguration),
   };
 }
 

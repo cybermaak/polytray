@@ -9,12 +9,15 @@ export interface SlicerConfiguration {
 export type SlicerHandoffResult =
   | { status: "launched"; handoffPath: string }
   | { status: "cancelled" }
-  | { status: "failed"; code: "missing-source" | "unsupported-format" | "unsafe-archive-entry" | "size-limit" | "launch-failed"; message: string };
+  | { status: "failed"; code: "missing-source" | "unsupported-format" | "unsafe-archive-entry" | "size-limit" | "application-unavailable" | "launch-failed"; message: string };
 
 export interface SlicerHandoffRequest {
+  requestId: string;
   fileId: number;
   path: string;
   extension: string;
+  contentRevision: number;
+  configuration: SlicerConfiguration | null;
 }
 
 export interface MetadataBackupV1 {

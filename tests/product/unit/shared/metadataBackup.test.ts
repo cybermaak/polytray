@@ -19,7 +19,7 @@ test('metadata backup canonicalizes paths and keeps indexed and pending notes se
       rendererRevision: 9,
       libraryRoots: ['/library/../library', '/library'],
       collections: [{ id: 'c1', name: ' Favorites ', paths: ['/library/model.stl', '/library/archive.zip::entry::parts/part.obj'] }],
-      preferences: { lightMode: true, gridSize: 'large', page_size: 500, slicerPath: '/Applications/hidden' } as never,
+      preferences: { lightMode: true, gridSize: 'large', page_size: 500, slicerConfiguration: { applicationPath: '/Applications/Slicer.app', useSystemDefault: false } } as never,
     },
   });
 
@@ -37,7 +37,7 @@ test('metadata backup canonicalizes paths and keeps indexed and pending notes se
   assert.equal(document.preferences.gridSize, 'large');
   assert.equal('autoScan' in document.preferences, false);
   assert.equal('page_size' in document.preferences, false);
-  assert.equal('slicerPath' in document.preferences, false);
+  assert.equal('slicerConfiguration' in document.preferences, false);
   assert.equal(document.manifest.sourceModelsIncluded, false);
   assert.ok(document.manifest.statement.includes('source model files are not included'));
 });
