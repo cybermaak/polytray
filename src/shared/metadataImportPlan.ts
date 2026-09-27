@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { MetadataImportAnnotationUpdate, MetadataImportPlan } from './backupContracts';
 import { canonicalizeBackupPath, type MetadataBackupAnnotation, validateMetadataBackupV1 } from './metadataBackup';
+import { ARCHIVE_ENTRY_SEPARATOR } from './archivePaths';
 import { normalizeFileTags } from './fileTags';
 import { normalizeAppSettings } from './settings';
 
@@ -27,6 +28,18 @@ export interface MetadataImportPlanInput {
 
 const PORTABLE_KEYS = ['lightMode','gridSize','autoScan','accentColor','previewColor','thumbnailColor','thumbQuality','showGrid','watch'] as const;
 const stable = (value: unknown) => JSON.stringify(value);
+function canonicalIdentityKey(value: string): string {
+  const canonical = canonicalizeBackupPath(value);
+  const separator = canonical.indexOf(ARCHIVE_ENTRY_SEPARATOR);
+  const physicalPath = separator < 0 ? canonical : canonical.slice(0, separator);
+  const isWindowsPath = /^[A-Za-z]:[\\/]/.test(physicalPath) || /^(?:\\\\|\/\/)[^\\/]+[\\/][^\\/]+/.test(physicalPath);
+  if (!isWindowsPath) return canonical;
+  let physicalKey = physicalPath.toLowerCase().replace(/[\\/]+$/, '');
+  if (/^[a-z]:$/.test(physicalKey)) physicalKey += '\\';
+  return separator < 0
+    ? physicalKey
+    : `${physicalKey}${ARCHIVE_ENTRY_SEPARATOR}${canonical.slice(separator + ARCHIVE_ENTRY_SEPARATOR.length)}`;
+}
 function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
@@ -72,11 +85,11 @@ function mergeAnnotation(existingRaw: MetadataBackupAnnotation | null, incomingR
   return after;
 }
 
-function normalizeCollection(collection: ImportRendererState['collections'][number]) {
+function copyCurrentCollection(collection: ImportRendererState['collections'][number]) {
   return {
     id: collection.id,
-    name: collection.name.trim(),
-    paths: [...new Set(collection.paths.map(canonicalizeBackupPath))],
+    name: collection.name,
+    paths: [...collection.paths],
   };
 }
 
@@ -86,12 +99,12 @@ export function createMetadataImportPlan(input: MetadataImportPlanInput): Metada
   const indexed = new Map<string, MetadataBackupAnnotation>();
   for (const annotation of current.annotations) {
     const normalized = normalizedAnnotation(annotation);
-    indexed.set(normalized.path, normalized);
+    indexed.set(canonicalIdentityKey(normalized.path), normalized);
   }
   const pending = new Map<string, MetadataBackupAnnotation>();
   for (const annotation of current.pendingAnnotations) {
     const normalized = normalizedAnnotation(annotation);
-    pending.set(normalized.path, normalized);
+    pending.set(canonicalIdentityKey(normalized.path), normalized);
   }
 
   const updates = new Map<string, MetadataImportAnnotationUpdate>();
@@ -100,16 +113,17 @@ export function createMetadataImportPlan(input: MetadataImportPlanInput): Metada
     for (const raw of records) {
       const incoming = normalizedAnnotation(raw);
       const path = incoming.path;
-      const destination = indexed.has(path) ? 'indexed' : 'pending';
-      const existing = destination === 'indexed' ? indexed.get(path)! : pending.get(path) ?? null;
-      const previous = updates.get(path);
+      const identity = canonicalIdentityKey(path);
+      const destination = indexed.has(identity) ? 'indexed' : 'pending';
+      const existing = destination === 'indexed' ? indexed.get(identity)! : pending.get(identity) ?? null;
+      const previous = updates.get(identity);
       const before = previous ? previous.before : existing;
       const mergeBase = previous?.after ?? existing;
       const after = mergeAnnotation(mergeBase, incoming, path, conflicts);
       const sources = previous ? [...previous.sources] : [];
       if (!sources.includes(source)) sources.push(source);
-      updates.set(path, {
-        path,
+      updates.set(identity, {
+        path: previous?.path ?? path,
         destination,
         before,
         after,
@@ -129,12 +143,28 @@ export function createMetadataImportPlan(input: MetadataImportPlanInput): Metada
   const changedAnnotationUpdates = allUpdates.filter(update => update.changed);
   const unchangedAnnotationUpdates = allUpdates.filter(update => !update.changed);
 
-  const collectionsBefore = current.rendererState.collections.map(normalizeCollection);
+  const collectionsBefore = current.rendererState.collections.map(copyCurrentCollection);
   const collectionsAfter = collectionsBefore.map(collection => ({ ...collection, paths: [...collection.paths] }));
   const collectionsById = new Map(collectionsAfter.map(collection => [collection.id, collection]));
   const remaps: MetadataImportPlan['collectionIdRemaps'] = [];
+  const currentPathSpellings = new Map<string, string>();
+  for (const annotation of current.annotations) {
+    currentPathSpellings.set(canonicalIdentityKey(annotation.path), annotation.path);
+  }
+  for (const collection of collectionsBefore) {
+    for (const path of collection.paths) {
+      const identity = canonicalIdentityKey(path);
+      if (!currentPathSpellings.has(identity)) currentPathSpellings.set(identity, path);
+    }
+  }
   const mergePaths = (target: typeof collectionsAfter[number], importedPaths: string[]) => {
-    target.paths = [...new Set([...target.paths, ...importedPaths.map(canonicalizeBackupPath)])];
+    const members = new Set(target.paths.map(canonicalIdentityKey));
+    for (const importedPath of importedPaths) {
+      const identity = canonicalIdentityKey(importedPath);
+      if (members.has(identity)) continue;
+      target.paths.push(currentPathSpellings.get(identity) ?? canonicalizeBackupPath(importedPath));
+      members.add(identity);
+    }
   };
   for (const imported of backup.collections) {
     const existing = collectionsById.get(imported.id);
@@ -157,7 +187,15 @@ export function createMetadataImportPlan(input: MetadataImportPlanInput): Metada
         continue;
       }
     }
-    const added = { id, name: imported.name, paths: [...new Set(imported.paths.map(canonicalizeBackupPath))] };
+    const addedPaths: string[] = [];
+    const addedPathKeys = new Set<string>();
+    for (const importedPath of imported.paths) {
+      const identity = canonicalIdentityKey(importedPath);
+      if (addedPathKeys.has(identity)) continue;
+      addedPaths.push(currentPathSpellings.get(identity) ?? canonicalizeBackupPath(importedPath));
+      addedPathKeys.add(identity);
+    }
+    const added = { id, name: imported.name, paths: addedPaths };
     collectionsAfter.push(added);
     collectionsById.set(id, added);
   }
@@ -170,8 +208,24 @@ export function createMetadataImportPlan(input: MetadataImportPlanInput): Metada
   const settingsAfter = options.replaceSettings
     ? { ...settingsBefore, ...normalizeAppSettings({ ...settingsBefore, ...importedSettingsOverlay(backup.preferences as Record<string, unknown>) }) }
     : settingsBefore;
-  const rootsBefore = [...new Set(current.rendererState.libraryRoots.map(canonicalizeBackupPath))];
-  const rootsAfter = options.replaceRoots ? [...new Set(backup.libraryRoots)] : [...rootsBefore];
+  const rootsBefore = [...current.rendererState.libraryRoots];
+  let rootsAfter = [...rootsBefore];
+  if (options.replaceRoots) {
+    const currentRootsByIdentity = new Map<string, string>();
+    for (const root of current.rendererState.libraryRoots) {
+      const identity = canonicalIdentityKey(root);
+      if (!currentRootsByIdentity.has(identity)) currentRootsByIdentity.set(identity, root);
+    }
+    const seenRoots = new Set<string>();
+    const replacementRoots: string[] = [];
+    for (const importedRoot of backup.libraryRoots) {
+      const identity = canonicalIdentityKey(importedRoot);
+      if (seenRoots.has(identity)) continue;
+      replacementRoots.push(currentRootsByIdentity.get(identity) ?? canonicalizeBackupPath(importedRoot));
+      seenRoots.add(identity);
+    }
+    rootsAfter = replacementRoots;
+  }
   const inputRevision = sha256(stable({ backup, current, options }));
 
   return {

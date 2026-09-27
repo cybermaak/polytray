@@ -5,9 +5,9 @@ import type { MetadataImportPlan as PublicMetadataImportPlan } from '../../../..
 import { buildMetadataBackupV1, serializeMetadataBackup, validateMetadataBackupV1 } from '../../../../src/shared/metadataBackup';
 import { createMetadataImportPlan, isMetadataImportPlanCurrent } from '../../../../src/shared/metadataImportPlan';
 
-const backup = (annotations: Array<{path:string; tags:string[]; notes:string|null; printStatus?:string}> = [], pendingAnnotations = annotations, collections: Array<{id:string;name:string;paths:string[]}> = [], preferences: Record<string, unknown> = { watch: false }) => buildMetadataBackupV1({
+const backup = (annotations: Array<{path:string; tags:string[]; notes:string|null; printStatus?:string}> = [], pendingAnnotations = annotations, collections: Array<{id:string;name:string;paths:string[]}> = [], preferences: Record<string, unknown> = { watch: false }, libraryRoots=['/backup']) => buildMetadataBackupV1({
   exportedAt: '2026-09-26T12:00:00.000Z', appVersion: '1.1.1', indexedAnnotations: annotations, pendingAnnotations,
-  snapshot: { rendererRevision: 1, libraryRoots: ['/backup'], collections, preferences: preferences as never },
+  snapshot: { rendererRevision: 1, libraryRoots, collections, preferences: preferences as never },
 });
 const current = (annotations: Array<{path:string; tags:string[]; notes:string|null; printStatus?:string}> = [], collections: Array<{id:string;name:string;paths:string[]}> = [], preferences: Record<string, unknown> = { watch: true }) => ({
   databaseBrowseRevision: 7, annotations, pendingAnnotations: [], rendererRevision: 4,
@@ -137,4 +137,41 @@ test('backup round-trip and tag merge preserve nonblank multiline note formattin
   assert.equal(plan.annotationUpdates[0].after.notes,note);
   assert.deepEqual(plan.annotationUpdates[0].after.tags,['local','backup']);
   assert.equal(plan.annotationConflicts.some(conflict=>conflict.field==='notes'),false);
+});
+
+test('Windows drive and UNC aliases preserve current roots and collection member spellings', () => {
+  const driveRoot='C:\\Models\\';
+  const uncRoot='\\\\NASBOX\\Share\\Models';
+  const driveMember='C:\\Models\\Part.stl';
+  const uncMember='\\\\NASBOX\\Share\\Part.stl';
+  const state=current(
+    [{path:driveMember,tags:[],notes:null}],
+    [
+      {id:'drive',name:'Drive',paths:[driveMember]},
+      {id:'unc',name:'UNC',paths:[uncMember]},
+      {id:'new',name:'New',paths:[]},
+    ],
+  );
+  state.rendererState.libraryRoots=[driveRoot,uncRoot];
+  const document=backup(
+    [{path:'c:/models/part.stl',tags:['backup'],notes:null}],
+    [],
+    [
+      {id:'drive',name:'Drive',paths:['c:/MODELS/PART.stl']},
+      {id:'unc',name:'UNC',paths:['\\\\nasbox\\share\\part.stl']},
+      {id:'new',name:'New',paths:['c:/models/part.stl']},
+    ],
+    undefined,
+    ['c:/models','\\\\nasbox\\share\\models','/foreign/models'],
+  );
+  const plan=createMetadataImportPlan({backup:document,current:state,options:{replaceRoots:true}});
+  assert.deepEqual(plan.rootsBefore,[driveRoot,uncRoot]);
+  assert.deepEqual(plan.rootsAfter,[driveRoot,uncRoot,'/foreign/models']);
+  assert.deepEqual(plan.collectionsBefore[0].paths,[driveMember]);
+  assert.deepEqual(plan.collectionsBefore[1].paths,[uncMember]);
+  assert.deepEqual(plan.collectionsAfter[0].paths,[driveMember]);
+  assert.deepEqual(plan.collectionsAfter[1].paths,[uncMember]);
+  assert.deepEqual(plan.collectionsAfter[2].paths,[driveMember]);
+  assert.equal(plan.annotationUpdates.length,1);
+  assert.equal(plan.annotationUpdates[0].destination,'indexed');
 });
