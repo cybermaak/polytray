@@ -67,6 +67,8 @@ Active agents use separate dependency copies. Current dispatch baseline: `c6868e
 App-level/Electron checks use a serial coordinator lane; units/builds can run concurrently.
 The three requested chat tasks do not yet have usable task IDs and are not counted as active implementations.
 
+The coordinator explicitly delegated D01's startup/library-change bridge and V03's preview IPC/readiness/build-entry wiring in their separate checkouts. Each wiring delta is committed separately and receives coordinator review; common-file conflicts are resolved once at integration. V03 may mechanically remove the old preview hookup from thumbnail-owned files, while preserving thumbnail behavior.
+
 ## Integration log
 
 | Date | Task / checkpoint | Result | Follow-up |
