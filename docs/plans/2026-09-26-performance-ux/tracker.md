@@ -2,7 +2,7 @@
 
 [Execution plan](../2026-09-26-performance-ux-execution-plan.md) | [Shared contracts](contracts.md) | [Handoff template](handoff-template.md)
 
-**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. Foundation dispatch is being prepared; all other tasks remain dependency-gated.
+**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01/F02 are running in isolated worktrees; all other tasks remain dependency-gated. An independent validator is capturing the pre-integration baseline.
 
 **Progress:** 0 / 33 DONE. Foundation 0/2; data 0/3; scanning 0/6; thumbnails 0/4; preview 0/5; browsing 0/6; product workflows 0/4; validation 0/3.
 
@@ -18,8 +18,8 @@
 
 | ID | Task specification | Priority | Dependencies | Status | Owner | Evidence / handoff |
 | --- | --- | --- | --- | --- | --- | --- |
-| F01 | [Contracts and preview seam](foundation-data.md#f01---freeze-contracts-and-extract-the-preview-seam) | Foundation | - | READY | Pending dispatch | - |
-| F02 | [Fixtures and diagnostics](foundation-data.md#f02---establish-portable-fixtures-and-trustworthy-diagnostics) | Foundation | - | READY | Pending dispatch | - |
+| F01 | [Contracts and preview seam](foundation-data.md#f01---freeze-contracts-and-extract-the-preview-seam) | Foundation | - | IN_PROGRESS | Luna/medium | Pending handoff |
+| F02 | [Fixtures and diagnostics](foundation-data.md#f02---establish-portable-fixtures-and-trustworthy-diagnostics) | Foundation | - | IN_PROGRESS | Luna/medium | Pending handoff |
 | D01 | [Indexed scopes and batched writes](foundation-data.md#d01---indexed-folder-membership-and-a-batched-write-repository) | P1 | F01, F02 | PLANNED | Unassigned | - |
 | D02 | [Complete SQL display pages](foundation-data.md#d02---query-complete-display-pages-in-sqlite) | P1 | D01 | PLANNED | Unassigned | - |
 | D03 | [Independent library summaries](foundation-data.md#d03---separate-library-summaries-from-list-queries) | P2 | D02 | PLANNED | Unassigned | - |
@@ -52,12 +52,22 @@
 | G02 | [Performance and resource evidence](validation.md#g02---verify-performance-and-resource-budgets) | Gate | G01 | PLANNED | Unassigned | - |
 | G03 | [Documentation and readiness](validation.md#g03---reconcile-documentation-and-hand-back-execution-results) | Gate | G02 | PLANNED | Unassigned | - |
 
+## Active assignments
+
+| Assignment | Agent | Worktree / branch | Model |
+| --- | --- | --- | --- |
+| F01 | f01_foundation | `/Users/maak/.codex/worktrees/polytray-foundation/polytray` / `codex/perf-f01` | gpt-6-luna / medium |
+| F02 | f02_fixtures | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-f02` | gpt-6-luna / medium |
+| Baseline Build + Product | baseline_validation | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-review` | gpt-6-luna / medium |
+
+Each worktree has its own dependency copy, so native Node/Electron rebuilds cannot affect another installation. Baseline for these checkouts: `3d95fd3`. No push is authorized.
+
 ## Integration log
 
 | Date | Task / checkpoint | Result | Follow-up |
 | --- | --- | --- | --- |
 | 2026-09-26 | Planning | Execution plan and tracker prepared | Complete |
-| 2026-09-26 | Execution authorization | Concurrent Luna/medium worktrees, commits, and local-main integration approved | Dispatch F01/F02; no origin/main push |
+| 2026-09-26 | Execution authorization | Concurrent Luna/medium worktrees, commits, and local-main integration approved | F01/F02 dispatched; independent baseline validation running; no origin/main push |
 
 ## Blockers and decisions
 
