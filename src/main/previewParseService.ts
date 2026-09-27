@@ -41,6 +41,35 @@ export interface PreviewParseServiceDependencies {
   maxTombstones?: number;
 }
 
+export function trackPreviewRequesterLifecycle(
+  requester: Pick<WebContents, 'id' | 'once' | 'on' | 'removeListener'>,
+  tracked: Map<number, () => void>,
+  cancelRequester: (requesterId: number) => void,
+) {
+  const requesterId = requester.id;
+  if (tracked.has(requesterId)) return;
+  let cleaned = false;
+  const cleanup = () => {
+    requester.removeListener('destroyed', onGone);
+    requester.removeListener('render-process-gone', onGone);
+    requester.removeListener('did-start-navigation', onNavigation);
+  };
+  const onGone = () => {
+    if (cleaned) return;
+    cleaned = true;
+    cleanup();
+    tracked.delete(requesterId);
+    cancelRequester(requesterId);
+  };
+  const onNavigation = (_event: Electron.Event, _url: string, isInPlace: boolean, isMainFrame: boolean) => {
+    if (isMainFrame && !isInPlace) onGone();
+  };
+  requester.once('destroyed', onGone);
+  requester.once('render-process-gone', onGone);
+  requester.on('did-start-navigation', onNavigation);
+  tracked.set(requesterId, cleanup);
+}
+
 interface PreviewParseJob {
   ownerId: number;
   request: PreviewParseRequest;
@@ -495,27 +524,9 @@ export function registerPreviewParseHandler(
   };
 
   const trackRequester = (sender: WebContents) => {
-    if (requesterCleanup.has(sender.id)) return;
-    let cleaned = false;
-    const onGone = () => {
-      if (cleaned) return;
-      cleaned = true;
-      cleanup();
-      requesterCleanup.delete(sender.id);
-      void service.cancelRequester(sender.id);
-    };
-    const onNavigation = (_event: Electron.Event, _url: string, _isInPlace: boolean, isMainFrame: boolean) => {
-      if (isMainFrame) onGone();
-    };
-    const cleanup = () => {
-      sender.removeListener('destroyed', onGone);
-      sender.removeListener('render-process-gone', onGone);
-      sender.removeListener('did-start-navigation', onNavigation);
-    };
-    sender.once('destroyed', onGone);
-    sender.once('render-process-gone', onGone);
-    sender.on('did-start-navigation', onNavigation);
-    requesterCleanup.set(sender.id, cleanup);
+    trackPreviewRequesterLifecycle(sender, requesterCleanup, (requesterId) => {
+      void service.cancelRequester(requesterId);
+    });
   };
 
   function cancelHandler(event: Electron.IpcMainEvent, payload: unknown) {

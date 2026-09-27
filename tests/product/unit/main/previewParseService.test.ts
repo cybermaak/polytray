@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { PreviewParseRequest, PreparedPreview, PreviewParsePortMessage } from '../../../../src/shared/previewContracts';
-import type { MessagePortMain } from 'electron';
-import { createPreviewParseService } from '../../../../src/main/previewParseService';
+import type { MessagePortMain, WebContents } from 'electron';
+import { createPreviewParseService, trackPreviewRequesterLifecycle } from '../../../../src/main/previewParseService';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -40,6 +40,44 @@ function makeReply() {
     },
     close() { closed.value = true; },
   };
+}
+
+class FakeRequesterEvents {
+  private listeners = new Map<string, Set<(...args: unknown[]) => void>>();
+  private alive = true;
+  constructor(private readonly requesterId: number) {}
+  get id() {
+    if (!this.alive) throw new Error('destroyed requester ID getter was accessed');
+    return this.requesterId;
+  }
+  on(event: string, listener: (...args: unknown[]) => void) {
+    const listeners = this.listeners.get(event) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(event, listeners);
+    return this;
+  }
+  once(event: string, listener: (...args: unknown[]) => void) {
+    const onceListener = (...args: unknown[]) => {
+      this.removeListener(event, onceListener);
+      listener(...args);
+    };
+    Object.defineProperty(onceListener, 'listener', { value: listener });
+    return this.on(event, onceListener);
+  }
+  removeListener(event: string, listener: (...args: unknown[]) => void) {
+    const listeners = this.listeners.get(event);
+    for (const registered of listeners ?? []) {
+      if (registered === listener || (registered as unknown as { listener?: unknown }).listener === listener) {
+        listeners?.delete(registered);
+      }
+    }
+    return this;
+  }
+  emit(event: string, ...args: unknown[]) {
+    for (const listener of [...(this.listeners.get(event) ?? [])]) listener(...args);
+  }
+  markDestroyed() { this.alive = false; }
+  listenerCount(event: string) { return this.listeners.get(event)?.size ?? 0; }
 }
 
 test('rapid A to B to C replacement stops A and publishes only C', async () => {
@@ -246,4 +284,47 @@ test('direct renderer result settles the main job without posting geometry throu
   assert.deepEqual(reply.messages, []);
   assert.equal(reply.closed.value, true);
   await service.dispose();
+});
+
+test('requester lifecycle captures ID before destruction and cleans listeners and tracking exactly once', () => {
+  const requester = new FakeRequesterEvents(93);
+  const tracked = new Map<number, () => void>();
+  const cancelled: number[] = [];
+  trackPreviewRequesterLifecycle(requester as unknown as WebContents, tracked, (requesterId) => cancelled.push(requesterId));
+  trackPreviewRequesterLifecycle(requester as unknown as WebContents, tracked, (requesterId) => cancelled.push(requesterId));
+  assert.equal(tracked.size, 1);
+  assert.equal(requester.listenerCount('destroyed'), 1);
+  assert.equal(requester.listenerCount('render-process-gone'), 1);
+  assert.equal(requester.listenerCount('did-start-navigation'), 1);
+
+  requester.emit('did-start-navigation', {}, 'file:///index.html#section', true, true);
+  assert.deepEqual(cancelled, []);
+  assert.equal(tracked.size, 1);
+
+  requester.markDestroyed();
+  requester.emit('destroyed');
+  requester.emit('render-process-gone');
+  assert.deepEqual(cancelled, [93]);
+  assert.equal(tracked.size, 0);
+  assert.equal(requester.listenerCount('destroyed'), 0);
+  assert.equal(requester.listenerCount('render-process-gone'), 0);
+  assert.equal(requester.listenerCount('did-start-navigation'), 0);
+});
+
+test('only a non-in-place main-frame navigation cancels requester-owned work', () => {
+  const requester = new FakeRequesterEvents(94);
+  const tracked = new Map<number, () => void>();
+  const cancelled: number[] = [];
+  trackPreviewRequesterLifecycle(requester as unknown as WebContents, tracked, (requesterId) => cancelled.push(requesterId));
+  requester.emit('did-start-navigation', {}, 'file:///index.html#section', true, true);
+  requester.emit('did-start-navigation', {}, 'file:///child-frame.html', false, false);
+  assert.deepEqual(cancelled, []);
+  assert.equal(tracked.size, 1);
+
+  requester.emit('did-start-navigation', {}, 'file:///replacement.html', false, true);
+  assert.deepEqual(cancelled, [94]);
+  assert.equal(tracked.size, 0);
+  assert.equal(requester.listenerCount('destroyed'), 0);
+  assert.equal(requester.listenerCount('render-process-gone'), 0);
+  assert.equal(requester.listenerCount('did-start-navigation'), 0);
 });
