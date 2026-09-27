@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import { PassThrough } from 'node:stream';
 import JSZip from 'jszip';
 import * as unzipper from 'unzipper';
 import { decidePruneCandidates, matchesScanSnapshot } from '../../../../src/main/scanCoverage';
@@ -210,6 +211,42 @@ test('cancellation while opening an empty archive cannot complete the archive sc
     assert.ok(openedStreams.every((stream) => (stream as fs.ReadStream).closed), 'archive streams must be closed before discovery resolves');
   } finally {
     unzipper.Open.custom = originalOpen;
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('a central-directory stream error fails archive coverage and closes every owned stream', async () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-zip-read-error-'));
+  const archive = path.join(temp, 'models.zip');
+  const zip = new JSZip();
+  zip.file('inside.stl', 'solid inside\nendsolid inside\n');
+  fs.writeFileSync(archive, await zip.generateAsync({ type: 'nodebuffer' }));
+  const originalCreateReadStream = fs.createReadStream;
+  const streams: NodeJS.ReadableStream[] = [];
+  let archiveStreams = 0;
+  try {
+    fs.createReadStream = ((target: fs.PathLike, ...args: unknown[]) => {
+      if (String(target) !== archive) return (originalCreateReadStream as (...values: unknown[]) => fs.ReadStream)(target, ...args);
+      archiveStreams++;
+      if (archiveStreams === 2) {
+        const failedStream = new PassThrough();
+        streams.push(failedStream);
+        setImmediate(() => failedStream.emit('error', Object.assign(new Error('injected central-directory EIO'), { code: 'EIO' })));
+        return failedStream as unknown as fs.ReadStream;
+      }
+      const stream = (originalCreateReadStream as (...values: unknown[]) => fs.ReadStream)(target, ...args);
+      streams.push(stream);
+      return stream;
+    }) as typeof fs.createReadStream;
+
+    const result = await discoverFolder(temp);
+    assert.equal(result.state, 'partial');
+    assert.equal(result.scopes.some((scope) => scope.scopePath === archive && scope.status === 'error' && scope.phase === 'archive'), true);
+    assert.equal(result.scopes.some((scope) => scope.scopePath === archive && scope.status === 'complete'), false);
+    assert.equal(archiveStreams, 2, 'the failure should occur on the central-directory stream after the tail read');
+    assert.ok(streams.every((stream) => (stream as fs.ReadStream).closed), 'all archive streams must be closed before discovery resolves');
+  } finally {
+    fs.createReadStream = originalCreateReadStream;
     fs.rmSync(temp, { recursive: true, force: true });
   }
 });

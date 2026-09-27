@@ -30,18 +30,31 @@ interface ScannedFile {
  */
 async function openArchiveDirectory(archivePath: string) {
   const streams = new Set<fs.ReadStream>();
+  let rejectStreamError!: (error: Error) => void;
+  let streamErrorObserved = false;
+  const firstStreamError = new Promise<never>((_resolve, reject) => { rejectStreamError = reject; });
+  // The stream failure may arrive after parsing succeeds. Keep the promise
+  // observed even once the race below has already settled.
+  void firstStreamError.catch(() => undefined);
   const source = {
     size: async () => (await fs.promises.stat(archivePath)).size,
     stream: (start: number, length?: number) => {
       const end = length ? start + length : undefined;
       const stream = fs.createReadStream(archivePath, { start, end });
       streams.add(stream);
+      stream.on('error', (error: Error) => {
+        if (streamErrorObserved) return;
+        streamErrorObserved = true;
+        rejectStreamError(error);
+      });
       return stream;
     },
   };
 
-  const close = async () => {
-    await Promise.all([...streams].map((stream) => new Promise<void>((resolve) => {
+  let closePromise: Promise<void> | undefined;
+  const close = () => {
+    if (closePromise) return closePromise;
+    closePromise = Promise.all([...streams].map((stream) => new Promise<void>((resolve) => {
       if (stream.closed) {
         resolve();
         return;
@@ -49,11 +62,16 @@ async function openArchiveDirectory(archivePath: string) {
       stream.once('close', resolve);
       stream.destroy();
       if (stream.closed) resolve();
-    })));
+    }))).then(() => undefined);
+    return closePromise;
   };
 
   try {
-    const directory = await unzipper.Open.custom(source);
+    const parseDirectory = unzipper.Open.custom(source);
+    // unzipper's PullStream does not forward source errors from the central
+    // directory stream. Race it explicitly so a failed read cannot hang.
+    const directory = await Promise.race([parseDirectory, firstStreamError]);
+    await Promise.race([close(), firstStreamError]);
     return { directory, close };
   } catch (error) {
     await close();
