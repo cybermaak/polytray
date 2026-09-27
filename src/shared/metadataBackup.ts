@@ -40,6 +40,8 @@ const BACKUP_PREFERENCE_KEYS = [
 ] as const;
 
 export const METADATA_BACKUP_FORMAT = 'polytray-metadata-backup' as const;
+export const METADATA_BACKUP_MAX_BYTES = 50 * 1024 * 1024;
+export const METADATA_BACKUP_MAX_ANNOTATIONS = 250_000;
 export const METADATA_BACKUP_MANIFEST_STATEMENT =
   'This is a metadata backup; source model files are not included.';
 
@@ -208,13 +210,38 @@ export function buildMetadataBackupV1FromNormalizedSnapshot(
 }
 
 export function validateMetadataBackupV1(input: unknown): MetadataBackupDocumentV1 {
+  if (typeof input === 'string') {
+    if (new TextEncoder().encode(input).byteLength > METADATA_BACKUP_MAX_BYTES) throw new Error('Metadata backup exceeds 50 MiB limit');
+    try { input = JSON.parse(input) as unknown; } catch { throw new Error('Malformed metadata backup JSON'); }
+  } else if (input instanceof Uint8Array) {
+    if (input.byteLength > METADATA_BACKUP_MAX_BYTES) throw new Error('Metadata backup exceeds 50 MiB limit');
+    try { input = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(input)) as unknown; } catch { throw new Error('Malformed metadata backup JSON'); }
+  }
   if (!input || typeof input !== 'object') throw new Error('Invalid metadata backup document');
   const raw = input as Partial<MetadataBackupDocumentV1>;
   if (raw.format !== METADATA_BACKUP_FORMAT) throw new Error('Invalid metadata backup format');
   if (raw.version !== 1) throw new Error(`Unsupported metadata backup version: ${String(raw.version)}`);
   if (typeof raw.exportedAt !== 'string' || typeof raw.appVersion !== 'string') throw new Error('Invalid metadata backup metadata');
-  if (!Array.isArray(raw.annotations) || !Array.isArray(raw.pendingAnnotations) || !Array.isArray(raw.collections) || !Array.isArray(raw.libraryRoots)) {
+  const pendingAnnotations = raw.pendingAnnotations ?? [];
+  if (!Array.isArray(raw.annotations) || !Array.isArray(pendingAnnotations) || !Array.isArray(raw.collections) || !Array.isArray(raw.libraryRoots)) {
     throw new Error('Invalid metadata backup arrays');
+  }
+  if (raw.annotations.length + pendingAnnotations.length > METADATA_BACKUP_MAX_ANNOTATIONS) {
+    throw new Error('Metadata backup exceeds 250,000 annotation limit');
+  }
+  if (raw.collections.some(collection => !collection || typeof collection.id !== 'string' || !collection.id.trim() ||
+    typeof collection.name !== 'string' || !collection.name.trim() || !Array.isArray(collection.paths) ||
+    collection.paths.some(entry => typeof entry !== 'string' || !entry.trim()))) {
+    throw new Error('Invalid metadata backup collections');
+  }
+  for (const list of [raw.annotations, pendingAnnotations]) {
+    const identities = new Set<string>();
+    for (const entry of list) {
+      if (!entry || typeof entry.path !== 'string') throw new Error('Invalid backup annotation');
+      const identity = canonicalizeBackupPath(entry.path);
+      if (identities.has(identity)) throw new Error(`Duplicate annotation identity: ${identity}`);
+      identities.add(identity);
+    }
   }
   if (!raw.manifest || raw.manifest.backupType !== 'metadata-only' || raw.manifest.sourceModelsIncluded !== false || typeof raw.manifest.statement !== 'string') {
     throw new Error('Invalid metadata backup manifest');
@@ -223,7 +250,7 @@ export function validateMetadataBackupV1(input: unknown): MetadataBackupDocument
     exportedAt: raw.exportedAt,
     appVersion: raw.appVersion,
     indexedAnnotations: raw.annotations,
-    pendingAnnotations: raw.pendingAnnotations,
+    pendingAnnotations,
     snapshot: {
       rendererRevision: 0,
       libraryRoots: raw.libraryRoots,

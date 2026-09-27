@@ -41,6 +41,19 @@ test('normalizeAppSettings falls back to defaults for invalid values', () => {
   assert.equal(settings.page_size, DEFAULT_APP_SETTINGS.page_size);
 });
 
+test('normalizes preferred panel widths and preserves them through serialization', () => {
+  const settings = normalizeAppSettings({ sidebarWidth: 900, previewWidth: 100 });
+  assert.equal(settings.sidebarWidth, 600);
+  assert.equal(settings.previewWidth, 320);
+  assert.deepEqual(
+    normalizeAppSettings({ sidebarWidth: 260, previewWidth: 700 }),
+    { ...DEFAULT_APP_SETTINGS, sidebarWidth: 260, previewWidth: 700 },
+  );
+  const stored = JSON.parse(serializeAppSettings(settings)) as Record<string, unknown>;
+  assert.equal(stored.sidebarWidth, 600);
+  assert.equal(stored.previewWidth, 320);
+});
+
 test('serializeAppSettings writes a normalized localStorage payload', () => {
   const payload = serializeAppSettings({
     lightMode: true,
@@ -54,6 +67,15 @@ test('serializeAppSettings writes a normalized localStorage payload', () => {
   assert.equal(parsed.page_size, 2000);
   assert.equal(parsed.previewColor, '#224466');
   assert.equal(SETTINGS_STORAGE_KEY, 'polytray-settings');
+});
+
+test('normalizes an explicit local slicer choice without adding it to portable preferences', () => {
+  const selected = normalizeAppSettings({ slicerConfiguration: { applicationPath: '/Applications/Slicer.app', useSystemDefault: false } });
+  const fallback = normalizeAppSettings({ slicerConfiguration: { applicationPath: null, useSystemDefault: true } });
+  const invalid = normalizeAppSettings({ slicerConfiguration: { applicationPath: 'slicer', useSystemDefault: false } });
+  assert.deepEqual(selected.slicerConfiguration, { applicationPath: '/Applications/Slicer.app', useSystemDefault: false });
+  assert.deepEqual(fallback.slicerConfiguration, { applicationPath: null, useSystemDefault: true });
+  assert.equal(invalid.slicerConfiguration, null);
 });
 
 test('applySettingsPreset returns tuned advanced settings profiles', () => {

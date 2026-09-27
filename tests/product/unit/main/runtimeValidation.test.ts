@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   parseFolderPath,
+  parseLibraryQuery,
   parsePreviewMetric,
   parsePreviewParseRequest,
   parseRuntimeSettings,
@@ -17,6 +18,7 @@ test('parseRuntimeSettings normalizes valid runtime settings', () => {
       watcher_stability: 500,
       page_size: 250,
       thumbnailColor: '#224466',
+      thumbQuality: '256',
     }),
     {
       thumbnail_timeout: 2500,
@@ -24,6 +26,7 @@ test('parseRuntimeSettings normalizes valid runtime settings', () => {
       watcher_stability: 500,
       page_size: 250,
       thumbnailColor: '#224466',
+      thumbQuality: '256',
     },
   );
 });
@@ -33,6 +36,11 @@ test('parseRuntimeSettings rejects invalid runtime settings', () => {
     () => parseRuntimeSettings({ thumbnail_timeout: 'fast' }),
     /Invalid runtime settings/,
   );
+});
+
+test('parseRuntimeSettings defaults older internal settings to the current thumbnail quality and rejects invalid quality', () => {
+  assert.equal(parseRuntimeSettings({ thumbnail_timeout: 2500, scanning_batch_size: 10, watcher_stability: 500, page_size: 250, thumbnailColor: '#224466' }).thumbQuality, '256');
+  assert.throws(() => parseRuntimeSettings({ thumbnail_timeout: 2500, scanning_batch_size: 10, watcher_stability: 500, page_size: 250, thumbnailColor: '#224466', thumbQuality: '1024' }), /Invalid runtime settings/);
 });
 
 test('path and preview validators reject malformed IPC payloads', () => {
@@ -81,4 +89,34 @@ test('path and preview validators reject malformed IPC payloads', () => {
     () => parsePreviewMetric({ source: 'worker', phase: 'parse' }),
     /Invalid preview metric/,
   );
+});
+
+test('parseLibraryQuery supplies bounded defaults and preserves collection and archive identity', () => {
+  assert.deepEqual(parseLibraryQuery({}), {
+    sort: 'name', direction: 'ASC', extension: null, folder: null, search: '',
+    collectionPaths: null, limit: 500, offset: 0, archivePath: null,
+  });
+  assert.deepEqual(parseLibraryQuery({
+    sort: 'faces', direction: 'DESC', extension: 'STL', folder: '/models', search: 'literal%_',
+    collectionPaths: [], limit: 20, offset: 40, expectedBrowseRevision: 7,
+    archivePath: '/models/kits.zip',
+  }), {
+    sort: 'faces', direction: 'DESC', extension: 'stl', folder: '/models', search: 'literal%_',
+    collectionPaths: [], limit: 20, offset: 40, expectedBrowseRevision: 7,
+    archivePath: '/models/kits.zip',
+  });
+  const opaqueMemberPath = '/models/kits.zip::entry::a/../Part.stl';
+  assert.equal(parseLibraryQuery({ collectionPaths: [opaqueMemberPath] }).collectionPaths?.[0], opaqueMemberPath);
+});
+
+test('parseLibraryQuery rejects unsafe sorts, directions, limits, offsets, revisions, and paths', () => {
+  for (const input of [
+    { sort: 'drop table' }, { direction: 'sideways' }, { limit: 0 }, { limit: 2001 },
+    { limit: 1.5 }, { offset: -1 }, { offset: Number.MAX_SAFE_INTEGER + 1 },
+    { expectedBrowseRevision: -1 }, { expectedBrowseRevision: Number.MAX_SAFE_INTEGER + 1 },
+    { search: null }, { folder: '' }, { extension: '' }, { archivePath: '' },
+    { collectionPaths: [''] }, { collectionPaths: 'not-a-list' },
+  ]) {
+    assert.throws(() => parseLibraryQuery(input), /Invalid library query/);
+  }
 });

@@ -1,25 +1,39 @@
-import { app, ipcMain, BrowserWindow, MessageChannelMain } from "electron";
+import { app, ipcMain, BrowserWindow, MessageChannelMain, nativeImage } from "electron";
 import path from "path";
 import fs from "fs/promises";
 import fsSync from "fs";
 import crypto from "crypto";
 import {
   IPC,
-  PreviewParseRequestData,
   RuntimeSettingsData,
   ScannedFile,
 } from "../shared/types";
 import { getThumbnailWindow } from "./index";
 import { getDb } from "./database";
+import { createFileIndexRepository } from "./fileIndexing";
 import { filterContainedPaths } from "./pathContainment";
 import { createThumbnailJobScheduler } from "./thumbnailJobScheduler";
 import { reconcileThumbnailCache } from "./thumbnailCacheLifecycle";
 import { parseRuntimeSettings } from "./ipc/runtimeValidation";
 import { registerPreviewParseHandler } from "./previewParseService";
+import { canonicalizeThumbnailPath, createThumbnailAttemptRegistry, createThumbnailIdentity, createThumbnailRequestRegistry, readValidatedThumbnailCache, thumbnailCacheFilename, thumbnailRequestKey } from "./thumbnailIdentity";
+import type { ThumbnailAttempt } from "../shared/thumbnailContracts";
 
 let thumbnailDir: string | null = null;
-const pendingRequests = new Map<string, Array<{ resolve: (val: string | null) => void }>>();
-const inflightPromises = new Map<string, Promise<string | null>>();
+const pendingRequests = createThumbnailAttemptRegistry<string | null>();
+const inflightPromises = createThumbnailRequestRegistry<string | null>();
+const cacheEpochs = new Map<string, number>();
+
+function decodeThumbnailPng(data: Buffer) {
+  try {
+    const image = nativeImage.createFromBuffer(data);
+    if (image.isEmpty()) return null;
+    const { width, height } = image.getSize();
+    return { width, height };
+  } catch {
+    return null;
+  }
+}
 const thumbnailScheduler = createThumbnailJobScheduler({
   execute: async (job) => {
     const startedAt = Date.now();
@@ -48,6 +62,18 @@ export function getThumbnailDir(): string {
   return thumbnailDir;
 }
 
+export function advanceThumbnailCacheEpoch(filePath: string): number {
+  const canonicalPath = canonicalizeThumbnailPath(filePath);
+  const next = (cacheEpochs.get(canonicalPath) ?? 0) + 1;
+  cacheEpochs.set(canonicalPath, next);
+  pendingRequests.settleWhere((attempt) => attempt.key.canonicalPath === canonicalPath, null);
+  return next;
+}
+
+function getThumbnailCacheEpoch(filePath: string): number {
+  return cacheEpochs.get(canonicalizeThumbnailPath(filePath)) ?? 0;
+}
+
 /**
  * Initializes the thumbnail service by setting up a global IPC listener.
  */
@@ -61,38 +87,57 @@ export function initThumbnailService() {
     console.warn("[Thumbnails] Cache reconciliation failed:", error);
   });
 
-  ipcMain.on(IPC.THUMBNAIL_GENERATED, async (_event, result) => {
-    const filePath = result.filePath;
-    const callbacks = pendingRequests.get(filePath);
-    if (!callbacks) return;
-
-    pendingRequests.delete(filePath);
-    inflightPromises.delete(filePath);
-
-    let savedPath: string | null = null;
-
-    if (result.success && result.dataUrl) {
-      try {
-        const thumbDir = getThumbnailDir();
-        const hash = generatePathHash(filePath);
-        const thumbPath = path.join(thumbDir, `${hash}.png`);
-
-        const base64Data = result.dataUrl.replace(/^data:image\/png;base64,/, "");
-        await fs.writeFile(thumbPath, Buffer.from(base64Data, "base64"));
-        savedPath = thumbPath;
-      } catch (e: unknown) {
-        console.warn(`[Thumbnails] Failed to save ${filePath}:`, (e as Error).message);
-      }
+  ipcMain.on(IPC.THUMBNAIL_GENERATED, async (event, result) => {
+    const attempt = pendingRequests.get(result?.requestId);
+    if (!attempt) return;
+    if (event.sender !== getThumbnailWindow()?.webContents ||
+        result.filePath !== attempt.key.canonicalPath || result.cacheEpoch !== attempt.cacheEpoch ||
+        result.thumbPath !== path.join(getThumbnailDir(), thumbnailCacheFilename(JSON.stringify(attempt.key))) ||
+        JSON.stringify(result.cacheKey) !== JSON.stringify(attempt.key)) return;
+    if (!result.success || typeof result.dataUrl !== "string") {
+      pendingRequests.settle(result.requestId, null);
+      return;
     }
 
-    callbacks.forEach((cb) => cb.resolve(savedPath));
+    const row = getDb().prepare("SELECT id, path, content_revision FROM files WHERE path = ? AND content_revision = ?").get(attempt.key.canonicalPath, attempt.key.contentRevision) as { id: number; path: string; content_revision: number } | undefined;
+    if (!row || row.path !== attempt.key.canonicalPath ||
+        (cacheEpochs.get(attempt.key.canonicalPath) ?? 0) !== attempt.cacheEpoch) {
+      pendingRequests.settle(result.requestId, null);
+      return;
+    }
+
+    let savedPath: string | null = null;
+    const thumbPath = path.join(getThumbnailDir(), thumbnailCacheFilename(JSON.stringify(attempt.key)));
+    const temporaryPath = `${thumbPath}.${result.requestId}.tmp`;
+    try {
+      const base64Data = result.dataUrl.replace(/^data:image\/png;base64,/, "");
+      const image = Buffer.from(base64Data, "base64");
+      const dimensions = decodeThumbnailPng(image);
+      if (!dimensions || dimensions.width !== attempt.key.size || dimensions.height !== attempt.key.size) throw new Error("Renderer result is not a valid PNG of the requested size");
+      await fs.writeFile(temporaryPath, image, { flag: "wx" });
+      const current = getDb().prepare("SELECT path, content_revision FROM files WHERE id = ?").get(row.id) as { path: string; content_revision: number } | undefined;
+      if (!current || current.path !== attempt.key.canonicalPath || current.content_revision !== attempt.key.contentRevision ||
+          (cacheEpochs.get(attempt.key.canonicalPath) ?? 0) !== attempt.cacheEpoch) {
+        await fs.rm(temporaryPath, { force: true });
+      } else {
+        await fs.rename(temporaryPath, thumbPath);
+        const afterRename = getDb().prepare("SELECT path, content_revision FROM files WHERE id = ?").get(row.id) as { path: string; content_revision: number } | undefined;
+        if (!afterRename || afterRename.path !== attempt.key.canonicalPath || afterRename.content_revision !== attempt.key.contentRevision ||
+            (cacheEpochs.get(attempt.key.canonicalPath) ?? 0) !== attempt.cacheEpoch) {
+          await fs.rm(thumbPath, { force: true });
+        } else {
+          savedPath = thumbPath;
+        }
+      }
+    } catch (e: unknown) {
+      console.warn(`[Thumbnails] Failed to save ${attempt.key.canonicalPath}:`, (e as Error).message);
+    } finally {
+      if (!savedPath) await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+    }
+    pendingRequests.settle(result.requestId, savedPath);
   });
 
   registerPreviewParseHandler(ipcMain, getThumbnailWindow, () => new MessageChannelMain());
-}
-
-function generatePathHash(filePath: string): string {
-  return crypto.createHash("sha256").update(filePath).digest("hex").slice(0, 16);
 }
 
 /**
@@ -103,61 +148,57 @@ export async function generateThumbnail(
   ext: string,
   settings: RuntimeSettingsData,
 ): Promise<string | null> {
-  // 1. De-duplicate if already being processed
-  const existing = inflightPromises.get(filePath);
-  if (existing) return existing;
-
-  const promise = (async () => {
+  const db = getDb();
+  const identityRow = db.prepare("SELECT id, path, content_revision, thumbnail FROM files WHERE path = ?").get(filePath) as { id: number; path: string; content_revision: number; thumbnail: string | null } | undefined;
+  if (!identityRow) return null;
+  const size = Number(settings.thumbQuality ?? 256) as 128 | 256 | 512;
+  const { cacheKey, key } = createThumbnailIdentity(identityRow.path, identityRow.content_revision, settings.thumbnailColor, size);
+  const cacheEpoch = getThumbnailCacheEpoch(identityRow.path);
+  const requestKey = thumbnailRequestKey(key, cacheEpoch);
+  return inflightPromises.run(requestKey, async () => {
     // 2. Check cache first
-    const thumbDir = getThumbnailDir();
-    const hash = generatePathHash(filePath);
-    const thumbPath = path.join(thumbDir, `${hash}.png`);
-
-    try {
-      await fs.access(thumbPath);
-      return thumbPath;
-    } catch {
-      // Not in cache, proceed to generate
-    }
-
+    const thumbPath = path.join(getThumbnailDir(), thumbnailCacheFilename(key));
+    const isCurrentIdentity = () => {
+      const current = db.prepare("SELECT path, content_revision FROM files WHERE id = ?").get(identityRow.id) as { path: string; content_revision: number } | undefined;
+      return !!current && current.path === identityRow.path && current.content_revision === identityRow.content_revision &&
+        identityRow.path === canonicalizeThumbnailPath(filePath) && getThumbnailCacheEpoch(identityRow.path) === cacheEpoch;
+    };
+    const cached = await readValidatedThumbnailCache(
+      () => fs.readFile(thumbPath),
+      size,
+      decodeThumbnailPng,
+      isCurrentIdentity,
+    );
+    if (cached) return thumbPath;
+    if (!isCurrentIdentity()) return null;
+    const requestId = crypto.randomUUID();
+    const attempt: ThumbnailAttempt = { requestId, cacheEpoch, key: cacheKey };
     const thumbWindow = getThumbnailWindow();
     if (!thumbWindow || thumbWindow.isDestroyed()) return null;
 
     return new Promise<string | null>((resolve) => {
-      // Register callback handled by global listener
-      const callbacks = pendingRequests.get(filePath) || [];
-      callbacks.push({ resolve });
-      pendingRequests.set(filePath, callbacks);
-
-      // Send generation request
-      thumbWindow.webContents.send(IPC.GENERATE_THUMBNAIL_REQUEST, {
-        filePath,
-        ext,
-        thumbPath,
-        color: settings.thumbnailColor,
-      });
-
-      // Safety timeout
-      const timeout = settings.thumbnail_timeout;
-      setTimeout(() => {
-        const currentCallbacks = pendingRequests.get(filePath);
-        if (currentCallbacks) {
-          const index = currentCallbacks.findIndex((c) => c.resolve === resolve);
-          if (index > -1) {
-            currentCallbacks.splice(index, 1);
-            if (currentCallbacks.length === 0) {
-              pendingRequests.delete(filePath);
-              inflightPromises.delete(filePath);
-            }
-            resolve(null);
-          }
-        }
-      }, timeout);
+      let settled = false;
+      const settle = (value: string | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        thumbWindow.removeListener("closed", onClosed);
+        resolve(value);
+      };
+      const timeout = setTimeout(() => pendingRequests.settle(requestId, null), settings.thumbnail_timeout);
+      const onClosed = () => pendingRequests.settle(requestId, null);
+      pendingRequests.register(attempt, settle);
+      thumbWindow.once("closed", onClosed);
+      try {
+        thumbWindow.webContents.send(IPC.GENERATE_THUMBNAIL_REQUEST, {
+          filePath: identityRow.path, ext, thumbPath, color: cacheKey.color,
+          requestId, cacheKey, cacheEpoch, size, contentRevision: identityRow.content_revision,
+        });
+      } catch {
+        pendingRequests.settle(requestId, null);
+      }
     });
-  })();
-
-  inflightPromises.set(filePath, promise);
-  return promise;
+  });
 }
 
 /**
@@ -190,6 +231,9 @@ export async function generateThumbnailsInBackground(
     if (!win || win.isDestroyed()) return;
 
     const file = filesToThumbnail[i];
+    const repository = createFileIndexRepository(db);
+    const currentIdentity = repository.getFileIdentityByPath(file.path);
+    if (!currentIdentity) continue;
     await yieldToEventLoop();
 
     const startTime = Date.now();
@@ -202,24 +246,17 @@ export async function generateThumbnailsInBackground(
         source: "scan",
         priority: 1,
         retries: 1,
+        dedupeKey: thumbnailRequestKey(createThumbnailIdentity(currentIdentity.path, currentIdentity.contentRevision, settings.thumbnailColor, Number(settings.thumbQuality ?? 256) as 128 | 256 | 512).key, getThumbnailCacheEpoch(currentIdentity.path)),
       });
       if (thumbnailPath) {
-        db.prepare("UPDATE files SET thumbnail = ?, thumbnail_failed = 0 WHERE path = ?").run(
-          thumbnailPath,
-          file.path,
-        );
+        const update = repository.updateThumbnailState({ fileId: currentIdentity.id, expectedContentRevision: currentIdentity.contentRevision, thumbnailPath, thumbnailFailed: 0 });
         const currentWin = getMainWindow();
-        if (currentWin && !currentWin.isDestroyed()) {
-          const row = db.prepare("SELECT id FROM files WHERE path = ?").get(file.path) as { id: number } | undefined;
-          if (row) {
-            currentWin.webContents.send(IPC.THUMBNAIL_READY, {
-              fileId: row.id,
-              thumbnailPath,
-            });
-          }
+        if (update.status === "updated" && currentWin && !currentWin.isDestroyed()) {
+          const { identity } = createThumbnailIdentity(currentIdentity.path, currentIdentity.contentRevision, settings.thumbnailColor, Number(settings.thumbQuality ?? 256) as 128 | 256 | 512);
+          currentWin.webContents.send(IPC.THUMBNAIL_READY, { fileId: currentIdentity.id, thumbnailPath, identity, contentRevision: currentIdentity.contentRevision });
         }
       } else {
-        db.prepare("UPDATE files SET thumbnail_failed = 1 WHERE path = ?").run(file.path);
+        repository.updateThumbnailState({ fileId: currentIdentity.id, expectedContentRevision: currentIdentity.contentRevision, thumbnailPath: null, thumbnailFailed: 1 });
       }
     } catch (e: unknown) {
       console.warn(`[Thumbnails] Failed ${file.path}:`, (e as Error).message);
@@ -305,13 +342,18 @@ export function scheduleSingleThumbnailGeneration(
   settings: RuntimeSettingsData,
   source: "watch" | "manual",
 ) {
+  const normalizedSettings = parseRuntimeSettings(settings);
+  const identity = createFileIndexRepository(getDb()).getFileIdentityByPath(filePath);
+  if (!identity) return Promise.resolve(null);
+  const { key } = createThumbnailIdentity(identity.path, identity.contentRevision, normalizedSettings.thumbnailColor, Number(normalizedSettings.thumbQuality ?? 256) as 128 | 256 | 512);
   return thumbnailScheduler.enqueue({
     filePath,
     ext,
-    settings: parseRuntimeSettings(settings),
+    settings: normalizedSettings,
     source,
     priority: source === "manual" ? 3 : 2,
     retries: 1,
+    dedupeKey: thumbnailRequestKey(key, getThumbnailCacheEpoch(identity.path)),
   });
 }
 

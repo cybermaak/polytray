@@ -7,6 +7,8 @@ export interface ThumbnailJobRequest {
   source: "scan" | "watch" | "manual";
   priority?: number;
   retries?: number;
+  /** Full C4 identity key. Legacy callers fall back to filePath. */
+  dedupeKey?: string;
 }
 
 interface SchedulerJob extends ThumbnailJobRequest {
@@ -54,8 +56,9 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
     try {
       while (queue.size > 0) {
         const job = [...queue.values()].sort((a, b) => b.priority - a.priority)[0];
-        queue.delete(job.filePath);
-        activeJobs.set(job.filePath, job);
+        const key = job.dedupeKey ?? job.filePath;
+        queue.delete(key);
+        activeJobs.set(key, job);
         emitStats();
 
         try {
@@ -67,7 +70,7 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
         } catch (error) {
           if (job.retries > 0) {
             stats.retries += 1;
-            queue.set(job.filePath, {
+            queue.set(key, {
               ...job,
               retries: job.retries - 1,
             });
@@ -78,7 +81,7 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
             }
           }
         } finally {
-          activeJobs.delete(job.filePath);
+          activeJobs.delete(key);
         }
       }
     } finally {
@@ -90,8 +93,9 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
   return {
     enqueue(request: ThumbnailJobRequest) {
       return new Promise<string | null>((resolve, reject) => {
-        const existing = queue.get(request.filePath);
-        const active = activeJobs.get(request.filePath);
+        const key = request.dedupeKey ?? request.filePath;
+        const existing = queue.get(key);
+        const active = activeJobs.get(key);
 
         if (existing) {
           existing.priority = Math.max(existing.priority, request.priority ?? 0);
@@ -103,7 +107,7 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
         } else if (active) {
           active.consumers.push({ resolve, reject });
         } else {
-          queue.set(request.filePath, {
+          queue.set(key, {
             ...request,
             priority: request.priority ?? 0,
             retries: request.retries ?? 1,

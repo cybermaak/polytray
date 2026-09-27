@@ -17,6 +17,11 @@ import {
   RuntimeSettingsData,
   UpdateFileMetadataData,
   IndexMutationResult,
+  LibraryQuery,
+  LibraryPageResult,
+  SlicerHandoffRequest,
+  SlicerHandoffResult,
+  SlicerConfiguration,
 } from "../shared/types";
 
 function onChannel<T>(channel: string, callback: (data: T) => void) {
@@ -65,10 +70,17 @@ contextBridge.exposeInMainWorld("polytray", {
 
   // File queries
   getFiles: (opts: SortOptions) => ipcRenderer.invoke(IPC.GET_FILES, opts),
+  getLibraryPage: (query: LibraryQuery) => ipcRenderer.invoke(IPC.GET_LIBRARY_PAGE, query) as Promise<LibraryPageResult>,
   getFileById: (id: number) => ipcRenderer.invoke(IPC.GET_FILE_BY_ID, id),
   updateFileMetadata: (payload: UpdateFileMetadataData) =>
     ipcRenderer.invoke(IPC.UPDATE_FILE_METADATA, payload),
   getStats: () => ipcRenderer.invoke(IPC.GET_STATS),
+  openInSlicer: (request: SlicerHandoffRequest) =>
+    ipcRenderer.invoke(IPC.OPEN_IN_SLICER, request) as Promise<SlicerHandoffResult>,
+  cancelSlicerHandoff: (requestId: string) =>
+    ipcRenderer.invoke(IPC.CANCEL_SLICER_HANDOFF, requestId) as Promise<boolean>,
+  pickSlicerApplication: () =>
+    ipcRenderer.invoke(IPC.PICK_SLICER_APPLICATION) as Promise<SlicerConfiguration | null>,
   startDrag: (filePath: string) =>
     ipcRenderer.send(IPC.ON_DRAG_START, filePath),
   showContextMenu: (filePath: string) =>

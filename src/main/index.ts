@@ -16,6 +16,7 @@ import { registerScanningHandlers } from "./ipc/scanning";
 import { registerFileHandlers } from "./ipc/files";
 import { registerThumbnailHandlers } from "./ipc/thumbnails";
 import { registerSystemHandlers } from "./ipc/system";
+import { registerSlicerHandlers, startSlicerStartupCleanup } from "./ipc/slicer";
 
 // Set the application name for macOS menu bar
 app.setName("PolyTray");
@@ -94,6 +95,7 @@ if (fs.existsSync(portableDataDir)) {
 // ───────────────────────────────────────────────────────────────────
 
 let mainWindow: BrowserWindow | null = null;
+let slicerHandlers: ReturnType<typeof registerSlicerHandlers> | null = null;
 let thumbnailWindow: BrowserWindow | null = null;
 let mainWindowVisibilityRevision = 0;
 let fileIndexRuntime: FileIndexRuntime | null = null;
@@ -233,9 +235,18 @@ function registerIpcHandlers() {
   });
   registerLibraryHandlers(getMainWindow);
   registerScanningHandlers(getMainWindow);
-  registerFileHandlers();
+  registerFileHandlers({
+    isScopeIndexReady: () => fileIndexRuntime?.canUseScopeReader() === true,
+    ensureScopeIndexReady: async () => {
+      const runtime = fileIndexRuntime;
+      if (!runtime) throw new Error("File index runtime is unavailable");
+      await runtime.startBackfill();
+      if (!runtime.canUseScopeReader()) throw new Error("Library scope index is not ready");
+    },
+  });
   registerThumbnailHandlers(getMainWindow);
   registerSystemHandlers(getMainWindow);
+  slicerHandlers = registerSlicerHandlers(getMainWindow);
   initThumbnailService();
 }
 
@@ -282,18 +293,21 @@ app.whenReady().then(() => {
   });
   createThumbnailWindow();
   registerIpcHandlers();
-
-  app.once("will-quit", () => {
-    void fileIndexRuntime?.dispose();
-    libraryMutationPublisher?.flush();
-    libraryMutationPublisher?.dispose();
-  });
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
-  });
+  startSlicerStartupCleanup(
+    () => {
+      app.once("will-quit", () => {
+        slicerHandlers?.dispose();
+        void fileIndexRuntime?.dispose();
+        libraryMutationPublisher?.flush();
+        libraryMutationPublisher?.dispose();
+      });
+      app.on("activate", () => {
+        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      });
+    },
+    () => slicerHandlers?.cleanup() ?? Promise.resolve(),
+    (report) => log.warn("[SlicerHandoff] startup cleanup was incomplete", report),
+  );
 });
 
 app.on("window-all-closed", () => {

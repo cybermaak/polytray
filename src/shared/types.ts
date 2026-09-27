@@ -1,3 +1,5 @@
+import type { ThumbnailCacheKey, ThumbnailIdentity, ThumbnailSize } from './thumbnailContracts';
+
 export interface FileRecord {
   id: number;
   path: string;
@@ -61,6 +63,7 @@ export const IPC = {
   SCAN_ALL_LIBRARY: "scan-all-library",
   CLEAR_THUMBNAILS: "clear-thumbnails",
   GET_FILES: "get-files",
+  GET_LIBRARY_PAGE: "get-library-page",
   GET_FILE_BY_ID: "get-file-by-id",
   READ_FILE_BUFFER: "read-file-buffer",
   READ_THUMBNAIL: "read-thumbnail",
@@ -75,6 +78,9 @@ export const IPC = {
   RESCAN: "rescan",
   REFRESH_FOLDER_THUMBNAILS: "refresh-folder-thumbnails",
   UPDATE_SETTING: "update-setting",
+  OPEN_IN_SLICER: "open-in-slicer",
+  CANCEL_SLICER_HANDOFF: "cancel-slicer-handoff",
+  PICK_SLICER_APPLICATION: "pick-slicer-application",
 
   // send channels (renderer → main, fire-and-forget)
   ON_DRAG_START: "ondragstart",
@@ -163,6 +169,8 @@ export interface FileIndexedData {
 export interface ThumbnailReadyData {
   fileId: number;
   thumbnailPath: string;
+  identity: ThumbnailIdentity;
+  contentRevision: number;
 }
 
 /** THUMBNAIL_PROGRESS event payload */
@@ -179,6 +187,11 @@ export interface ThumbnailRequestData {
   ext: string;
   thumbPath: string;
   color: string;
+  requestId: string;
+  cacheKey: ThumbnailCacheKey;
+  cacheEpoch: number;
+  size: ThumbnailSize;
+  contentRevision: number;
 }
 
 /** THUMBNAIL_GENERATED result sent back from renderer */
@@ -186,6 +199,9 @@ export interface ThumbnailResultData {
   filePath: string;
   thumbPath: string;
   success: boolean;
+  requestId: string;
+  cacheKey: ThumbnailCacheKey;
+  cacheEpoch: number;
   dataUrl?: string;
 }
 
@@ -243,6 +259,7 @@ export interface RuntimeSettingsData {
   watcher_stability: number;
   page_size: number;
   thumbnailColor: string;
+  thumbQuality?: "128" | "256" | "512";
 }
 
 export interface UpdateFileMetadataData {

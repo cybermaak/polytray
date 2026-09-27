@@ -1,3 +1,9 @@
+import {
+  DEFAULT_PANEL_PREFERENCES,
+  normalizePanelPreferences,
+} from "./panelPreferences";
+import type { SlicerConfiguration } from "./backupContracts";
+
 export const SETTINGS_STORAGE_KEY = "polytray-settings";
 
 export type GridSize = "small" | "medium" | "large";
@@ -18,6 +24,9 @@ export interface AppSettings {
   scanning_batch_size: number;
   watcher_stability: number;
   page_size: number;
+  sidebarWidth: number;
+  previewWidth: number;
+  slicerConfiguration: SlicerConfiguration | null;
 }
 
 export interface RuntimeSettings {
@@ -26,6 +35,7 @@ export interface RuntimeSettings {
   watcher_stability: number;
   page_size: number;
   thumbnailColor: string;
+  thumbQuality: ThumbnailQuality;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -42,6 +52,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   scanning_batch_size: 50,
   watcher_stability: 1000,
   page_size: 500,
+  ...DEFAULT_PANEL_PREFERENCES,
+  slicerConfiguration: null,
 };
 
 const THUMB_QUALITIES: ThumbnailQuality[] = ["128", "256", "512"];
@@ -75,6 +87,21 @@ function normalizeHexColor(value: unknown, fallback: string) {
     : fallback;
 }
 
+function normalizeSlicerConfiguration(value: unknown): SlicerConfiguration | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<SlicerConfiguration>;
+  if (candidate.useSystemDefault === true && candidate.applicationPath === null) {
+    return { useSystemDefault: true, applicationPath: null };
+  }
+  if (
+    candidate.useSystemDefault !== false ||
+    typeof candidate.applicationPath !== "string" ||
+    !candidate.applicationPath.trim() ||
+    !/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(candidate.applicationPath)
+  ) return null;
+  return { useSystemDefault: false, applicationPath: candidate.applicationPath };
+}
+
 function normalizeChoice<T extends string>(
   value: unknown,
   allowed: readonly T[],
@@ -91,6 +118,7 @@ export function normalizeAppSettings(input: unknown): AppSettings {
       ? (input as Partial<Record<keyof AppSettings, unknown>>)
       : {};
 
+  const panelPreferences = normalizePanelPreferences(raw);
   return {
     lightMode: normalizeBoolean(raw.lightMode, DEFAULT_APP_SETTINGS.lightMode),
     gridSize: normalizeChoice(
@@ -142,6 +170,8 @@ export function normalizeAppSettings(input: unknown): AppSettings {
       50,
       2000,
     ),
+    ...panelPreferences,
+    slicerConfiguration: normalizeSlicerConfiguration(raw.slicerConfiguration),
   };
 }
 
@@ -161,6 +191,7 @@ export function normalizeRuntimeSettings(input: unknown): RuntimeSettings {
     watcher_stability: normalized.watcher_stability,
     page_size: normalized.page_size,
     thumbnailColor: normalized.thumbnailColor,
+    thumbQuality: normalized.thumbQuality,
   };
 }
 

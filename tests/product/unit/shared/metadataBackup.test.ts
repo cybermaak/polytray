@@ -19,7 +19,7 @@ test('metadata backup canonicalizes paths and keeps indexed and pending notes se
       rendererRevision: 9,
       libraryRoots: ['/library/../library', '/library'],
       collections: [{ id: 'c1', name: ' Favorites ', paths: ['/library/model.stl', '/library/archive.zip::entry::parts/part.obj'] }],
-      preferences: { lightMode: true, gridSize: 'large', page_size: 500, slicerPath: '/Applications/hidden' } as never,
+      preferences: { lightMode: true, gridSize: 'large', page_size: 500, slicerConfiguration: { applicationPath: '/Applications/Slicer.app', useSystemDefault: false } } as never,
     },
   });
 
@@ -37,7 +37,7 @@ test('metadata backup canonicalizes paths and keeps indexed and pending notes se
   assert.equal(document.preferences.gridSize, 'large');
   assert.equal('autoScan' in document.preferences, false);
   assert.equal('page_size' in document.preferences, false);
-  assert.equal('slicerPath' in document.preferences, false);
+  assert.equal('slicerConfiguration' in document.preferences, false);
   assert.equal(document.manifest.sourceModelsIncluded, false);
   assert.ok(document.manifest.statement.includes('source model files are not included'));
 });
@@ -107,4 +107,34 @@ test('conflicting duplicate annotations within one source fail instead of droppi
     pendingAnnotations: [],
     snapshot: { rendererRevision: 1, libraryRoots: [], collections: [], preferences: {} },
   }), /conflicting duplicate annotation notes/i);
+});
+
+test('V1 import validation bounds raw input bytes and combined annotation entries', () => {
+  assert.throws(() => validateMetadataBackupV1(new Uint8Array(50 * 1024 * 1024 + 1)), /50 MiB/i);
+  assert.throws(() => validateMetadataBackupV1(' '.repeat(50 * 1024 * 1024 + 1)), /50 MiB/i);
+  const document = buildMetadataBackupV1({
+    exportedAt: '2026-09-26T12:00:00.000Z', appVersion: '1.1.1', indexedAnnotations: [], pendingAnnotations: [],
+    snapshot: { rendererRevision: 0, libraryRoots: [], collections: [], preferences: {} },
+  });
+  assert.throws(() => validateMetadataBackupV1({ ...document,
+    annotations: new Array(125001).fill({ path: '/a', tags: [], notes: null }),
+    pendingAnnotations: new Array(125000).fill({ path: '/b', tags: [], notes: null }),
+  }), /250,?000/i);
+});
+
+test('V1 import defaults absent pending records and rejects duplicate canonical identities per array', () => {
+  const document = buildMetadataBackupV1({
+    exportedAt: '2026-09-26T12:00:00.000Z', appVersion: '1.1.1', indexedAnnotations: [], pendingAnnotations: [],
+    snapshot: { rendererRevision: 0, libraryRoots: [], collections: [], preferences: {} },
+  });
+  const { pendingAnnotations: _pending, ...legacy } = document;
+  assert.deepEqual(validateMetadataBackupV1(legacy).pendingAnnotations, []);
+  assert.throws(() => validateMetadataBackupV1({ ...document, annotations: [
+    { path: '/models/a.stl', tags: [], notes: null }, { path: '/models/./a.stl', tags: [], notes: null },
+  ] }), /duplicate/i);
+  assert.throws(() => validateMetadataBackupV1({ ...document, version: 99 }), /version/i);
+  assert.throws(() => validateMetadataBackupV1('{not json'), /malformed/i);
+  assert.throws(() => validateMetadataBackupV1({ ...document, annotations: [{ path: 'relative.stl', tags: [], notes: null }] }), /absolute/i);
+  assert.throws(() => validateMetadataBackupV1({ ...document, collections: [{ id: '', name: 'x', paths: [] }] }), /collections/i);
+  assert.throws(() => validateMetadataBackupV1({ ...document, preferences: { watch: 'sometimes' } }), /preference/i);
 });

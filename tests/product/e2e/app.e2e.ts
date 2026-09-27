@@ -32,6 +32,7 @@ const DEFAULT_RUNTIME_SETTINGS = {
   watcher_stability: 1000,
   page_size: 500,
   thumbnailColor: "#8888aa",
+  thumbQuality: "256",
 };
 
 function generateLargeBinaryStl(filePath, triangleCount = 220000) {
