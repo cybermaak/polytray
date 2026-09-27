@@ -2,7 +2,7 @@
 
 [Execution plan](../2026-09-26-performance-ux-execution-plan.md) | [Shared contracts](contracts.md) | [Handoff template](handoff-template.md)
 
-**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01, S01, T03, V01, and the P02 export service are reviewed and integrated. D02/S02 are dispatched from that verified base while V03 continues. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. Extra-chat registration is unresolved; the active subagent pool owns execution.
+**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01, S01, T03, V01, and the P02 export service are reviewed and integrated. Seven implementation lanes now cover D02/S02/T01/V03/U03/P01/P03, with an independent review chat. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. The original unregistered chat requests are superseded by the active assignments below.
 
 **Progress:** 7 / 33 DONE. Foundation 2/2; data 1/3; scanning 1/6; thumbnails 1/4; preview 1/5; browsing 0/6; product workflows 1/4; validation 0/3. D01's guarded missing-row follow-up is reviewed and integrated.
 
