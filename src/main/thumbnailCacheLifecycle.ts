@@ -44,6 +44,7 @@ export interface ThumbnailInvalidationHooks {
   cancelQueued(modelPaths: string[] | null): void;
   clearReferences(rows: ThumbnailIndexedRow[], invalidateAll: boolean): number | Promise<number>;
   removeCacheFiles(invalidateAll: boolean, thumbnailPaths: string[]): number | Promise<number>;
+  onCacheRemoveError?(error: unknown, thumbnailPaths: string[]): void;
   publish(event: ThumbnailInvalidatedData): void;
   queue(scope: ThumbnailInvalidationScope): void | Promise<void>;
 }
@@ -174,6 +175,10 @@ export async function removeThumbnailCacheFiles(
   thumbnailDir: string,
   invalidateAll: boolean,
   thumbnailPaths: string[],
+  hooks: {
+    removeFile?: (filePath: string) => Promise<void>;
+    onError?: (filePath: string, error: unknown) => void;
+  } = {},
 ): Promise<number> {
   let targets: string[];
   if (invalidateAll) {
@@ -181,7 +186,11 @@ export async function removeThumbnailCacheFiles(
       targets = (await fs.readdir(thumbnailDir))
         .filter((file) => file.endsWith(".png") || file.endsWith(".tmp"))
         .map((file) => path.join(thumbnailDir, file));
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        if (hooks.onError) hooks.onError(thumbnailDir, error);
+        else console.warn("[Thumbnails] Cache directory enumeration failed:", thumbnailDir, error);
+      }
       return 0;
     }
   } else {
@@ -190,8 +199,18 @@ export async function removeThumbnailCacheFiles(
       filterContainedPaths(thumbnailDir, [filePath]).length === 1,
     ).map((filePath) => path.resolve(filePath)))];
   }
-  await Promise.all(targets.map((filePath) => fs.rm(filePath, { force: true })));
-  return targets.filter((filePath) => path.extname(filePath).toLowerCase() === ".png").length;
+  const removeFile = hooks.removeFile ?? ((filePath: string) => fs.rm(filePath, { force: true }));
+  let removedPngCount = 0;
+  await Promise.all(targets.map(async (filePath) => {
+    try {
+      await removeFile(filePath);
+      if (path.extname(filePath).toLowerCase() === ".png") removedPngCount++;
+    } catch (error) {
+      if (hooks.onError) hooks.onError(filePath, error);
+      else console.warn("[Thumbnails] Cache file deletion failed:", filePath, error);
+    }
+  }));
+  return removedPngCount;
 }
 
 export function createThumbnailInvalidationEvents(
@@ -227,7 +246,13 @@ export async function executeThumbnailInvalidation(
   hooks.advanceEpochs(modelPaths, scope.kind === "all");
   hooks.cancelQueued(scope.kind === "all" ? null : modelPaths);
   const invalidatedFileCount = await hooks.clearReferences(selectedRows, scope.kind === "all");
-  const removedThumbnailCount = await hooks.removeCacheFiles(scope.kind === "all", thumbnailPaths);
+  let removedThumbnailCount = 0;
+  try {
+    removedThumbnailCount = await hooks.removeCacheFiles(scope.kind === "all", thumbnailPaths);
+  } catch (error) {
+    if (hooks.onCacheRemoveError) hooks.onCacheRemoveError(error, thumbnailPaths);
+    else console.warn("[Thumbnails] Cache deletion was incomplete:", error);
+  }
   for (const event of createThumbnailInvalidationEvents(scope, modelPaths, thumbnailPaths)) hooks.publish(event);
   await hooks.queue(scope);
 

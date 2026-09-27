@@ -282,3 +282,43 @@ test('full cache deletion removes PNGs and abandoned temp files only inside its 
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('cache deletion keeps partial progress and logs an individual removal failure', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-thumb-partial-delete-'));
+  const good = path.join(root, 'good.png');
+  const blocked = path.join(root, 'blocked.png');
+  const failures: string[] = [];
+  try {
+    fs.writeFileSync(good, 'good');
+    fs.writeFileSync(blocked, 'blocked');
+    const removed = await removeThumbnailCacheFiles(root, false, [good, blocked], {
+      async removeFile(filePath) {
+        if (filePath === blocked) throw new Error('simulated busy file');
+        await fs.promises.rm(filePath, { force: true });
+      },
+      onError(filePath) { failures.push(filePath); },
+    });
+    assert.equal(removed, 1);
+    assert.equal(fs.existsSync(good), false);
+    assert.equal(fs.existsSync(blocked), true);
+    assert.deepEqual(failures, [blocked]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a cache-delete hook failure still publishes invalidation and requeues the scope', async () => {
+  const order: string[] = [];
+  const row = { id: 1, path: '/models/a.stl', contentRevision: 3, thumbnail: '/cache/a.png' };
+  const result = await executeThumbnailInvalidation({ kind: 'files', modelPaths: [row.path] }, [row], '/cache', {
+    advanceEpochs() { order.push('epoch'); },
+    cancelQueued() { order.push('cancel'); },
+    clearReferences() { order.push('clear'); return 1; },
+    async removeCacheFiles() { order.push('remove'); throw new Error('simulated directory IO failure'); },
+    onCacheRemoveError(error) { order.push(`logged:${(error as Error).message}`); },
+    publish() { order.push('publish'); },
+    queue() { order.push('queue'); },
+  });
+  assert.deepEqual(order, ['epoch', 'cancel', 'clear', 'remove', 'logged:simulated directory IO failure', 'publish', 'queue']);
+  assert.deepEqual(result, { invalidatedFileCount: 1, removedThumbnailCount: 0 });
+});

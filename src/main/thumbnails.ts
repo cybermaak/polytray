@@ -481,7 +481,12 @@ export async function invalidateThumbnails(
       return changes;
     },
     removeCacheFiles: async (invalidateAll, thumbnailPaths) => {
-      return removeThumbnailCacheFiles(getThumbnailDir(), invalidateAll, thumbnailPaths);
+      return removeThumbnailCacheFiles(getThumbnailDir(), invalidateAll, thumbnailPaths, {
+        onError: (filePath, error) => console.warn("[Thumbnails] Failed to remove cached PNG:", filePath, error),
+      });
+    },
+    onCacheRemoveError: (error) => {
+      console.warn("[Thumbnails] Cache deletion was incomplete; continuing invalidation:", error);
     },
     publish: (event) => {
       const mainWindow = getMainWindow();
