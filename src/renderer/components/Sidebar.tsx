@@ -313,7 +313,7 @@ const FolderTreeNode: React.FC<{
 };
 
 function useSidebarResize(
-  preferredWidth: number,
+  effectiveWidth: number,
   onPreferredWidthChange: (width: number) => void,
   minWidth = 200,
   maxWidth = 600,
@@ -324,11 +324,13 @@ function useSidebarResize(
   const handleMouseDown = React.useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;
-    const startWidth = preferredWidth;
+    const startWidth = sidebarRef.current?.getBoundingClientRect().width ?? effectiveWidth;
     setIsDragging(true);
 
     const onMouseMove = (ev: MouseEvent) => {
-      const next = Math.max(minWidth, Math.min(maxWidth, startWidth + (ev.clientX - startX)));
+      const delta = ev.clientX - startX;
+      if (delta === 0) return;
+      const next = Math.max(minWidth, Math.min(maxWidth, startWidth + delta));
       onPreferredWidthChange(next);
     };
 
@@ -340,7 +342,7 @@ function useSidebarResize(
 
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
-  }, [preferredWidth, onPreferredWidthChange, minWidth, maxWidth]);
+  }, [effectiveWidth, onPreferredWidthChange, minWidth, maxWidth]);
 
   return { sidebarRef, isDragging, handleMouseDown };
 }
@@ -364,11 +366,10 @@ export const Sidebar: React.FC<Props> = ({
   onRefreshFolderThumbnails,
   onCollectionSelect,
   onRemoveCollection,
-  preferredWidth,
   effectiveWidth,
   onPreferredWidthChange,
 }) => {
-  const { sidebarRef, isDragging: sidebarDragging, handleMouseDown: handleSidebarMouseDown } = useSidebarResize(preferredWidth, onPreferredWidthChange);
+  const { sidebarRef, isDragging: sidebarDragging, handleMouseDown: handleSidebarMouseDown } = useSidebarResize(effectiveWidth, onPreferredWidthChange);
   const tree = React.useMemo(() => buildFolderTree(folders, directories), [folders, directories]);
   const filters = [
     { label: "All", ext: null, dataExt: "", count: stats.total, statId: "stat-total" },

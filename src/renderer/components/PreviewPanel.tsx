@@ -276,11 +276,12 @@ export const PreviewPanel: React.FC<Props> = ({
   const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     dragStartX.current = e.clientX;
-    dragStartWidth.current = preferredWidth;
+    dragStartWidth.current = panelRef.current?.getBoundingClientRect().width ?? effectiveWidth;
     setIsDragging(true);
 
     const onMouseMove = (ev: MouseEvent) => {
       const delta = dragStartX.current - ev.clientX;
+      if (delta === 0) return;
       const next = normalizePanelPreferences({
         previewWidth: dragStartWidth.current + delta,
       }).previewWidth;
@@ -295,7 +296,7 @@ export const PreviewPanel: React.FC<Props> = ({
 
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
-  }, [preferredWidth, onPreferredWidthChange]);
+  }, [preferredWidth, effectiveWidth, onPreferredWidthChange]);
 
   const panelClasses = [
     "preview-panel",

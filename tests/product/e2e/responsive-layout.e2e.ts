@@ -50,6 +50,7 @@ test("responsive panels preserve browsing space across supported window sizes", 
   try {
     mainWindow = await findMainWindow(isolated.app);
     const nativeWindow = await isolated.app.browserWindow(mainWindow);
+    const measurementsByCase = [];
     const libraryRoot = path.join(isolated.scratchDir, "library");
     await mainWindow.evaluate((folder) => window.polytray.scanFolder(folder, {
       thumbnail_timeout: 20000,
@@ -58,7 +59,20 @@ test("responsive panels preserve browsing space across supported window sizes", 
       page_size: 500,
       thumbnailColor: "#8888aa",
     }), libraryRoot);
-    await expect.poll(() => mainWindow.locator(".file-card").count(), { timeout: 30000 }).toBeGreaterThan(10);
+    await expect.poll(() => mainWindow.evaluate(async () =>
+      (await window.polytray.getFiles({ limit: 500, offset: 0 })).total,
+    ), { timeout: 30000 }).toBeGreaterThanOrEqual(40);
+    await expect(mainWindow.locator("#scan-progress")).toHaveClass(/hidden/, { timeout: 30000 });
+    await expect.poll(() => mainWindow.evaluate(async () => {
+      const result = await window.polytray.getFiles({ limit: 500, offset: 0 });
+      return result.files.filter((file) => file.thumbnail || file.thumbnail_failed).length;
+    }), { timeout: 60000 }).toBeGreaterThanOrEqual(40);
+    await mainWindow.evaluate((folder) => {
+      localStorage.setItem("polytray-library-state", JSON.stringify({
+        libraryFolders: [folder],
+        lastFolder: folder,
+      }));
+    }, libraryRoot);
 
     for (const sizeCase of SIZE_CASES) {
       for (const windowCase of WINDOW_CASES) {
@@ -70,27 +84,23 @@ test("responsive panels preserve browsing space across supported window sizes", 
               sidebarWidth: size.sidebarWidth,
               previewWidth: size.previewWidth,
               lightMode: light,
+              autoScan: false,
             }));
           }, { size: sizeCase, light: lightMode });
           await nativeWindow.evaluate((win, size) => win.setSize(size.width, size.height), windowCase);
           await mainWindow.reload();
           await mainWindow.locator("#search-input").waitFor();
-          await expect.poll(() => mainWindow.locator(".file-card").count()).toBeGreaterThan(10);
+          await expect.poll(() => mainWindow.evaluate(async () =>
+            (await window.polytray.getFiles({ limit: 500, offset: 0 })).total,
+          ), { timeout: 30000 }).toBeGreaterThanOrEqual(40);
 
           const longNameCard = mainWindow.locator(".file-card").filter({
             has: mainWindow.locator(".card-name[title^='A deliberately long model filename']"),
           }).first();
-          await mainWindow.evaluate(() => {
-            const scroller = document.querySelector("[data-virtuoso-scroller]");
-            if (scroller) scroller.scrollTop = scroller.scrollHeight;
-          });
           await expect(longNameCard).toBeVisible();
-          await longNameCard.locator(".file-select-toggle").click();
-          const scrollTopBeforePreview = await mainWindow.evaluate(() =>
-            document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,
-          );
           await longNameCard.locator(".card-name").click();
           await expect(mainWindow.locator("#preview-panel")).not.toHaveClass(/hidden/);
+          await expect(mainWindow.locator("#viewer-loading")).toHaveClass(/hidden/, { timeout: 30000 });
           await mainWindow.waitForFunction((preferredSidebarWidth) => {
             const layout = document.querySelector("#main-layout");
             const sidebar = document.querySelector("#sidebar");
@@ -138,6 +148,18 @@ test("responsive panels preserve browsing space across supported window sizes", 
             sidebarWidth: sizeCase.sidebarWidth,
             previewWidth: sizeCase.previewWidth,
           });
+          measurementsByCase.push({
+            window: windowCase,
+            savedWidths: sizeCase,
+            theme: lightMode ? "light" : "dark",
+            effectiveWidths: {
+              sidebar: measurements.sidebarWidth,
+              browse: measurements.browseWidth,
+              preview: measurements.previewWidth,
+            },
+            previewMode: measurements.previewMode,
+            persistedPreferences,
+          });
 
           const screenshotPath = testInfo.outputPath(
             `responsive-${windowCase.width}x${windowCase.height}-${sizeCase.name}-${lightMode ? "light" : "dark"}.png`,
@@ -148,6 +170,56 @@ test("responsive panels preserve browsing space across supported window sizes", 
             contentType: "image/png",
           });
 
+          if (sizeCase.name === "maximum" && windowCase.width === 900 && !lightMode) {
+            const sidebarBeforeDrag = measurements.sidebarWidth;
+            const sidebarHandle = await mainWindow.locator(".sidebar-resize-handle").boundingBox();
+            await mainWindow.mouse.move(sidebarHandle.x + sidebarHandle.width / 2, sidebarHandle.y + sidebarHandle.height / 2);
+            await mainWindow.mouse.down();
+            await mainWindow.mouse.up();
+            expect(await mainWindow.evaluate(() => {
+              const value = JSON.parse(localStorage.getItem("polytray-settings") || "{}");
+              return { sidebarWidth: value.sidebarWidth, previewWidth: value.previewWidth };
+            })).toEqual({ sidebarWidth: 600, previewWidth: 900 });
+            await mainWindow.mouse.move(sidebarHandle.x + sidebarHandle.width / 2, sidebarHandle.y + sidebarHandle.height / 2);
+            await mainWindow.mouse.down();
+            await mainWindow.mouse.move(sidebarHandle.x + sidebarHandle.width / 2 - 12, sidebarHandle.y + sidebarHandle.height / 2);
+            await mainWindow.mouse.up();
+            await expect.poll(() => mainWindow.locator("#sidebar").evaluate((element) => element.getBoundingClientRect().width))
+              .toBe(sidebarBeforeDrag - 12);
+
+            const previewBeforeDrag = await mainWindow.locator("#preview-panel").evaluate((element) => element.getBoundingClientRect().width);
+            const previewHandle = await mainWindow.locator(".preview-resize-handle").boundingBox();
+            await mainWindow.mouse.move(previewHandle.x + previewHandle.width / 2, previewHandle.y + previewHandle.height / 2);
+            await mainWindow.mouse.down();
+            await mainWindow.mouse.up();
+            expect(await mainWindow.evaluate(() => {
+              const value = JSON.parse(localStorage.getItem("polytray-settings") || "{}");
+              return { sidebarWidth: value.sidebarWidth, previewWidth: value.previewWidth };
+            })).toEqual({ sidebarWidth: sidebarBeforeDrag - 12, previewWidth: 900 });
+            await mainWindow.mouse.move(previewHandle.x + previewHandle.width / 2, previewHandle.y + previewHandle.height / 2);
+            await mainWindow.mouse.down();
+            await mainWindow.mouse.move(previewHandle.x + previewHandle.width / 2 + 12, previewHandle.y + previewHandle.height / 2);
+            await mainWindow.mouse.up();
+            await expect.poll(() => mainWindow.locator("#preview-panel").evaluate((element) => element.getBoundingClientRect().width))
+              .toBe(previewBeforeDrag - 12);
+
+            const resizedPreferences = await mainWindow.evaluate(() => {
+              const value = JSON.parse(localStorage.getItem("polytray-settings") || "{}");
+              return { sidebarWidth: value.sidebarWidth, previewWidth: value.previewWidth };
+            });
+            expect(resizedPreferences).toEqual({
+              sidebarWidth: sidebarBeforeDrag - 12,
+              previewWidth: previewBeforeDrag - 12,
+            });
+
+            await nativeWindow.evaluate((win) => win.setSize(1920, 1080));
+            await expect.poll(() => mainWindow.locator("#sidebar").evaluate((element) => element.getBoundingClientRect().width))
+              .toBe(resizedPreferences.sidebarWidth);
+            await expect.poll(() => mainWindow.locator("#preview-panel").evaluate((element) => element.getBoundingClientRect().width))
+              .toBe(resizedPreferences.previewWidth);
+            await nativeWindow.evaluate((win, size) => win.setSize(size.width, size.height), windowCase);
+          }
+
           await mainWindow.locator("#btn-expand-viewer").click();
           await expect(mainWindow.locator("#preview-panel")).toHaveClass(/expanded/);
           await expect(mainWindow.locator("#preview-panel")).not.toHaveClass(/overlay/);
@@ -155,13 +227,55 @@ test("responsive panels preserve browsing space across supported window sizes", 
 
           await mainWindow.locator("#btn-close-viewer").click();
           await expect(mainWindow.locator("#preview-panel")).toHaveClass(/hidden/);
-          expect(await mainWindow.locator(".file-card .file-select-toggle.active").count()).toBe(1);
-          expect(await mainWindow.evaluate(() =>
+
+          const lastModelCard = mainWindow.locator(".file-card").filter({
+            has: mainWindow.locator(".card-name[title='library model 38']"),
+          }).first();
+          await mainWindow.evaluate(() => {
+            const scroller = document.querySelector("[data-virtuoso-scroller]");
+            if (scroller) scroller.scrollTo({ top: scroller.scrollHeight, behavior: "instant" });
+          });
+          await expect(lastModelCard).toBeVisible();
+          await lastModelCard.locator(".file-select-toggle").click();
+          const lastModelName = lastModelCard.locator(".card-name");
+          await lastModelName.scrollIntoViewIfNeeded();
+          const scrollTopBeforePreview = await mainWindow.evaluate(() =>
             document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,
-          )).toBe(scrollTopBeforePreview);
+          );
+          expect(scrollTopBeforePreview).toBeGreaterThan(0);
+          await lastModelName.click();
+          await expect(mainWindow.locator("#preview-panel")).not.toHaveClass(/hidden/);
+          await expect(mainWindow.locator("#viewer-loading")).toHaveClass(/hidden/, { timeout: 30000 });
+          const scrollTopAfterPreview = await mainWindow.evaluate(() =>
+            document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,
+          );
+          if (measurements.previewMode === "overlay") {
+            await expect(lastModelName).toBeVisible();
+            expect(scrollTopAfterPreview).toBe(scrollTopBeforePreview);
+          } else {
+            expect(scrollTopAfterPreview).toBeGreaterThan(0);
+          }
+          await mainWindow.locator("#btn-close-viewer").click();
+          await expect(mainWindow.locator("#preview-panel")).toHaveClass(/hidden/);
+          if (measurements.previewMode === "overlay") await expect(lastModelName).toBeVisible();
+          await expect(mainWindow.locator("#batch-actions")).toContainText("1 selected");
+          const scrollTopAfterClose = await mainWindow.evaluate(() =>
+            document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,
+          );
+          if (measurements.previewMode === "overlay") {
+            expect(scrollTopAfterClose).toBe(scrollTopBeforePreview);
+          } else {
+            expect(scrollTopAfterClose).toBeGreaterThan(0);
+          }
         }
       }
     }
+    const measurementPath = testInfo.outputPath("responsive-layout-measurements.json");
+    fs.writeFileSync(measurementPath, JSON.stringify(measurementsByCase, null, 2));
+    await testInfo.attach("responsive-layout-measurements.json", {
+      path: measurementPath,
+      contentType: "application/json",
+    });
   } finally {
     await isolated.close();
   }
