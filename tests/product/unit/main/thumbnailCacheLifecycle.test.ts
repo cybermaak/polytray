@@ -19,6 +19,7 @@ import {
   readThumbnailRequestEpoch,
   createThumbnailCacheReadQuarantine,
   readUnquarantinedThumbnailCache,
+  resolveThumbnailCacheLookup,
 } from '../../../../src/main/thumbnailCacheLifecycle';
 
 test('thumbnail cache lifecycle prunes orphaned files and rewrites stale cache versions', async () => {
@@ -371,10 +372,24 @@ test('a partial full-clear keeps unreadable paths quarantined and permits only f
   quarantine.quarantineAll();
   quarantine.finishFullInvalidation(['/cache/busy.png'], true);
   assert.equal(quarantine.isQuarantined('/cache/busy.png'), true);
-  assert.equal(quarantine.isQuarantined('/cache/other.png'), true);
+  assert.equal(quarantine.isQuarantined('/cache/other.png'), false);
   quarantine.markFresh('/cache/busy.png');
   assert.equal(quarantine.isQuarantined('/cache/busy.png'), false);
-  assert.equal(quarantine.isQuarantined('/cache/other.png'), true);
+});
+
+test('an unknown full-clear failure uses one global quarantine bit instead of a growing fresh-path allowlist', () => {
+  const quarantine = createThumbnailCacheReadQuarantine();
+  quarantine.quarantineAll();
+  quarantine.finishFullInvalidation(['/cache/thumbnails'], true, true);
+  assert.equal(quarantine.isGloballyQuarantined(), true);
+  assert.equal(quarantine.getTrackedReadPathCount(), 0);
+
+  const databaseReferences = new Set(['/cache/new-output.png']);
+  const isUnreadable = (filePath: string) => quarantine.isPathQuarantined(filePath) ||
+    (quarantine.isGloballyQuarantined() && !databaseReferences.has(path.resolve(filePath)));
+  assert.equal(isUnreadable('/cache/old-unreached.png'), true);
+  assert.equal(isUnreadable('/cache/new-output.png'), false);
+  assert.equal(quarantine.getTrackedReadPathCount(), 0);
 });
 
 test('failed byte deletion cannot serve an already-started stale read, while invalidation still publishes and requeues', async () => {
@@ -449,6 +464,35 @@ test('a successful delete followed by quarantine release still invalidates reads
     assert.equal(quarantine.isQuarantined(cachePath), false);
     releaseRead(oldBytes);
     assert.equal(await oldRead, null);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('per-path read epochs are pruned when no cache reads are active', () => {
+  const quarantine = createThumbnailCacheReadQuarantine();
+  for (let index = 0; index < 1000; index++) quarantine.markFresh(`/cache/${index}.png`);
+  assert.equal(quarantine.getTrackedReadPathCount(), 0);
+});
+
+test('quarantined cache bytes fall through to fresh rendering, while stale model identity cannot render', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-thumb-quarantine-render-'));
+  const cachePath = path.join(root, 'same-identity.png');
+  const quarantine = createThumbnailCacheReadQuarantine();
+  try {
+    fs.writeFileSync(cachePath, 'old output');
+    quarantine.quarantinePath(cachePath);
+    let renderCalls = 0;
+    const cacheHit = await resolveThumbnailCacheLookup(
+      () => readUnquarantinedThumbnailCache(cachePath, quarantine),
+      () => true,
+    );
+    if (cacheHit.kind === 'render') renderCalls++;
+    assert.equal(cacheHit.kind, 'render');
+    assert.equal(renderCalls, 1);
+
+    const staleResult = await resolveThumbnailCacheLookup(async () => null, () => false);
+    assert.equal(staleResult.kind, 'stale');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -20,6 +20,7 @@ import {
   normalizeThumbnailInvalidationScope,
   readThumbnailRequestEpoch,
   readUnquarantinedThumbnailCache,
+  resolveThumbnailCacheLookup,
   removeThumbnailCacheFiles,
   reconcileThumbnailCache,
   selectThumbnailRowsForInvalidation,
@@ -107,13 +108,21 @@ export function waitForThumbnailCacheReady(): Promise<void> {
 }
 
 export function isThumbnailCachePathQuarantined(filePath: string): boolean {
-  return thumbnailReadQuarantine.isQuarantined(filePath);
+  if (thumbnailReadQuarantine.isPathQuarantined(filePath)) return true;
+  if (!thumbnailReadQuarantine.isGloballyQuarantined()) return false;
+  const row = getDb().prepare("SELECT 1 FROM files WHERE thumbnail = ? LIMIT 1").get(path.resolve(filePath));
+  return !row;
 }
 
 export async function readThumbnailCacheBytes(filePath: string): Promise<Buffer | null> {
   await waitForThumbnailCacheReady();
   if (!isPathContained(getThumbnailDir(), filePath)) return null;
-  return readUnquarantinedThumbnailCache(filePath, thumbnailReadQuarantine);
+  return readUnquarantinedThumbnailCache(filePath, {
+    beginRead: (cachePath) => thumbnailReadQuarantine.beginRead(cachePath),
+    finishRead: (cachePath) => thumbnailReadQuarantine.finishRead(cachePath),
+    readEpoch: (cachePath) => thumbnailReadQuarantine.readEpoch(cachePath),
+    isQuarantined: isThumbnailCachePathQuarantined,
+  });
 }
 
 /**
@@ -212,22 +221,26 @@ export async function generateThumbnail(
   return inflightPromises.run(requestKey, async () => {
     // 2. Check cache first
     const thumbPath = path.join(getThumbnailDir(), thumbnailCacheFilename(key));
-    const isCurrentIdentity = () => {
+    const isCurrentModelIdentity = () => {
       const current = db.prepare("SELECT path, content_revision FROM files WHERE id = ?").get(identityRow.id) as { path: string; content_revision: number } | undefined;
       return !!current && current.path === identityRow.path && current.content_revision === identityRow.content_revision &&
-        identityRow.path === canonicalizeThumbnailPath(filePath) && getThumbnailCacheEpoch(identityRow.path) === cacheEpoch &&
-        !thumbnailReadQuarantine.isQuarantined(thumbPath);
+        identityRow.path === canonicalizeThumbnailPath(filePath) && getThumbnailCacheEpoch(identityRow.path) === cacheEpoch;
     };
-    const cached = thumbnailReadQuarantine.isQuarantined(thumbPath)
-      ? null
-      : await readValidatedThumbnailCache(
+    const cacheLookup = await resolveThumbnailCacheLookup(
+      async () => {
+        if (isThumbnailCachePathQuarantined(thumbPath)) return null;
+        const cached = await readValidatedThumbnailCache(
         () => fs.readFile(thumbPath),
         size,
         decodeThumbnailPng,
-        isCurrentIdentity,
-      );
-    if (cached) return thumbPath;
-    if (!isCurrentIdentity()) return null;
+          () => isCurrentModelIdentity() && !isThumbnailCachePathQuarantined(thumbPath),
+        );
+        return cached ? thumbPath : null;
+      },
+      isCurrentModelIdentity,
+    );
+    if (cacheLookup.kind === "hit") return cacheLookup.value;
+    if (cacheLookup.kind === "stale") return null;
     const requestId = crypto.randomUUID();
     const attempt: ThumbnailAttempt = { requestId, cacheEpoch, key: cacheKey };
     const thumbWindow = getThumbnailWindow();
@@ -514,7 +527,8 @@ export async function invalidateThumbnails(
           },
         });
         if (invalidateAll) {
-          thumbnailReadQuarantine.finishFullInvalidation([...failedPaths], failedPaths.size > 0);
+          const unknownFailure = failedPaths.has(path.resolve(getThumbnailDir()));
+          thumbnailReadQuarantine.finishFullInvalidation([...failedPaths], failedPaths.size > 0, unknownFailure);
         } else {
           for (const filePath of thumbnailPaths) {
             if (!failedPaths.has(path.resolve(filePath))) thumbnailReadQuarantine.markRemoved(filePath);
@@ -522,13 +536,13 @@ export async function invalidateThumbnails(
         }
         return removedCount;
       } catch (error) {
-        if (invalidateAll) thumbnailReadQuarantine.finishFullInvalidation([], true);
+        if (invalidateAll) thumbnailReadQuarantine.finishFullInvalidation([], true, true);
         else thumbnailReadQuarantine.quarantinePaths(thumbnailPaths);
         throw error;
       }
     },
     onCacheRemoveError: (error, thumbnailPaths) => {
-      if (scope.kind === "all") thumbnailReadQuarantine.finishFullInvalidation([], true);
+      if (scope.kind === "all") thumbnailReadQuarantine.finishFullInvalidation([], true, true);
       else thumbnailReadQuarantine.quarantinePaths(thumbnailPaths);
       console.warn("[Thumbnails] Cache deletion was incomplete; continuing invalidation:", error);
     },
