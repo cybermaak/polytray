@@ -44,7 +44,7 @@
 | U04 | [Keyboard navigation and focus](browsing.md#u04---support-keyboard-navigation-and-predictable-focus) | P2 | U01, U03, V02 | PLANNED | Unassigned | - |
 | U05 | [Background work UI and watch preferences](browsing.md#u05---present-useful-progress-and-respect-watcher-preferences) | P2 | U02, S06, T04 | PLANNED | Unassigned | - |
 | U06 | [Workflow and measurement UI integration](browsing.md#u06---integrate-slicer-backuprestore-and-honest-measurements) | P2 | U04, P01, P02, P04, S04 | PLANNED | Unassigned | - |
-| P01 | [Local slicer and archive handoff](product.md#p01---add-explicit-local-slicer-handoff-including-zip-members) | P2 | F01, F02 | IN_PROGRESS | Luna/medium chat `01a0e204-6183-7ee2-a2ac-0bbd43568fa3` | Active registered chat; files disjoint from P03 |
+| P01 | [Local slicer and archive handoff](product.md#p01---add-explicit-local-slicer-handoff-including-zip-members) | P2 | F01, F02 | REVIEW | Luna/medium chat `01a0e204-6183-7ee2-a2ac-0bbd43568fa3` | [P01](handoffs/P01.md); source/reviews integrated through `5eda926`; combined 209 units/1 skip, Type/Build PASS; startup Product pending |
 | P02 | [Versioned metadata export](product.md#p02---export-complete-versioned-metadata-backups) | P2 | F01, F02 | DONE | s01_safe_scanning (Luna/medium) | [P02](handoffs/P02.md); producer reviewed/integrated `e1c66e8`, `6de841f`; consumer binding P04/U06 |
 | P03 | [Deterministic import preview](product.md#p03---preview-imports-and-compute-deterministic-mergeconflict-results) | P2 | P02, D01 | DONE | Luna/medium chat `01a0e202-0863-7f30-bfb8-c159d2e58053` | [P03](handoffs/P03.md); independent spec/coordinator quality PASS; combined Type/Build, 182 units/1 skip; integrated `447cebe` through `eb2f00e` plus test fixture integration |
 | P04 | [Recoverable restore transaction](product.md#p04---apply-restores-with-crash-recovery-across-both-stores) | P2 | P03, S02 | PLANNED | Unassigned | - |
@@ -58,9 +58,9 @@
 | --- | --- | --- | --- |
 | D03 | d01_index_repository, Luna/medium | `/Users/maak/.codex/worktrees/polytray-d03/polytray` / `codex/perf-d03` | DONE: integrated; checkout free after handoff |
 | V03 | s01_safe_scanning reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-v03` | Implementing |
-| S02 | baseline_validation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-s02` | Static reviews passed; owns native lane for startup diagnosis and held-subtree/heartbeat gate |
+| S02 | baseline_validation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-s02` | Test harness corrected; streaming native gate pending; lane released to T01 |
 | T03 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/61df/polytray`, `74d2e9e` | Preserved unreviewed alternative; active T03 producer already integrated |
-| T01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-thumbnails/polytray` / `codex/perf-t01` | Implementing |
+| T01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-thumbnails/polytray` / `codex/perf-t01` | Owns native hidden-renderer and combined Product lane |
 | U01 | Registered Luna/medium chat, U03 complete | `/Users/maak/.codex/worktrees/polytray-layout/polytray` / `codex/perf-u01` | Implementing complete paging and selection |
 | V02 | Registered Luna/medium chat, P03 complete | `/Users/maak/.codex/worktrees/polytray-import/polytray` / `codex/perf-v02` | Implementing stable preview state and lazy archive navigation |
 | P01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-slicer/polytray` / `codex/perf-p01` | Implementing |
@@ -103,6 +103,9 @@ S02 preparation exposed one additional D01 guard: a positive expected content re
 | 2026-09-27 | P03 gate | Independent spec and coordinator quality PASS; combined Type/Build and 182 units/1 Windows-only skip PASS | Import preview integrated; test-only panel-settings expectation updated after observed combined failure and independent review. Apply/recovery remains P04/U06 |
 
 V02 can now proceed independently in the completed import checkout: V03's source is committed and statically reviewed, with remaining runtime work confined to its separate checkout. V02 starts from that reviewed candidate and may not be marked complete until the V03 native gate and joint U01 target wiring pass. The coordinator authorized a separate `src/shared/previewTarget.ts` type seam so U01 owns target creation and V02 owns lazy archive navigation.
+
+| 2026-09-27 | Test-launch repair | Exact native stack proved macOS crash-restore dialog blocked Electron ready; per-launch ignore-state flag removes it without global preference/state changes. Independent spec/quality and portable helper tests 3/3 PASS | Integrated `55b1bed`; all new app tests must use shared launch arguments. S02 database-startup stop still needs separate diagnosis |
+| 2026-09-27 | P01 source integration | Independent spec/quality corrections complete; combined Type/Build and 209 unit passes/1 Windows-only skip PASS | Kept REVIEW pending combined Product startup gate; U06 activation remains downstream |
 
 ## Blockers and decisions
 
