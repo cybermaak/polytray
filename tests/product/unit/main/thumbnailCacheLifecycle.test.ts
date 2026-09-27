@@ -20,6 +20,7 @@ import {
   createThumbnailCacheReadQuarantine,
   readUnquarantinedThumbnailCache,
   resolveThumbnailCacheLookup,
+  createThumbnailInvalidationQueue,
 } from '../../../../src/main/thumbnailCacheLifecycle';
 
 test('thumbnail cache lifecycle prunes orphaned files and rewrites stale cache versions', async () => {
@@ -496,4 +497,42 @@ test('quarantined cache bytes fall through to fresh rendering, while stale model
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('overlapping full and selective invalidations serialize so older completion cannot release the newer tombstone', async () => {
+  const queue = createThumbnailInvalidationQueue();
+  const quarantine = createThumbnailCacheReadQuarantine();
+  const cachePath = '/cache/model.png';
+  const order: string[] = [];
+  let finishFull!: () => void;
+  const fullGate = new Promise<void>((resolve) => { finishFull = resolve; });
+  let releaseSelective!: () => void;
+  const selectiveGate = new Promise<void>((resolve) => { releaseSelective = resolve; });
+
+  const full = queue.run(async () => {
+    order.push('full-start');
+    quarantine.quarantineAll();
+    await fullGate;
+    quarantine.finishFullInvalidation([cachePath], true);
+    order.push('full-finish');
+  });
+  const selective = queue.run(async () => {
+    order.push('selective-start');
+    quarantine.quarantinePath(cachePath);
+    await selectiveGate;
+    quarantine.quarantinePath(cachePath); // its own deletion also failed
+    order.push('selective-finish');
+  });
+
+  await Promise.resolve();
+  assert.deepEqual(order, ['full-start']);
+  finishFull();
+  await full;
+  await Promise.resolve();
+  assert.equal(quarantine.isQuarantined(cachePath), true);
+  assert.deepEqual(order, ['full-start', 'full-finish', 'selective-start']);
+  releaseSelective();
+  await selective;
+  assert.equal(quarantine.isQuarantined(cachePath), true);
+  assert.deepEqual(order, ['full-start', 'full-finish', 'selective-start', 'selective-finish']);
 });

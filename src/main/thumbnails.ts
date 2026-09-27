@@ -15,6 +15,7 @@ import { filterContainedPaths, isPathContained } from "./pathContainment";
 import { createThumbnailJobScheduler } from "./thumbnailJobScheduler";
 import {
   createThumbnailCacheEpochStore,
+  createThumbnailInvalidationQueue,
   createThumbnailCacheReadQuarantine,
   executeThumbnailInvalidation,
   normalizeThumbnailInvalidationScope,
@@ -35,6 +36,7 @@ let thumbnailDir: string | null = null;
 const pendingRequests = createThumbnailAttemptRegistry<string | null>();
 const inflightPromises = createThumbnailRequestRegistry<string | null>();
 const cacheEpochs = createThumbnailCacheEpochStore();
+const thumbnailInvalidationQueue = createThumbnailInvalidationQueue();
 const thumbnailReadQuarantine = createThumbnailCacheReadQuarantine();
 let thumbnailCacheReady: Promise<void> = Promise.resolve();
 
@@ -453,28 +455,29 @@ export function cancelPendingThumbnailJobs(
   thumbnailScheduler.clearPending(predicate);
 }
 
-export async function invalidateThumbnails(
+export function invalidateThumbnails(
   scopeInput: ThumbnailInvalidationScope,
   settings: RuntimeSettingsData,
   getMainWindow: () => BrowserWindow | null,
 ): Promise<{ invalidatedFileCount: number; removedThumbnailCount: number }> {
   const scope = normalizeThumbnailInvalidationScope(scopeInput);
   const normalizedSettings = parseRuntimeSettings(settings);
-  await waitForThumbnailCacheReady();
-  const db = getDb();
-  const selectedRows = scope.kind === "all"
-    ? []
-    : selectThumbnailRowsForInvalidation(
-      db.prepare("SELECT id, path, content_revision AS contentRevision, thumbnail FROM files").all() as Array<{
-        id: number; path: string; contentRevision: number; thumbnail: string | null;
-      }>,
-      scope,
-    );
-  const selectedThumbnailPaths = scope.kind === "all"
-    ? []
-    : selectThumbnailCachePathsToRemove(getThumbnailDir(), selectedRows);
+  return thumbnailInvalidationQueue.run(async () => {
+    await waitForThumbnailCacheReady();
+    const db = getDb();
+    const selectedRows = scope.kind === "all"
+      ? []
+      : selectThumbnailRowsForInvalidation(
+        db.prepare("SELECT id, path, content_revision AS contentRevision, thumbnail FROM files").all() as Array<{
+          id: number; path: string; contentRevision: number; thumbnail: string | null;
+        }>,
+        scope,
+      );
+    const selectedThumbnailPaths = scope.kind === "all"
+      ? []
+      : selectThumbnailCachePathsToRemove(getThumbnailDir(), selectedRows);
 
-  return executeThumbnailInvalidation(scope, selectedRows, getThumbnailDir(), {
+    return executeThumbnailInvalidation(scope, selectedRows, getThumbnailDir(), {
     advanceEpochs: (modelPaths, invalidateAll) => {
       if (invalidateAll) {
         cacheEpochs.advance([], true);
@@ -560,5 +563,6 @@ export async function invalidateThumbnails(
       : invalidationScope.kind === "folder"
         ? queueThumbnailGeneration(invalidationScope.folderPath, getMainWindow, normalizedSettings)
         : queueThumbnailGenerationForPaths(invalidationScope.modelPaths, getMainWindow, normalizedSettings),
+    });
   });
 }

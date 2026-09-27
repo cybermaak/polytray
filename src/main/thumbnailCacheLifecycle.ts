@@ -93,6 +93,17 @@ export function createThumbnailCacheEpochStore() {
   };
 }
 
+export function createThumbnailInvalidationQueue() {
+  let tail: Promise<void> = Promise.resolve();
+  return {
+    run<T>(operation: () => T | Promise<T>): Promise<T> {
+      const result = tail.then(operation, operation);
+      tail = result.then(() => undefined, () => undefined);
+      return result;
+    },
+  };
+}
+
 export function readThumbnailRequestEpoch(requestKey: string): number | null {
   try {
     const parsed = JSON.parse(requestKey) as unknown;
