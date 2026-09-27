@@ -4,6 +4,7 @@ import type { FileRecord, ModelDimensions } from "../../shared/types";
 import { normalizeFileTags, parseStoredFileTags } from "../../shared/fileTags";
 import type { CollectionRecord } from "../../shared/libraryCollections";
 import { DEFAULT_APP_SETTINGS } from "../../shared/settings";
+import { normalizePanelPreferences } from "../../shared/panelPreferences";
 import {
   type DisplayFileRecord,
   isArchiveSummaryRecord,
@@ -29,6 +30,10 @@ interface Props {
   onCreateCollection: (name: string, filePaths: string[]) => void;
   onAddFilesToCollection: (collectionId: string, filePaths: string[]) => void;
   onClose: () => void;
+  preferredWidth: number;
+  effectiveWidth: number;
+  overlay: boolean;
+  onPreferredWidthChange: (width: number) => void;
 }
 
 const ArchiveThumbImage: React.FC<{ thumbnailPath: string; name: string }> = ({
@@ -66,12 +71,16 @@ export const PreviewPanel: React.FC<Props> = ({
   onCreateCollection,
   onAddFilesToCollection,
   onClose,
+  preferredWidth,
+  effectiveWidth,
+  overlay,
+  onPreferredWidthChange,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const dragStartX = useRef<number>(0);
   const dragStartWidth = useRef<number>(0);
-  const [panelWidth, setPanelWidth] = useState<number | null>(null);
+  const lastViewerSize = useRef<{ width: number; height: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadProgress, setLoadProgress] = useState<number>(-1);
@@ -98,7 +107,17 @@ export const PreviewPanel: React.FC<Props> = ({
   // Keep viewer canvas in sync when the container is resized (e.g. panel drag)
   useEffect(() => {
     if (!containerRef.current) return;
-    const observer = new ResizeObserver(() => notifyViewerResize());
+    const observer = new ResizeObserver(() => {
+      const container = containerRef.current;
+      if (!container) return;
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      if (width === 0 || height === 0) return;
+      const previous = lastViewerSize.current;
+      if (previous && previous.width === width && previous.height === height) return;
+      lastViewerSize.current = { width, height };
+      notifyViewerResize();
+    });
     observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, []);
@@ -258,13 +277,16 @@ export const PreviewPanel: React.FC<Props> = ({
   const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     dragStartX.current = e.clientX;
-    dragStartWidth.current = panelRef.current?.offsetWidth ?? (panelWidth ?? 640);
+    dragStartWidth.current = panelRef.current?.getBoundingClientRect().width ?? effectiveWidth;
     setIsDragging(true);
 
     const onMouseMove = (ev: MouseEvent) => {
       const delta = dragStartX.current - ev.clientX;
-      const next = Math.max(320, Math.min(900, dragStartWidth.current + delta));
-      setPanelWidth(next);
+      if (delta === 0) return;
+      const next = normalizePanelPreferences({
+        previewWidth: dragStartWidth.current + delta,
+      }).previewWidth;
+      onPreferredWidthChange(next);
     };
 
     const onMouseUp = () => {
@@ -275,12 +297,13 @@ export const PreviewPanel: React.FC<Props> = ({
 
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
-  }, [panelWidth]);
+  }, [preferredWidth, effectiveWidth, onPreferredWidthChange]);
 
   const panelClasses = [
     "preview-panel",
     !item ? "hidden" : "",
     expanded ? "expanded" : "",
+    overlay && !expanded ? "overlay" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -318,7 +341,7 @@ export const PreviewPanel: React.FC<Props> = ({
       id="preview-panel"
       ref={panelRef}
       className={panelClasses}
-      style={!expanded && panelWidth !== null ? { width: panelWidth } : undefined}
+      style={!expanded ? { width: effectiveWidth } : undefined}
     >
       {!expanded && (
         <div

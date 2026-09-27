@@ -17,6 +17,8 @@ import type {
   RuntimeSettingsData,
   UpdateFileMetadataData,
   IndexMutationResult,
+  LibraryQuery,
+  LibraryPageResult,
 } from "../shared/types";
 import type { PreparedPreview, PreviewParseRequest } from "../shared/previewContracts";
 
@@ -37,6 +39,7 @@ interface PolytrayAPI {
   getFiles: (
     opts: SortOptions,
   ) => Promise<{ files: FileRecord[]; total: number }>;
+  getLibraryPage: (query: LibraryQuery) => Promise<LibraryPageResult>;
   getFileById: (id: number) => Promise<FileRecord>;
   updateFileMetadata: (payload: UpdateFileMetadataData) => Promise<FileRecord>;
   getStats: () => Promise<LibraryStats>;
