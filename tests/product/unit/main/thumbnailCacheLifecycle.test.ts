@@ -17,6 +17,8 @@ import {
   normalizeThumbnailInvalidationScope,
   removeThumbnailCacheFiles,
   readThumbnailRequestEpoch,
+  createThumbnailCacheReadQuarantine,
+  readUnquarantinedThumbnailCache,
 } from '../../../../src/main/thumbnailCacheLifecycle';
 
 test('thumbnail cache lifecycle prunes orphaned files and rewrites stale cache versions', async () => {
@@ -321,4 +323,133 @@ test('a cache-delete hook failure still publishes invalidation and requeues the 
   });
   assert.deepEqual(order, ['epoch', 'cancel', 'clear', 'remove', 'logged:simulated directory IO failure', 'publish', 'queue']);
   assert.deepEqual(result, { invalidatedFileCount: 1, removedThumbnailCount: 0 });
+});
+
+test('a failed cache deletion quarantines stale bytes until current output is published', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-thumb-quarantine-'));
+  const cachePath = path.join(root, 'stale.png');
+  const staleBytes = Buffer.from('stale image');
+  try {
+    fs.writeFileSync(cachePath, staleBytes);
+    const quarantine = createThumbnailCacheReadQuarantine();
+    quarantine.quarantinePath(cachePath);
+    assert.equal(await readUnquarantinedThumbnailCache(cachePath, quarantine), null);
+
+    quarantine.markFresh(cachePath);
+    assert.deepEqual(await readUnquarantinedThumbnailCache(cachePath, quarantine), staleBytes);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a read that began before deletion failure cannot return bytes after quarantine is set', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-thumb-quarantine-race-'));
+  const cachePath = path.join(root, 'stale.png');
+  const staleBytes = Buffer.from('stale image');
+  let markReadStarted!: () => void;
+  let releaseRead!: (bytes: Buffer) => void;
+  const readStarted = new Promise<void>((resolve) => { markReadStarted = resolve; });
+  const heldRead = new Promise<Buffer>((resolve) => { releaseRead = resolve; });
+  try {
+    fs.writeFileSync(cachePath, staleBytes);
+    const quarantine = createThumbnailCacheReadQuarantine();
+    const reading = readUnquarantinedThumbnailCache(cachePath, quarantine, async () => {
+      markReadStarted();
+      return heldRead;
+    });
+    await readStarted;
+    quarantine.quarantinePath(cachePath);
+    releaseRead(staleBytes);
+    assert.equal(await reading, null);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a partial full-clear keeps unreadable paths quarantined and permits only fresh replacements', () => {
+  const quarantine = createThumbnailCacheReadQuarantine();
+  quarantine.quarantineAll();
+  quarantine.finishFullInvalidation(['/cache/busy.png'], true);
+  assert.equal(quarantine.isQuarantined('/cache/busy.png'), true);
+  assert.equal(quarantine.isQuarantined('/cache/other.png'), true);
+  quarantine.markFresh('/cache/busy.png');
+  assert.equal(quarantine.isQuarantined('/cache/busy.png'), false);
+  assert.equal(quarantine.isQuarantined('/cache/other.png'), true);
+});
+
+test('failed byte deletion cannot serve an already-started stale read, while invalidation still publishes and requeues', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-thumb-delete-barrier-'));
+  const cachePath = path.join(root, 'old.png');
+  const staleBytes = Buffer.from('old cached image');
+  const freshBytes = Buffer.from('fresh rendered image');
+  let markReadStarted!: () => void;
+  let releaseRead!: (bytes: Buffer) => void;
+  const readStarted = new Promise<void>((resolve) => { markReadStarted = resolve; });
+  const heldRead = new Promise<Buffer>((resolve) => { releaseRead = resolve; });
+  const quarantine = createThumbnailCacheReadQuarantine();
+  const order: string[] = [];
+  try {
+    fs.writeFileSync(cachePath, staleBytes);
+    const staleRead = readUnquarantinedThumbnailCache(cachePath, quarantine, async () => {
+      const bytes = await fs.promises.readFile(cachePath);
+      markReadStarted();
+      return heldRead.then(() => bytes);
+    });
+    await readStarted;
+
+    await executeThumbnailInvalidation({ kind: 'files', modelPaths: ['/models/a.stl'] }, [
+      { id: 1, path: '/models/a.stl', contentRevision: 1, thumbnail: cachePath },
+    ], root, {
+      advanceEpochs(paths, all) { quarantine.quarantinePaths(paths); order.push(`epoch:${all}`); },
+      cancelQueued() { order.push('cancel'); },
+      clearReferences() { order.push('clear'); return 1; },
+      removeCacheFiles(all, paths) {
+        order.push('remove');
+        return removeThumbnailCacheFiles(root, all, paths, {
+          quarantine,
+          onError() {},
+          async removeFile() { throw new Error('simulated filesystem failure'); },
+        });
+      },
+      publish() { order.push('publish'); },
+      queue() { order.push('queue'); },
+    });
+
+    releaseRead(staleBytes);
+    assert.equal(await staleRead, null);
+    assert.equal(quarantine.isQuarantined(cachePath), true);
+    assert.deepEqual(order, ['epoch:false', 'cancel', 'clear', 'remove', 'publish', 'queue']);
+
+    fs.writeFileSync(cachePath, freshBytes);
+    quarantine.markFresh(cachePath);
+    assert.deepEqual(await readUnquarantinedThumbnailCache(cachePath, quarantine), freshBytes);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a successful delete followed by quarantine release still invalidates reads that began before it', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-thumb-delete-aba-'));
+  const cachePath = path.join(root, 'current.png');
+  const oldBytes = Buffer.from('read before invalidation');
+  let markReadStarted!: () => void;
+  let releaseRead!: (bytes: Buffer) => void;
+  const readStarted = new Promise<void>((resolve) => { markReadStarted = resolve; });
+  const heldRead = new Promise<Buffer>((resolve) => { releaseRead = resolve; });
+  try {
+    fs.writeFileSync(cachePath, oldBytes);
+    const quarantine = createThumbnailCacheReadQuarantine();
+    const oldRead = readUnquarantinedThumbnailCache(cachePath, quarantine, async () => {
+      const bytes = await fs.promises.readFile(cachePath);
+      markReadStarted();
+      return heldRead.then(() => bytes);
+    });
+    await readStarted;
+    await removeThumbnailCacheFiles(root, false, [cachePath], { quarantine });
+    assert.equal(quarantine.isQuarantined(cachePath), false);
+    releaseRead(oldBytes);
+    assert.equal(await oldRead, null);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

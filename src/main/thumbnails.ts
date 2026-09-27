@@ -11,16 +11,19 @@ import {
 import { getThumbnailWindow } from "./index";
 import { getDb } from "./database";
 import { createFileIndexRepository } from "./fileIndexing";
-import { filterContainedPaths } from "./pathContainment";
+import { filterContainedPaths, isPathContained } from "./pathContainment";
 import { createThumbnailJobScheduler } from "./thumbnailJobScheduler";
 import {
   createThumbnailCacheEpochStore,
+  createThumbnailCacheReadQuarantine,
   executeThumbnailInvalidation,
   normalizeThumbnailInvalidationScope,
   readThumbnailRequestEpoch,
+  readUnquarantinedThumbnailCache,
   removeThumbnailCacheFiles,
   reconcileThumbnailCache,
   selectThumbnailRowsForInvalidation,
+  selectThumbnailCachePathsToRemove,
   type ThumbnailInvalidationScope,
 } from "./thumbnailCacheLifecycle";
 import { parseRuntimeSettings } from "./ipc/runtimeValidation";
@@ -31,6 +34,7 @@ let thumbnailDir: string | null = null;
 const pendingRequests = createThumbnailAttemptRegistry<string | null>();
 const inflightPromises = createThumbnailRequestRegistry<string | null>();
 const cacheEpochs = createThumbnailCacheEpochStore();
+const thumbnailReadQuarantine = createThumbnailCacheReadQuarantine();
 let thumbnailCacheReady: Promise<void> = Promise.resolve();
 
 function decodeThumbnailPng(data: Buffer) {
@@ -102,6 +106,16 @@ export function waitForThumbnailCacheReady(): Promise<void> {
   return thumbnailCacheReady;
 }
 
+export function isThumbnailCachePathQuarantined(filePath: string): boolean {
+  return thumbnailReadQuarantine.isQuarantined(filePath);
+}
+
+export async function readThumbnailCacheBytes(filePath: string): Promise<Buffer | null> {
+  await waitForThumbnailCacheReady();
+  if (!isPathContained(getThumbnailDir(), filePath)) return null;
+  return readUnquarantinedThumbnailCache(filePath, thumbnailReadQuarantine);
+}
+
 /**
  * Initializes the thumbnail service by setting up a global IPC listener.
  */
@@ -162,6 +176,7 @@ export function initThumbnailService() {
             getThumbnailCacheEpoch(attempt.key.canonicalPath) !== attempt.cacheEpoch) {
           await fs.rm(thumbPath, { force: true });
         } else {
+          thumbnailReadQuarantine.markFresh(thumbPath);
           savedPath = thumbPath;
         }
       }
@@ -200,14 +215,17 @@ export async function generateThumbnail(
     const isCurrentIdentity = () => {
       const current = db.prepare("SELECT path, content_revision FROM files WHERE id = ?").get(identityRow.id) as { path: string; content_revision: number } | undefined;
       return !!current && current.path === identityRow.path && current.content_revision === identityRow.content_revision &&
-        identityRow.path === canonicalizeThumbnailPath(filePath) && getThumbnailCacheEpoch(identityRow.path) === cacheEpoch;
+        identityRow.path === canonicalizeThumbnailPath(filePath) && getThumbnailCacheEpoch(identityRow.path) === cacheEpoch &&
+        !thumbnailReadQuarantine.isQuarantined(thumbPath);
     };
-    const cached = await readValidatedThumbnailCache(
-      () => fs.readFile(thumbPath),
-      size,
-      decodeThumbnailPng,
-      isCurrentIdentity,
-    );
+    const cached = thumbnailReadQuarantine.isQuarantined(thumbPath)
+      ? null
+      : await readValidatedThumbnailCache(
+        () => fs.readFile(thumbPath),
+        size,
+        decodeThumbnailPng,
+        isCurrentIdentity,
+      );
     if (cached) return thumbPath;
     if (!isCurrentIdentity()) return null;
     const requestId = crypto.randomUUID();
@@ -439,16 +457,21 @@ export async function invalidateThumbnails(
       }>,
       scope,
     );
+  const selectedThumbnailPaths = scope.kind === "all"
+    ? []
+    : selectThumbnailCachePathsToRemove(getThumbnailDir(), selectedRows);
 
   return executeThumbnailInvalidation(scope, selectedRows, getThumbnailDir(), {
     advanceEpochs: (modelPaths, invalidateAll) => {
       if (invalidateAll) {
         cacheEpochs.advance([], true);
+        thumbnailReadQuarantine.quarantineAll();
         pendingRequests.settleWhere(() => true, null);
         return;
       }
       const canonicalPaths = new Set(modelPaths.map(canonicalizeThumbnailPath));
       cacheEpochs.advance([...canonicalPaths]);
+      thumbnailReadQuarantine.quarantinePaths(selectedThumbnailPaths);
       pendingRequests.settleWhere((attempt) => canonicalPaths.has(attempt.key.canonicalPath), null);
     },
     cancelQueued: (modelPaths) => {
@@ -481,11 +504,32 @@ export async function invalidateThumbnails(
       return changes;
     },
     removeCacheFiles: async (invalidateAll, thumbnailPaths) => {
-      return removeThumbnailCacheFiles(getThumbnailDir(), invalidateAll, thumbnailPaths, {
-        onError: (filePath, error) => console.warn("[Thumbnails] Failed to remove cached PNG:", filePath, error),
-      });
+      const failedPaths = new Set<string>();
+      try {
+        const removedCount = await removeThumbnailCacheFiles(getThumbnailDir(), invalidateAll, thumbnailPaths, {
+          quarantine: thumbnailReadQuarantine,
+          onError: (filePath, error) => {
+            failedPaths.add(path.resolve(filePath));
+            console.warn("[Thumbnails] Failed to remove cached PNG:", filePath, error);
+          },
+        });
+        if (invalidateAll) {
+          thumbnailReadQuarantine.finishFullInvalidation([...failedPaths], failedPaths.size > 0);
+        } else {
+          for (const filePath of thumbnailPaths) {
+            if (!failedPaths.has(path.resolve(filePath))) thumbnailReadQuarantine.markRemoved(filePath);
+          }
+        }
+        return removedCount;
+      } catch (error) {
+        if (invalidateAll) thumbnailReadQuarantine.finishFullInvalidation([], true);
+        else thumbnailReadQuarantine.quarantinePaths(thumbnailPaths);
+        throw error;
+      }
     },
-    onCacheRemoveError: (error) => {
+    onCacheRemoveError: (error, thumbnailPaths) => {
+      if (scope.kind === "all") thumbnailReadQuarantine.finishFullInvalidation([], true);
+      else thumbnailReadQuarantine.quarantinePaths(thumbnailPaths);
       console.warn("[Thumbnails] Cache deletion was incomplete; continuing invalidation:", error);
     },
     publish: (event) => {

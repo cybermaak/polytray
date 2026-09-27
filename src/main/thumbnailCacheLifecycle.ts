@@ -39,6 +39,17 @@ export interface ThumbnailInvalidationSummary {
   removedThumbnailCount: number;
 }
 
+export interface ThumbnailCacheReadQuarantine {
+  readEpoch(filePath: string): number;
+  quarantinePath(filePath: string): void;
+  quarantinePaths(filePaths: string[]): void;
+  quarantineAll(): void;
+  markRemoved(filePath: string): void;
+  finishFullInvalidation(failedPaths: string[], incomplete: boolean): void;
+  markFresh(filePath: string): void;
+  isQuarantined(filePath: string): boolean;
+}
+
 export interface ThumbnailInvalidationHooks {
   advanceEpochs(modelPaths: string[], invalidateAll: boolean): void;
   cancelQueued(modelPaths: string[] | null): void;
@@ -83,6 +94,87 @@ export function readThumbnailRequestEpoch(requestKey: string): number | null {
   } catch {
     return null;
   }
+}
+
+export function createThumbnailCacheReadQuarantine() {
+  const quarantinedPaths = new Set<string>();
+  const freshPaths = new Set<string>();
+  const pathEpochs = new Map<string, number>();
+  let epochSequence = 0;
+  let globalReadEpoch = 0;
+  let allQuarantined = false;
+  const key = (filePath: string) => path.resolve(filePath);
+  const advancePathEpoch = (filePath: string) => {
+    const canonical = key(filePath);
+    const next = ++epochSequence;
+    pathEpochs.set(canonical, next);
+    return canonical;
+  };
+  const advanceGlobalEpoch = () => {
+    globalReadEpoch = ++epochSequence;
+    pathEpochs.clear();
+  };
+
+  return {
+    readEpoch(filePath: string) {
+      return pathEpochs.get(key(filePath)) ?? globalReadEpoch;
+    },
+    quarantinePath(filePath: string) {
+      const canonical = advancePathEpoch(filePath);
+      quarantinedPaths.add(canonical);
+      freshPaths.delete(canonical);
+    },
+    quarantinePaths(filePaths: string[]) {
+      for (const filePath of filePaths) this.quarantinePath(filePath);
+    },
+    quarantineAll() {
+      advanceGlobalEpoch();
+      allQuarantined = true;
+      freshPaths.clear();
+    },
+    markRemoved(filePath: string) {
+      const canonical = advancePathEpoch(filePath);
+      quarantinedPaths.delete(canonical);
+      freshPaths.delete(canonical);
+    },
+    finishFullInvalidation(failedPaths: string[], incomplete: boolean) {
+      advanceGlobalEpoch();
+      if (!incomplete) {
+        allQuarantined = false;
+        quarantinedPaths.clear();
+        freshPaths.clear();
+        return;
+      }
+      allQuarantined = true;
+      freshPaths.clear();
+      for (const filePath of failedPaths) quarantinedPaths.add(key(filePath));
+    },
+    markFresh(filePath: string) {
+      const canonical = advancePathEpoch(filePath);
+      quarantinedPaths.delete(canonical);
+      if (allQuarantined) freshPaths.add(canonical);
+    },
+    isQuarantined(filePath: string) {
+      const canonical = key(filePath);
+      return quarantinedPaths.has(canonical) || (allQuarantined && !freshPaths.has(canonical));
+    },
+  };
+}
+
+export async function readUnquarantinedThumbnailCache(
+  filePath: string,
+  quarantine: ThumbnailCacheReadQuarantine,
+  read: () => Promise<Buffer> = () => fs.readFile(filePath),
+): Promise<Buffer | null> {
+  const readEpoch = quarantine.readEpoch(filePath);
+  if (quarantine.isQuarantined(filePath)) return null;
+  let bytes: Buffer;
+  try {
+    bytes = await read();
+  } catch {
+    return null;
+  }
+  return quarantine.readEpoch(filePath) !== readEpoch || quarantine.isQuarantined(filePath) ? null : bytes;
 }
 
 interface ReconcileArgs {
@@ -178,10 +270,12 @@ export async function removeThumbnailCacheFiles(
   hooks: {
     removeFile?: (filePath: string) => Promise<void>;
     onError?: (filePath: string, error: unknown) => void;
+    quarantine?: ThumbnailCacheReadQuarantine;
   } = {},
 ): Promise<number> {
   let targets: string[];
   if (invalidateAll) {
+    hooks.quarantine?.quarantineAll();
     try {
       targets = (await fs.readdir(thumbnailDir))
         .filter((file) => file.endsWith(".png") || file.endsWith(".tmp"))
@@ -190,6 +284,9 @@ export async function removeThumbnailCacheFiles(
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
         if (hooks.onError) hooks.onError(thumbnailDir, error);
         else console.warn("[Thumbnails] Cache directory enumeration failed:", thumbnailDir, error);
+        hooks.quarantine?.finishFullInvalidation([thumbnailDir], true);
+      } else {
+        hooks.quarantine?.finishFullInvalidation([], false);
       }
       return 0;
     }
@@ -198,18 +295,30 @@ export async function removeThumbnailCacheFiles(
       path.isAbsolute(filePath) && path.extname(filePath).toLowerCase() === ".png" &&
       filterContainedPaths(thumbnailDir, [filePath]).length === 1,
     ).map((filePath) => path.resolve(filePath)))];
+    hooks.quarantine?.quarantinePaths(targets);
   }
   const removeFile = hooks.removeFile ?? ((filePath: string) => fs.rm(filePath, { force: true }));
   let removedPngCount = 0;
+  const failedPaths = new Set<string>();
   await Promise.all(targets.map(async (filePath) => {
     try {
       await removeFile(filePath);
       if (path.extname(filePath).toLowerCase() === ".png") removedPngCount++;
+      hooks.quarantine?.markRemoved(filePath);
     } catch (error) {
+      failedPaths.add(filePath);
+      if (invalidateAll) {
+        // Keep the global quarantine until every remaining cache file can be reached.
+      } else {
+        hooks.quarantine?.quarantinePath(filePath);
+      }
       if (hooks.onError) hooks.onError(filePath, error);
       else console.warn("[Thumbnails] Cache file deletion failed:", filePath, error);
     }
   }));
+  if (invalidateAll) {
+    hooks.quarantine?.finishFullInvalidation([...failedPaths], failedPaths.size > 0);
+  }
   return removedPngCount;
 }
 
