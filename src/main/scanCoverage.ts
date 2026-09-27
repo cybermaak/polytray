@@ -38,11 +38,13 @@ export function decidePruneCandidates(input: {
   rootPath: string;
   state: ScanTerminalState;
   scopes: ScanScope[];
-  discoveredPaths: string[];
+  discoveredPaths: Iterable<string>;
   candidates: PruneCandidate[];
 }) {
   const prune: PruneCandidate[] = [];
-  const discovered = new Set(input.discoveredPaths);
+  const discovered = input.discoveredPaths instanceof Set
+    ? input.discoveredPaths
+    : new Set(input.discoveredPaths);
   for (const candidate of input.candidates) {
     if (discovered.has(candidate.path)) continue;
     if (!isPathContained(input.rootPath, candidate.path)) continue;
