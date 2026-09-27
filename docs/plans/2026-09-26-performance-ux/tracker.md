@@ -29,7 +29,7 @@
 | S04 | [Dimensions and units](scanning.md#s04---correct-dimensions-units-and-measurement-provenance) | P2 | S03 | PLANNED | Unassigned | - |
 | S05 | [Watcher ordering and thumbnail availability](scanning.md#s05---index-watcher-changes-before-thumbnail-work-and-preserve-ordering) | P1 | D01, S03, T01 | PLANNED | Unassigned | - |
 | S06 | [Scan controls and targeted retry](scanning.md#s06---add-explicit-scan-job-pause-cancellation-and-targeted-retry) | P2 | S02, S03, S05 | PLANNED | Unassigned | - |
-| T01 | [Thumbnail identity and settlement](thumbnails.md#t01---make-thumbnail-requests-and-cache-identities-settle-correctly) | P1 | D01 | READY | Unassigned | Awaiting worker slot |
+| T01 | [Thumbnail identity and settlement](thumbnails.md#t01---make-thumbnail-requests-and-cache-identities-settle-correctly) | P1 | D01 | IN_PROGRESS | Luna/medium chat `01a0e201-7438-7391-9843-ac3d21ed3c67` | Dedicated thumbnail worktree |
 | T02 | [Authoritative refresh and cache reset](thumbnails.md#t02---make-refresh-clear-and-cache-version-reset-authoritative) | P1 | T01 | PLANNED | Unassigned | - |
 | T03 | [Shared path-only thumbnail presentation](thumbnails.md#t03---keep-file-state-path-only-and-share-thumbnail-reads) | P1 | F01, F02 | DONE | baseline_validation (Luna/medium) | [T03](handoffs/T03.md); spec/independent quality PASS, 12 focused tests/Type/Build/lint PASS; producer integrated `d1c44b7`, `1fd9c44`; consumers U01/T02 |
 | T04 | [Thumbnail queue controls and accounting](thumbnails.md#t04---centralize-thumbnail-queue-state-controls-and-retry-accounting) | P2 | T02 | PLANNED | Unassigned | - |
@@ -40,13 +40,13 @@
 | V05 | [Progressive part thumbnails](preview.md#v05---make-part-thumbnails-small-progressive-and-independent) | P2 | V04 | PLANNED | Unassigned | - |
 | U01 | [Complete browsing and consistent selection](browsing.md#u01---load-every-result-and-keep-selection-consistent-across-pages) | P1 | D02, T03 | PLANNED | Unassigned | - |
 | U02 | [Search state and targeted refresh](browsing.md#u02---unify-search-state-and-refresh-only-what-changed) | P2 | U01, D03 | PLANNED | Unassigned | - |
-| U03 | [Responsive panel layout](browsing.md#u03---keep-browsing-usable-at-every-supported-window-size) | P2 | F01, F02 | READY | Unassigned | - |
+| U03 | [Responsive panel layout](browsing.md#u03---keep-browsing-usable-at-every-supported-window-size) | P2 | F01, F02 | IN_PROGRESS | Luna/medium chat `01a0e202-8608-7f21-a52d-5e89ef92806b` | Active registered chat supersedes unregistered request |
 | U04 | [Keyboard navigation and focus](browsing.md#u04---support-keyboard-navigation-and-predictable-focus) | P2 | U01, U03, V02 | PLANNED | Unassigned | - |
 | U05 | [Background work UI and watch preferences](browsing.md#u05---present-useful-progress-and-respect-watcher-preferences) | P2 | U02, S06, T04 | PLANNED | Unassigned | - |
 | U06 | [Workflow and measurement UI integration](browsing.md#u06---integrate-slicer-backuprestore-and-honest-measurements) | P2 | U04, P01, P02, P04, S04 | PLANNED | Unassigned | - |
-| P01 | [Local slicer and archive handoff](product.md#p01---add-explicit-local-slicer-handoff-including-zip-members) | P2 | F01, F02 | READY | Unassigned | - |
+| P01 | [Local slicer and archive handoff](product.md#p01---add-explicit-local-slicer-handoff-including-zip-members) | P2 | F01, F02 | IN_PROGRESS | Luna/medium chat `01a0e204-6183-7ee2-a2ac-0bbd43568fa3` | Active registered chat; files disjoint from P03 |
 | P02 | [Versioned metadata export](product.md#p02---export-complete-versioned-metadata-backups) | P2 | F01, F02 | DONE | s01_safe_scanning (Luna/medium) | [P02](handoffs/P02.md); producer reviewed/integrated `e1c66e8`, `6de841f`; consumer binding P04/U06 |
-| P03 | [Deterministic import preview](product.md#p03---preview-imports-and-compute-deterministic-mergeconflict-results) | P2 | P02, D01 | READY | Unassigned | Awaiting worker slot |
+| P03 | [Deterministic import preview](product.md#p03---preview-imports-and-compute-deterministic-mergeconflict-results) | P2 | P02, D01 | IN_PROGRESS | Luna/medium chat `01a0e202-0863-7f30-bfb8-c159d2e58053` | Dedicated import-planning worktree |
 | P04 | [Recoverable restore transaction](product.md#p04---apply-restores-with-crash-recovery-across-both-stores) | P2 | P03, S02 | PLANNED | Unassigned | - |
 | G01 | [Integrated correctness and recovery](validation.md#g01---prove-integrated-correctness-and-recovery) | Gate | U05, U06, V05 | PLANNED | Unassigned | - |
 | G02 | [Performance and resource evidence](validation.md#g02---verify-performance-and-resource-budgets) | Gate | G01 | PLANNED | Unassigned | - |
@@ -60,14 +60,21 @@
 | V03 | s01_safe_scanning reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-v03` | Implementing |
 | S02 | baseline_validation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-s02` | Implementing streaming scans |
 | T03 old dispatch | Unregistered chat request | Client `eec1883f-42d5-4431-ad0b-955c2867d1b1` | Superseded for ownership; reconcile if it later registers |
-| U03 | New Luna/medium chat requested | Client `0a22ffff-ae10-4583-a008-f381c43fc15d` | Worktree created; waiting for task registration |
-| P01 | New Luna/medium chat requested | Client `530dfb9f-136d-417b-a4ea-610b0026ec0d` | Worktree created; waiting for task registration |
+| T01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-thumbnails/polytray` / `codex/perf-t01` | Implementing |
+| U03 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-layout/polytray` / `codex/perf-u03` | Implementing |
+| P03 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-import/polytray` / `codex/perf-p03` | Implementing |
+| P01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-slicer/polytray` / `codex/perf-p01` | Implementing |
+| Independent review | Luna/medium chat `01a0e1fe-a466-7810-9892-71009a512cc2` | Read-only exact candidate checkouts | D01/S01 boundary PASS; V03 static spec review active |
+| U03 old dispatch | Unregistered request | Client `0a22ffff-ae10-4583-a008-f381c43fc15d` | Superseded; reconcile if it later registers |
+| P01 old dispatch | Unregistered request | Client `530dfb9f-136d-417b-a4ea-610b0026ec0d` | Superseded; reconcile if it later registers |
 
 Active agents use separate dependency copies. Current dispatch baseline: `c6868e7`.
 App-level/Electron checks use a serial coordinator lane; units/builds can run concurrently.
-The three requested chat tasks do not yet have usable task IDs and are not counted as active implementations.
+The three original worktree-chat requests never returned usable task IDs. Their ownership has been superseded. The working route creates a managed worktree first, then a local project chat instructed to operate exclusively in that isolated checkout. Four implementation chats and one read-only review chat are now registered, in addition to the three active subagents. All implementations have private dependency copies. P01 and P03 are explicitly allowed concurrently because their source ownership is disjoint.
 
 The coordinator explicitly delegated D01's startup/library-change bridge and V03's preview IPC/readiness/build-entry wiring in their separate checkouts. Each wiring delta is committed separately and receives coordinator review; common-file conflicts are resolved once at integration. V03 may mechanically remove the old preview hookup from thumbnail-owned files, while preserving thumbnail behavior.
+
+D02 may implement its exact query IPC/readiness/validator bridge as a separate common-wiring commit. S02 may adapt nullable scan totals and the existing App progress callback, plus iterable pruning inputs and metadata counters. T01 may extend the existing normalized `thumbQuality` runtime field and typed attempt/ready payloads, with only minimal App/PreviewPanel quality prop threading. U03 retains layout ownership; V03 retains revision/cancellation threading. The coordinator reconciles these narrow, isolated common-file changes and verifies the combined result.
 
 V03 also needs the persisted D01 content revision at its existing preview caller. This runtime prerequisite was exposed during source tracing and is now explicit; no timestamp/size substitute is permitted. Its narrow caller adaptation is authorized, while V02 retains geometry-identity and state refactoring. T03 has moved to the active subagent pool because the extra-chat request has not registered; no second active implementation is known.
 
