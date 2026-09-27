@@ -1,25 +1,42 @@
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
 
 test('a 5k scan exposes the first indexed subtree before discovery completes', async () => {
-  const owner = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-s02-stream-'));
-  const root = path.join(owner, 'library');
-  const firstDirectory = path.join(root, 'a-first');
-  const delayedDirectory = path.join(root, 'z-delayed');
-  fs.mkdirSync(firstDirectory, { recursive: true });
-  fs.mkdirSync(delayedDirectory, { recursive: true });
-  const firstPath = path.join(firstDirectory, 'first.stl');
-  fs.writeFileSync(firstPath, 'solid first\nendsolid first\n');
-  for (let index = 0; index < 4_999; index++) {
-    fs.writeFileSync(path.join(delayedDirectory, `model-${String(index).padStart(5, '0')}.stl`), 'solid model\nendsolid model\n');
-  }
-
+  let root = '';
+  let firstDirectory = '';
+  let delayedDirectory = '';
+  let firstPath = '';
+  let releasePath = '';
+  let reachedPath = '';
+  let heartbeatPath = '';
+  const env: NodeJS.ProcessEnv = {};
   let isolated: Awaited<ReturnType<typeof launchIsolatedApp>> | null = null;
   try {
-    isolated = await launchIsolatedApp({ mainEntry: path.join(process.cwd(), 'out/main/index.js') });
+    isolated = await launchIsolatedApp({
+      mainEntry: path.join(process.cwd(), 'out/main/index.js'),
+      env,
+      beforeLaunch: ({ scratchDir }) => {
+        root = path.join(scratchDir, 'library');
+        firstDirectory = path.join(root, 'a-first');
+        delayedDirectory = path.join(root, 'z-delayed');
+        firstPath = path.join(firstDirectory, 'first.stl');
+        releasePath = path.join(scratchDir, 'scan-release');
+        reachedPath = path.join(scratchDir, 'scan-held');
+        heartbeatPath = path.join(scratchDir, 'main-heartbeat.json');
+        fs.mkdirSync(firstDirectory, { recursive: true });
+        fs.mkdirSync(delayedDirectory, { recursive: true });
+        fs.writeFileSync(firstPath, 'solid first\nendsolid first\n');
+        for (let index = 0; index < 4_999; index++) {
+          fs.writeFileSync(path.join(delayedDirectory, `model-${String(index).padStart(5, '0')}.stl`), 'solid model\nendsolid model\n');
+        }
+        env.POLYTRAY_SCAN_TEST_HOLD_PATH = delayedDirectory;
+        env.POLYTRAY_SCAN_TEST_RELEASE_PATH = releasePath;
+        env.POLYTRAY_SCAN_TEST_REACHED_PATH = reachedPath;
+        env.POLYTRAY_SCAN_TEST_HEARTBEAT_PATH = heartbeatPath;
+      },
+    });
     const window = await isolated.app.firstWindow();
     await window.evaluate(({ firstDirectory, root }) => {
       const view = window as unknown as Window & {
@@ -27,7 +44,7 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
         __scanFinished?: boolean;
         __scanResult?: { totalFiles: number };
         __scanError?: string;
-        __scanProof?: { total: number | null; indexed: number; elapsedMs: number; paths: string[]; latestTotal: number | null };
+        __scanProof?: { total: number | null; indexed: number; elapsedMs: number; paths: string[]; unfinishedAtQuery: boolean };
       };
       view.__scanStartedAt = performance.now();
       view.__scanFinished = false;
@@ -42,7 +59,7 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
             indexed: progress.indexed ?? progress.current,
             elapsedMs,
             paths: result.files.map((file) => file.path),
-            latestTotal: progress.total,
+            unfinishedAtQuery: view.__scanFinished === false,
           };
         });
       });
@@ -52,17 +69,21 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
       );
     }, { firstDirectory, root });
 
+    await expect.poll(() => fs.existsSync(reachedPath)).toBe(true);
     await expect.poll(async () => window.evaluate(() => Boolean((window as unknown as { __scanProof?: unknown }).__scanProof)))
       .toBe(true);
     const proof = await window.evaluate(() => (window as unknown as {
-      __scanProof: { total: number | null; indexed: number; elapsedMs: number; paths: string[]; latestTotal: number | null };
+      __scanProof: { total: number | null; indexed: number; elapsedMs: number; paths: string[]; unfinishedAtQuery: boolean };
       __scanFinished: boolean;
     }).__scanProof);
     expect(proof.total).toBeNull();
     expect(proof.indexed).toBeGreaterThan(0);
     expect(proof.paths).toContain(firstPath);
+    expect(proof.unfinishedAtQuery).toBe(true);
+    expect(fs.existsSync(releasePath)).toBe(false);
     expect(proof.elapsedMs).toBeLessThan(1_000);
 
+    fs.writeFileSync(releasePath, 'release');
     await expect.poll(async () => window.evaluate(() => (window as unknown as { __scanFinished: boolean }).__scanFinished))
       .toBe(true);
     const result = await window.evaluate(() => (window as unknown as {
@@ -71,8 +92,16 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
     }).__scanResult);
     expect(result).toBeTruthy();
     expect(result.totalFiles).toBe(5_000);
+    await expect.poll(() => fs.existsSync(heartbeatPath)).toBe(true);
+    const heartbeat = JSON.parse(fs.readFileSync(heartbeatPath, 'utf8')) as { intervalMs: number; samples: number; maxGapMs: number | null };
+    expect(heartbeat.intervalMs).toBe(25);
+    expect(heartbeat.samples).toBeGreaterThan(0);
+    expect(heartbeat.maxGapMs).not.toBeNull();
+    expect(heartbeat.maxGapMs!).toBeLessThanOrEqual(250);
   } finally {
-    if (isolated) await isolated.close();
-    fs.rmSync(owner, { recursive: true, force: true });
+    if (isolated) {
+      if (releasePath && !fs.existsSync(releasePath)) fs.writeFileSync(releasePath, 'release');
+      await isolated.close();
+    }
   }
 });

@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import fs from 'fs';
 import type { Database } from 'better-sqlite3';
 import path from 'path';
 import type { BackgroundJob, BackgroundJobError, BackgroundJobState, DiscoveryEvent, DiscoveredModel } from '../shared/backgroundJobs';
@@ -139,6 +140,32 @@ function normalizeBatchSize(value: number | undefined) {
 
 function createJobId() { return `scan-${randomUUID()}`; }
 
+function startIsolatedScanHeartbeatProbe(): () => void {
+  const outputPath = process.env.POLYTRAY_SCAN_TEST_HEARTBEAT_PATH;
+  const scratchDir = process.env.POLYTRAY_PERF_SCRATCH;
+  if (process.env.POLYTRAY_ISOLATED_TEST !== '1' || !outputPath || !path.isAbsolute(outputPath)
+    || !scratchDir || !filterContainedPaths(scratchDir, [outputPath]).length) return () => {};
+  const intervalMs = 25;
+  const gapsMs: number[] = [];
+  let previous = performance.now();
+  const timer = setInterval(() => {
+    const now = performance.now();
+    gapsMs.push(now - previous);
+    previous = now;
+  }, intervalMs);
+  return () => {
+    clearInterval(timer);
+    const result = {
+      intervalMs,
+      samples: gapsMs.length,
+      maxGapMs: gapsMs.length ? Math.max(...gapsMs) : null,
+      gapsMs,
+    };
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    fs.writeFileSync(outputPath, JSON.stringify(result));
+  };
+}
+
 function createScope(event: Extract<DiscoveryEvent, { type: 'scope-complete' }>): ScanScope {
   return { scopePath: event.scopePath, kind: event.kind, status: 'complete' };
 }
@@ -234,6 +261,7 @@ export class ScanService {
 
   private async run(job: ActiveJob, batchSize: number): Promise<ScanJobResult> {
     job.state = 'running'; job.updatedAt = Date.now(); this.publish(job);
+    let stopHeartbeatProbe = () => {};
     const rootPath = job.rootPath;
     const discoveredPaths = new Set<string>();
     const scopes: ScanScope[] = [];
@@ -285,6 +313,7 @@ export class ScanService {
         }
       } finally { discoveryQueue.close(job.controller.signal.aborted); }
     })();
+    stopHeartbeatProbe = startIsolatedScanHeartbeatProbe();
 
     let pending: DiscoveredRecord[] = [];
     let pendingSince = 0;
@@ -444,6 +473,7 @@ export class ScanService {
         metadataCompleted: job.counts.metadataCompleted, metadataFailed: job.counts.metadataFailed,
       };
     } finally {
+      stopHeartbeatProbe();
       unsubscribe();
       discoveryQueue.close(true);
       metadataQueue.stopPending();

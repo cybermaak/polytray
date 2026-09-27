@@ -11,6 +11,7 @@ import {
   getArchiveEntryExtension,
   isSupportedArchiveEntry,
 } from "../shared/archivePaths";
+import { isPathContained } from './pathContainment';
 import { ScanScope, ScanTerminalState } from "./scanCoverage";
 
 interface ScannedFile {
@@ -20,6 +21,43 @@ interface ScannedFile {
   dir: string;
   size: number;
   mtime: number;
+}
+
+function isolatedScanHold(rootPath: string, scopePath: string) {
+  if (process.env.POLYTRAY_ISOLATED_TEST !== '1') return null;
+  const configuredScope = process.env.POLYTRAY_SCAN_TEST_HOLD_PATH;
+  const releasePath = process.env.POLYTRAY_SCAN_TEST_RELEASE_PATH;
+  const reachedPath = process.env.POLYTRAY_SCAN_TEST_REACHED_PATH;
+  const scratchDir = process.env.POLYTRAY_PERF_SCRATCH;
+  if (!configuredScope || !releasePath || !reachedPath || !scratchDir || !path.isAbsolute(scratchDir)) return null;
+  if (![configuredScope, releasePath, reachedPath].every((value) => path.isAbsolute(value))) return null;
+  if (![configuredScope, releasePath, reachedPath].every((value) => isPathContained(scratchDir, value))) return null;
+  if (path.resolve(configuredScope) !== path.resolve(scopePath)) return null;
+  if (!path.isAbsolute(rootPath)) return null;
+  return { releasePath, reachedPath };
+}
+
+async function waitForIsolatedScanRelease(
+  hold: { releasePath: string; reachedPath: string },
+  signal?: AbortSignal,
+) {
+  await fs.promises.mkdir(path.dirname(hold.reachedPath), { recursive: true });
+  await fs.promises.writeFile(hold.reachedPath, 'held');
+  if (signal?.aborted || fs.existsSync(hold.releasePath)) return;
+  let watcher: ReturnType<typeof fs.promises.watch> | undefined;
+  try {
+    watcher = fs.promises.watch(path.dirname(hold.releasePath), { signal, persistent: false });
+    if (fs.existsSync(hold.releasePath)) {
+      await watcher.return?.();
+      return;
+    }
+    for await (const _event of watcher) {
+      if (signal?.aborted || fs.existsSync(hold.releasePath)) return;
+    }
+  } catch (error: unknown) {
+    if (signal?.aborted) return;
+    throw error;
+  }
 }
 
 /**
@@ -49,6 +87,9 @@ export async function* streamDiscoverFolder(
   });
 
   async function* walkDir(dirPath: string): AsyncGenerator<DiscoveryEvent> {
+    if (cancelled()) return;
+    const hold = isolatedScanHold(rootPath, dirPath);
+    if (hold) await waitForIsolatedScanRelease(hold, signal);
     if (cancelled()) return;
     let entries: fs.Dirent[];
     try {
