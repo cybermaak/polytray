@@ -154,6 +154,7 @@ export const PreviewPanel: React.FC<Props> = ({
           currentFile.path,
           currentFile.extension,
           currentFile.name,
+          currentFile.content_revision,
           signal,
           (percent) => {
             if (!signal.aborted) setLoadProgress(percent);

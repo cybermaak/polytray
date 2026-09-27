@@ -1,4 +1,4 @@
-import { app, ipcMain, BrowserWindow, MessageChannelMain, nativeImage } from "electron";
+import { app, ipcMain, BrowserWindow, nativeImage } from "electron";
 import path from "path";
 import fs from "fs/promises";
 import fsSync from "fs";
@@ -15,7 +15,6 @@ import { filterContainedPaths } from "./pathContainment";
 import { createThumbnailJobScheduler } from "./thumbnailJobScheduler";
 import { reconcileThumbnailCache } from "./thumbnailCacheLifecycle";
 import { parseRuntimeSettings } from "./ipc/runtimeValidation";
-import { registerPreviewParseHandler } from "./previewParseService";
 import { canonicalizeThumbnailPath, createThumbnailAttemptRegistry, createThumbnailIdentity, createThumbnailRequestRegistry, readValidatedThumbnailCache, thumbnailCacheFilename, thumbnailRequestKey } from "./thumbnailIdentity";
 import type { ThumbnailAttempt } from "../shared/thumbnailContracts";
 
@@ -137,7 +136,6 @@ export function initThumbnailService() {
     pendingRequests.settle(result.requestId, savedPath);
   });
 
-  registerPreviewParseHandler(ipcMain, getThumbnailWindow, () => new MessageChannelMain());
 }
 
 /**

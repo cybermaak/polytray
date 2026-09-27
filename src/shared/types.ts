@@ -1,3 +1,4 @@
+import type { PreviewParseCancelRequest, PreviewParseRequest } from "./previewContracts";
 import type { ThumbnailCacheKey, ThumbnailIdentity, ThumbnailSize } from './thumbnailContracts';
 
 export interface FileRecord {
@@ -8,6 +9,8 @@ export interface FileRecord {
   directory: string;
   size_bytes: number;
   modified_at: number;
+  content_revision: number;
+  archive_path: string | null;
   vertex_count: number;
   face_count: number;
   tags?: string | null;
@@ -16,8 +19,6 @@ export interface FileRecord {
   thumbnail: string | null;
   thumbnail_failed: number;
   indexed_at: number;
-  content_revision: number;
-  archive_path: string | null;
 }
 
 export interface ModelDimensions {
@@ -72,6 +73,11 @@ export const IPC = {
   UPDATE_FILE_METADATA: "update-file-metadata",
   REQUEST_THUMBNAIL_GENERATION: "request-thumbnail-generation",
   REQUEST_PREVIEW_PARSE: "request-preview-parse",
+  READ_PREVIEW_ARCHIVE_BUFFER: "read-preview-archive-buffer",
+  CANCEL_PREVIEW_PARSE: "cancel-preview-parse",
+  PREVIEW_RUNTIME_READY: "preview-runtime-ready",
+  PREVIEW_PARSE_SETTLED: "preview-parse-settled",
+  PREVIEW_PARSE_CONTROL: "preview-parse-control",
   GET_STATS: "get-stats",
   START_WATCHING: "start-watching",
   STOP_WATCHING: "stop-watching",
@@ -226,15 +232,26 @@ export interface SerializedMesh {
   name: string;
 }
 
-export interface PreviewParseRequestData {
-  requestId: string;
-  filePath: string;
-  ext: string;
+export type PreviewParseRequestData = PreviewParseRequest;
+export type PreviewParseCancelRequestData = PreviewParseCancelRequest;
+
+export interface PreviewParseDispatchData {
+  request: PreviewParseRequest;
+  sourceBuffer?: ArrayBuffer;
 }
 
 export interface PreviewParsePortData {
   requestId: string;
 }
+
+export interface PreviewParseSettlementData {
+  requestId: string;
+  error?: string;
+}
+
+export type PreviewParseControlData =
+  | { requestId: string; type: "cancelled"; reason: string }
+  | { requestId: string; type: "error"; error: string };
 
 export interface PreviewMetricData {
   source: "hidden-renderer" | "viewer";

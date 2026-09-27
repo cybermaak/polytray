@@ -2,16 +2,19 @@ import path from "path";
 import {
   LibraryQuery,
   PreviewMetricData,
+  PreviewParseCancelRequestData,
   PreviewParseRequestData,
+  PreviewParseSettlementData,
   RuntimeSettingsData,
   SortOptions,
   UpdateFileMetadataData,
   SlicerHandoffRequest,
 } from "../../shared/types";
 import type { SlicerPlatform } from "../slicerHandoff";
-import { ARCHIVE_ENTRY_SEPARATOR } from "../../shared/archivePaths";
 import { normalizeFileTags } from "../../shared/fileTags";
 import { normalizeRuntimeSettings } from "../../shared/settings";
+import { ARCHIVE_ENTRY_SEPARATOR, parseArchiveEntryPath } from "../../shared/archivePaths";
+import { SUPPORTED_EXTENSIONS } from "../../shared/types";
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
@@ -123,18 +126,57 @@ export function parsePreviewParseRequest(value: unknown): PreviewParseRequestDat
   }
 
   const request = value as Partial<PreviewParseRequestData>;
+  const extension = typeof request.extension === "string" ? request.extension.toLowerCase() : "";
+  const archiveEntry = typeof request.path === "string" ? parseArchiveEntryPath(request.path) : null;
+  const physicalPath = archiveEntry?.archivePath ?? request.path;
+  const validPathEncoding = typeof request.path === "string" &&
+    (!request.path.includes(ARCHIVE_ENTRY_SEPARATOR) || Boolean(archiveEntry));
+  const isAbsolutePath = typeof physicalPath === "string" &&
+    (path.isAbsolute(physicalPath) || path.win32.isAbsolute(physicalPath));
   if (
     !isNonEmptyString(request.requestId) ||
-    !isNonEmptyString(request.filePath) ||
-    !isNonEmptyString(request.ext)
+    !isNonEmptyString(request.path) ||
+    !validPathEncoding ||
+    !isAbsolutePath ||
+    !SUPPORTED_EXTENSIONS.includes(extension as typeof SUPPORTED_EXTENSIONS[number]) ||
+    !Number.isSafeInteger(request.contentRevision) ||
+    (request.contentRevision as number) < 0
   ) {
     throw new Error("Invalid preview parse request");
   }
 
   return {
     requestId: request.requestId,
-    filePath: request.filePath,
-    ext: request.ext,
+    path: request.path,
+    extension,
+    contentRevision: request.contentRevision as number,
+  };
+}
+
+export function parsePreviewParseCancelRequest(value: unknown): PreviewParseCancelRequestData {
+  if (!value || typeof value !== "object") throw new Error("Invalid preview parse cancellation");
+  const request = value as Partial<PreviewParseCancelRequestData>;
+  if (
+    !isNonEmptyString(request.requestId) ||
+    !["replaced", "user", "disposed", "timeout"].includes(request.reason ?? "")
+  ) {
+    throw new Error("Invalid preview parse cancellation");
+  }
+  return { requestId: request.requestId, reason: request.reason as PreviewParseCancelRequestData["reason"] };
+}
+
+export function parsePreviewParseSettlementRequest(value: unknown): PreviewParseSettlementData {
+  if (!value || typeof value !== "object") throw new Error("Invalid preview parse settlement");
+  const settlement = value as Partial<PreviewParseSettlementData>;
+  if (Object.keys(value).some((key) => key !== "requestId" && key !== "error") ||
+    !isNonEmptyString(settlement.requestId) ||
+    (settlement.error !== undefined &&
+      (typeof settlement.error !== "string" || settlement.error.length > 2048))) {
+    throw new Error("Invalid preview parse settlement");
+  }
+  return {
+    requestId: settlement.requestId,
+    ...(settlement.error === undefined ? {} : { error: settlement.error }),
   };
 }
 

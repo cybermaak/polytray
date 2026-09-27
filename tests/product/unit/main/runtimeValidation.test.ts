@@ -5,7 +5,9 @@ import {
   parseFolderPath,
   parseLibraryQuery,
   parsePreviewMetric,
+  parsePreviewParseCancelRequest,
   parsePreviewParseRequest,
+  parsePreviewParseSettlementRequest,
   parseRuntimeSettings,
   parseThumbnailPath,
 } from '../../../../src/main/ipc/runtimeValidation';
@@ -49,14 +51,29 @@ test('path and preview validators reject malformed IPC payloads', () => {
   assert.deepEqual(
     parsePreviewParseRequest({
       requestId: 'abc',
-      filePath: '/tmp/model.3mf',
-      ext: '3mf',
+      path: '/tmp/model.3mf',
+      extension: '3MF',
+      contentRevision: 8,
     }),
     {
       requestId: 'abc',
-      filePath: '/tmp/model.3mf',
-      ext: '3mf',
+      path: '/tmp/model.3mf',
+      extension: '3mf',
+      contentRevision: 8,
     },
+  );
+  assert.deepEqual(
+    parsePreviewParseCancelRequest({ requestId: 'abc', reason: 'replaced' }),
+    { requestId: 'abc', reason: 'replaced' },
+  );
+  assert.deepEqual(parsePreviewParseSettlementRequest({ requestId: 'abc' }), { requestId: 'abc' });
+  assert.throws(
+    () => parsePreviewParseSettlementRequest({ requestId: 'abc', preview: { meshes: [] } }),
+    /Invalid preview parse settlement/,
+  );
+  assert.throws(
+    () => parsePreviewParseSettlementRequest({ requestId: 'abc', error: 'x'.repeat(2049) }),
+    /Invalid preview parse settlement/,
   );
   assert.deepEqual(
     parsePreviewMetric({
@@ -83,6 +100,14 @@ test('path and preview validators reject malformed IPC payloads', () => {
   assert.throws(() => parseThumbnailPath(42), /Invalid thumbnail path/);
   assert.throws(
     () => parsePreviewParseRequest({ requestId: 'abc' }),
+    /Invalid preview parse request/,
+  );
+  assert.throws(
+    () => parsePreviewParseRequest({ requestId: 'abc', path: 'relative.3mf', extension: '3mf', contentRevision: 0 }),
+    /Invalid preview parse request/,
+  );
+  assert.throws(
+    () => parsePreviewParseRequest({ requestId: 'abc', path: '/tmp/model.3mf', extension: '3mf', contentRevision: -1 }),
     /Invalid preview parse request/,
   );
   assert.throws(

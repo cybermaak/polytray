@@ -9,7 +9,6 @@ import { VIEWER_CONFIG } from "./viewerConfig";
 import { parseModelToGroup, setModelColor } from "./modelParsers";
 import { applySmartOrientation } from "./orientation";
 import { computeCameraFit } from "./cameraUtils";
-import { initPreviewParseRenderer } from "./previewParseRenderer";
 import { isArchiveEntryPath } from "../../shared/archivePaths";
 import type { ThumbnailSize } from "../../shared/thumbnailContracts";
 
@@ -229,10 +228,7 @@ export function initThumbnailGenerator(canvas: HTMLCanvasElement) {
     }
   });
 
-  const previewCleanup = initPreviewParseRenderer();
-
   return () => {
     cleanup();
-    previewCleanup();
   };
 }

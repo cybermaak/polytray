@@ -338,6 +338,7 @@ export async function loadModelWithWorker(
   fileUrl: string,
   extension: string,
   fileName: string,
+  contentRevision: number,
   signal: AbortSignal,
   onProgress?: (percent: number) => void,
 ) {
@@ -348,6 +349,7 @@ export async function loadModelWithWorker(
   const meshes = await loadPreviewMeshes({
     fileUrl,
     extension,
+    contentRevision,
     signal,
     onProgress,
   });

@@ -1,10 +1,14 @@
-import ParserWorker from "./workers/parser.worker?worker";
-import type { SerializedMesh } from "../../shared/types";
-import { isArchiveEntryPath } from "../../shared/archivePaths";
+import ParserWorker from './workers/parser.worker?worker';
+import type { SerializedMesh } from '../../shared/types';
+import type { PreviewParseRequest } from '../../shared/previewContracts';
+import { isArchiveEntryPath } from '../../shared/archivePaths';
+import { dispatchAbortablePreviewRequest } from './previewRequest';
 
 interface PreviewStrategyArgs {
   fileUrl: string;
   extension: string;
+  contentRevision: number;
+  requestId: string;
   signal: AbortSignal;
   onProgress?: (percent: number) => void;
 }
@@ -14,97 +18,113 @@ interface PreviewParseStrategy {
 }
 
 function toPreviewUrl(fileUrl: string) {
-  return fileUrl.startsWith("polytray://local/")
+  return fileUrl.startsWith('polytray://local/')
     ? fileUrl
     : `polytray://local/${encodeURIComponent(fileUrl)}`;
 }
 
-async function loadModelBuffer(fileUrl: string, signal: AbortSignal) {
-  if (isArchiveEntryPath(fileUrl)) {
-    return window.polytray.readFileBuffer(fileUrl);
+function createRequest(args: PreviewStrategyArgs): PreviewParseRequest {
+  return {
+    requestId: args.requestId,
+    path: args.fileUrl,
+    extension: args.extension,
+    contentRevision: args.contentRevision,
+  };
+}
+
+function makeAbortError() {
+  return new DOMException('Preview parse aborted', 'AbortError');
+}
+
+async function loadModelBuffer(args: PreviewStrategyArgs) {
+  if (args.signal.aborted) throw makeAbortError();
+  if (isArchiveEntryPath(args.fileUrl)) {
+    const request = createRequest(args);
+    return readArchiveBufferWithSignal(request, args.signal);
   }
 
-  const loadUrl = toPreviewUrl(fileUrl);
-  const response = await fetch(loadUrl, { signal });
+  const response = await fetch(toPreviewUrl(args.fileUrl), { signal: args.signal });
   if (!response.ok) {
-    throw new Error(`Failed to load ${loadUrl}: status ${response.status}`);
+    throw new Error(`Failed to fetch ${response.url}: ${response.status}`);
   }
-
   return response.arrayBuffer();
 }
 
-const workerStrategy: PreviewParseStrategy = {
-  async loadMeshes({ fileUrl, extension, signal, onProgress }) {
-    if (onProgress) onProgress(-1);
+function readArchiveBufferWithSignal(request: PreviewParseRequest, signal: AbortSignal) {
+  return dispatchAbortablePreviewRequest(
+    request,
+    signal,
+    (parseRequest) => window.polytray.readPreviewArchiveBuffer(parseRequest),
+    (requestId) => window.polytray.cancelPreviewParse(requestId, 'replaced'),
+  );
+}
 
-    const buffer = await loadModelBuffer(fileUrl, signal);
-    if (signal.aborted) {
-      throw new DOMException("Aborted", "AbortError");
-    }
+const workerStrategy: PreviewParseStrategy = {
+  async loadMeshes(args) {
+    if (args.onProgress) args.onProgress(-1);
+    const buffer = await loadModelBuffer(args);
+    if (args.signal.aborted) throw makeAbortError();
 
     return new Promise<SerializedMesh[]>((resolve, reject) => {
       const worker = new ParserWorker();
-
+      let settled = false;
       const cleanup = () => {
+        args.signal.removeEventListener('abort', abortHandler);
         worker.terminate();
       };
-
-      worker.onmessage = (e) => {
-        if (signal.aborted) {
-          cleanup();
-          reject(new DOMException("Aborted", "AbortError"));
-          return;
-        }
-
-        if (e.data.error) {
-          cleanup();
-          reject(new Error(e.data.error));
-          return;
-        }
-
+      const settle = (error?: unknown, meshes?: SerializedMesh[]) => {
+        if (settled) return;
+        settled = true;
         cleanup();
-        resolve(e.data.meshes as SerializedMesh[]);
+        if (error !== undefined) reject(error instanceof Error ? error : new Error(String(error)));
+        else resolve(meshes ?? []);
       };
-
-      worker.onerror = (err) => {
-        cleanup();
-        reject(err);
+      const abortHandler = () => settle(makeAbortError());
+      args.signal.addEventListener('abort', abortHandler, { once: true });
+      if (args.signal.aborted) {
+        abortHandler();
+        return;
+      }
+      worker.onmessage = (event) => {
+        if (event.data.error) settle(new Error(event.data.error));
+        else settle(undefined, event.data.meshes as SerializedMesh[]);
       };
-
-      worker.postMessage({ buffer, extension }, [buffer]);
-
-      signal.addEventListener(
-        "abort",
-        () => {
-          cleanup();
-          reject(new DOMException("Aborted", "AbortError"));
-        },
-        { once: true },
-      );
+      worker.onerror = (event) => settle(event);
+      worker.postMessage({ buffer, extension: args.extension }, [buffer]);
     });
   },
 };
 
 const hiddenRendererStrategy: PreviewParseStrategy = {
-  async loadMeshes({ fileUrl, extension, signal, onProgress }) {
-    if (onProgress) onProgress(-1);
-    const meshes = await window.polytray.requestPreviewParse(fileUrl, extension);
-    if (signal.aborted) {
-      throw new DOMException("Aborted", "AbortError");
-    }
-    return meshes;
+  async loadMeshes(args) {
+    if (args.onProgress) args.onProgress(-1);
+    const request = createRequest(args);
+    const prepared = await dispatchAbortablePreviewRequest(
+      request,
+      args.signal,
+      (parseRequest) => window.polytray.requestPreviewParse(parseRequest),
+      (requestId) => window.polytray.cancelPreviewParse(requestId, 'replaced'),
+    );
+    return prepared.meshes;
   },
 };
 
 function resolvePreviewStrategy(extension: string): PreviewParseStrategy {
-  if (extension.toLowerCase() === "3mf") {
-    return hiddenRendererStrategy;
-  }
-
+  if (extension.toLowerCase() === '3mf') return hiddenRendererStrategy;
   return workerStrategy;
 }
 
-export async function loadPreviewMeshes(args: PreviewStrategyArgs) {
+export async function loadPreviewMeshes(args: {
+  fileUrl: string;
+  extension: string;
+  contentRevision: number;
+  signal: AbortSignal;
+  onProgress?: (percent: number) => void;
+}) {
+  if (args.signal.aborted) throw makeAbortError();
   const strategy = resolvePreviewStrategy(args.extension);
-  return strategy.loadMeshes(args);
+  return strategy.loadMeshes({
+    ...args,
+    requestId: crypto.randomUUID(),
+  });
 }

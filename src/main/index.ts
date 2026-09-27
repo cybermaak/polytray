@@ -17,6 +17,8 @@ import { registerFileHandlers } from "./ipc/files";
 import { registerThumbnailHandlers } from "./ipc/thumbnails";
 import { registerSystemHandlers } from "./ipc/system";
 import { registerSlicerHandlers, startSlicerStartupCleanup } from "./ipc/slicer";
+import { createElectronPreviewWindowManager } from "./previewWindow";
+import { registerPreviewParseHandler } from "./previewParseService";
 
 // Set the application name for macOS menu bar
 app.setName("PolyTray");
@@ -98,6 +100,19 @@ let mainWindow: BrowserWindow | null = null;
 let slicerHandlers: ReturnType<typeof registerSlicerHandlers> | null = null;
 let thumbnailWindow: BrowserWindow | null = null;
 let mainWindowVisibilityRevision = 0;
+function getWindowRendererPid(target: BrowserWindow | null): number {
+  try {
+    if (!target || target.isDestroyed() || target.webContents.isDestroyed()) return 0;
+    return target.webContents.getOSProcessId();
+  } catch {
+    return 0;
+  }
+}
+const previewRuntime = createElectronPreviewWindowManager(() => [
+  getWindowRendererPid(mainWindow),
+  getWindowRendererPid(thumbnailWindow),
+]);
+let previewParseRegistration: ReturnType<typeof registerPreviewParseHandler> | null = null;
 let fileIndexRuntime: FileIndexRuntime | null = null;
 let libraryMutationPublisher: LibraryMutationPublisher | null = null;
 
@@ -174,6 +189,7 @@ function createWindow() {
   // Force quit when the main window is closed, especially on macOS
   mainWindow.on("closed", () => {
     mainWindow = null;
+    void previewParseRegistration?.dispose();
     if (thumbnailWindow) {
       thumbnailWindow.close();
     }
@@ -247,6 +263,7 @@ function registerIpcHandlers() {
   registerThumbnailHandlers(getMainWindow);
   registerSystemHandlers(getMainWindow);
   slicerHandlers = registerSlicerHandlers(getMainWindow);
+  previewParseRegistration = registerPreviewParseHandler(ipcMain, getMainWindow, previewRuntime);
   initThumbnailService();
 }
 
@@ -300,6 +317,7 @@ app.whenReady().then(() => {
         void fileIndexRuntime?.dispose();
         libraryMutationPublisher?.flush();
         libraryMutationPublisher?.dispose();
+        void previewParseRegistration?.dispose();
       });
       app.on("activate", () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
