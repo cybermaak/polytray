@@ -3,7 +3,7 @@ const { _electron: electron } = require('playwright');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { buildElectronLaunchEnv } = require('../../support/helpers/electronLaunch');
+const { buildElectronLaunchArgs, buildElectronLaunchEnv } = require('../../support/helpers/electronLaunch');
 
 test('unavailable root retains annotated row and an available empty root prunes it', async () => {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-safety-user-'));
@@ -12,7 +12,7 @@ test('unavailable root retains annotated row and an available empty root prunes 
   fs.writeFileSync(modelPath, 'solid kept\nendsolid kept\n');
   let app;
   try {
-    const args = [path.join(process.cwd(), 'out/main/index.js'), `--user-data-dir=${userData}`];
+    const args = buildElectronLaunchArgs(path.join(process.cwd(), 'out/main/index.js'), userData);
     if (process.platform === 'linux') args.push('--no-sandbox', '--disable-gpu');
     app = await electron.launch({ args, env: buildElectronLaunchEnv(process.env, { ELECTRON_USER_DATA: userData }) });
     const window = await app.firstWindow();
