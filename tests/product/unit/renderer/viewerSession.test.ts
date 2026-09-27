@@ -1,0 +1,83 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { ViewerSession } from "../../../../src/renderer/lib/viewerSession";
+
+function createFrameHarness() {
+  let nextId = 1;
+  const frames = new Map<number, FrameRequestCallback>();
+  return {
+    requestFrame(callback: FrameRequestCallback) {
+      const id = nextId++;
+      frames.set(id, callback);
+      return id;
+    },
+    cancelFrame(id: number) { frames.delete(id); },
+    get pendingCount() { return frames.size; },
+    takeNext() {
+      const entry = frames.entries().next().value as [number, FrameRequestCallback] | undefined;
+      if (!entry) return null;
+      frames.delete(entry[0]);
+      return entry[1];
+    },
+    runNext() {
+      const callback = this.takeNext();
+      if (!callback) return false;
+      callback(0);
+      return true;
+    },
+  };
+}
+
+test("viewer session coalesces invalidation and stops scheduling after controls settle", () => {
+  const frames = createFrameHarness();
+  let updates = 0;
+  let draws = 0;
+  const session = new ViewerSession({}, {
+    requestFrame: frames.requestFrame,
+    cancelFrame: frames.cancelFrame,
+    updateControls: () => updates++ === 0,
+    draw: () => { draws++; },
+  });
+
+  session.invalidate();
+  session.invalidate();
+  assert.equal(frames.pendingCount, 1);
+  frames.runNext();
+  assert.equal(draws, 1);
+  assert.equal(frames.pendingCount, 1);
+  frames.runNext();
+  assert.equal(draws, 2);
+  assert.equal(frames.pendingCount, 0);
+});
+
+test("hidden and disposed sessions do not schedule frames or run stale load tokens", async () => {
+  const frames = createFrameHarness();
+  let draws = 0;
+  let cleanupCount = 0;
+  const session = new ViewerSession({}, {
+    requestFrame: frames.requestFrame,
+    cancelFrame: frames.cancelFrame,
+    updateControls: () => false,
+    draw: () => { draws++; },
+  });
+  const token = session.beginLoad();
+  session.setVisible(false);
+  session.invalidate();
+  assert.equal(frames.pendingCount, 0);
+  session.setVisible(true);
+  assert.equal(frames.pendingCount, 1);
+  const staleCallback = frames.takeNext();
+  assert.ok(staleCallback);
+  session.invalidate();
+  const deferredFrame = session.yieldToFrame();
+  session.addCleanup(() => { cleanupCount++; });
+  session.dispose();
+  session.dispose();
+  assert.equal(frames.pendingCount, 0);
+  assert.equal(frames.runNext(), false);
+  await deferredFrame;
+  staleCallback(0);
+  assert.equal(draws, 0);
+  assert.equal(cleanupCount, 1);
+  assert.equal(session.isCurrent(token), false);
+});

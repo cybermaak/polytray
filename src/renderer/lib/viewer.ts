@@ -12,6 +12,7 @@ import { applySmartOrientation } from "./orientation";
 import { computeCameraFit } from "./cameraUtils";
 import type { SerializedMesh } from "../../shared/types";
 import { loadPreviewMeshes } from "./previewStrategies";
+import { ViewerSession } from "./viewerSession";
 
 // ── Re-exports for backward compatibility ─────────────────────────
 export { VIEWER_CONFIG } from "./viewerConfig";
@@ -25,7 +26,6 @@ interface ViewerState {
   controls: OrbitControls | null;
   currentModel: THREE.Object3D | null;
   gridHelper: THREE.GridHelper | null;
-  animationId: number | null;
   wireframeMode: boolean;
   multiModelMeshes: THREE.Object3D[];
   activeSubModelIndex: number;
@@ -41,7 +41,6 @@ function createInitialState(): ViewerState {
     controls: null,
     currentModel: null,
     gridHelper: null,
-    animationId: null,
     wireframeMode: false,
     multiModelMeshes: [],
     activeSubModelIndex: -1,
@@ -50,7 +49,8 @@ function createInitialState(): ViewerState {
   };
 }
 
-const state: ViewerState = createInitialState();
+let state: ViewerState = createInitialState();
+let activeSession: ViewerSession<ViewerState> | null = null;
 const BUILD_MESH_BATCH_SIZE = 8;
 
 function getMultiModelContainer() {
@@ -60,31 +60,37 @@ function getMultiModelContainer() {
   return state.multiModelContainer;
 }
 
-window.addEventListener("polytray-preview-color", (e: Event) => {
-  const hex = (e as CustomEvent).detail;
-  setModelColor(hex);
-  
-  const newColor = new THREE.Color(hex);
-  const reColor = (child: THREE.Object3D) => {
-    if (child instanceof THREE.Mesh && child.material && child.material.color) {
-      child.material.color.copy(newColor);
-    }
+function installSessionListeners(session: ViewerSession<ViewerState>) {
+  const colorHandler = (event: Event) => {
+    if (activeSession !== session) return;
+    const hex = (event as CustomEvent).detail;
+    setModelColor(hex);
+    const newColor = new THREE.Color(hex);
+    const recolor = (child: THREE.Object3D) => {
+      if (child instanceof THREE.Mesh && child.material && child.material.color) {
+        child.material.color.copy(newColor);
+      }
+    };
+    state.currentModel?.traverse(recolor);
+    state.multiModelMeshes.forEach((mesh) => mesh.traverse(recolor));
+    session.invalidate();
   };
-
-  if (state.currentModel) {
-    state.currentModel.traverse(reColor);
-  }
-  
-  state.multiModelMeshes.forEach(mesh => mesh.traverse(reColor));
-});
+  const visibilityHandler = () => {
+    session.setVisible(document.visibilityState === "visible");
+  };
+  window.addEventListener("polytray-preview-color", colorHandler);
+  document.addEventListener("visibilitychange", visibilityHandler);
+  session.addCleanup(() => window.removeEventListener("polytray-preview-color", colorHandler));
+  session.addCleanup(() => document.removeEventListener("visibilitychange", visibilityHandler));
+  session.setVisible(document.visibilityState === "visible");
+}
 
 // ── Initialization ────────────────────────────────────────────────
 
 export function initViewer(containerEl: HTMLElement) {
-  state.container = containerEl;
-
-  // Clean up any previous viewer
   disposeViewer();
+  state = createInitialState();
+  state.container = containerEl;
 
   const width = state.container.clientWidth;
   const height = state.container.clientHeight;
@@ -126,11 +132,37 @@ export function initViewer(containerEl: HTMLElement) {
   // Grid
   setupGrid();
 
+  const resources = state;
+  const session = new ViewerSession(resources, {
+    requestFrame: (callback) => requestAnimationFrame(callback),
+    cancelFrame: (frameId) => cancelAnimationFrame(frameId),
+    updateControls: () => resources.controls?.update() ?? false,
+    draw: () => {
+      const { renderer, scene, camera } = resources;
+      if (!renderer || !scene || !camera) return;
+      renderer.render(scene, camera);
+      const probeWindow = window as Window & {
+        __POLYTRAY_RENDERER_PROBE?: {
+          markViewerFrame?: () => void;
+          markViewerDrawCalls?: (count: number) => void;
+        };
+      };
+      probeWindow.__POLYTRAY_RENDERER_PROBE?.markViewerFrame?.();
+      probeWindow.__POLYTRAY_RENDERER_PROBE?.markViewerDrawCalls?.(renderer.info.render.calls);
+    },
+  });
+  activeSession = session;
+  installSessionListeners(session);
+
   // Handle resize
   window.addEventListener("resize", handleResize);
-
-  // Start render loop
-  animate();
+  session.addCleanup(() => window.removeEventListener("resize", handleResize));
+  const controls = state.controls;
+  const controlsChange = () => session.invalidate();
+  controls.addEventListener("change", controlsChange);
+  session.addCleanup(() => controls.removeEventListener("change", controlsChange));
+  session.invalidate();
+  return session;
 }
 
 function setupLighting() {
@@ -177,14 +209,8 @@ function setupGrid() {
 export function toggleGrid(visible: boolean) {
   if (state.gridHelper) {
     state.gridHelper.visible = visible;
+    activeSession?.invalidate();
   }
-}
-
-function animate() {
-  state.animationId = requestAnimationFrame(animate);
-  if (state.controls) state.controls.update();
-  if (state.renderer && state.scene && state.camera)
-    state.renderer.render(state.scene, state.camera);
 }
 
 function handleResize() {
@@ -194,14 +220,11 @@ function handleResize() {
   state.camera.aspect = width / height;
   state.camera.updateProjectionMatrix();
   state.renderer.setSize(width, height);
+  activeSession?.invalidate();
 }
 
 export function notifyViewerResize() {
   handleResize();
-}
-
-function yieldToMainThread(): Promise<void> {
-  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
 // ── Model Loading ─────────────────────────────────────────────────
@@ -212,16 +235,35 @@ export async function loadModelFromUrl(
   fileName: string,
   onProgress?: (percent: number) => void,
 ) {
+  const session = activeSession;
+  if (!session) throw new Error("Viewer is not initialized");
+  const loadToken = session.beginLoad();
   const loadUrl = fileUrl.startsWith("polytray://local/")
     ? fileUrl
     : `polytray://local/${encodeURIComponent(fileUrl)}`;
 
   return new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    let settled = false;
+    let removeSessionCleanup = () => {};
+    const settle = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      removeSessionCleanup();
+      if (error === undefined) resolve();
+      else reject(error);
+    };
+    removeSessionCleanup = session.addCleanup(() => {
+      if (settled) return;
+      settled = true;
+      xhr.abort();
+      reject(new DOMException("Viewer session disposed", "AbortError"));
+    });
     xhr.open("GET", loadUrl, true);
     xhr.responseType = "arraybuffer";
 
     xhr.onprogress = (event) => {
+      if (!session.isCurrent(loadToken)) return;
       if (onProgress && event.lengthComputable && event.total > 0) {
         onProgress(Math.round((event.loaded / event.total) * 100));
       } else if (onProgress) {
@@ -230,19 +272,24 @@ export async function loadModelFromUrl(
     };
 
     xhr.onload = async () => {
+      if (!session.isCurrent(loadToken)) {
+        settle();
+        return;
+      }
       if (xhr.status === 200 || xhr.status === 0) {
         try {
-          await loadModel(xhr.response, extension, fileName);
-          resolve();
+          await loadModel(xhr.response, extension, fileName, session, loadToken);
+          settle();
         } catch (err) {
-          reject(err);
+          settle(err);
         }
       } else {
-        reject(new Error(`Failed to load ${loadUrl}: status ${xhr.status}`));
+        settle(new Error(`Failed to load ${loadUrl}: status ${xhr.status}`));
       }
     };
 
-    xhr.onerror = () => reject(new Error("Network error loading model"));
+    xhr.onerror = () => settle(new Error("Network error loading model"));
+    xhr.onabort = () => settle(new DOMException("Model load aborted", "AbortError"));
     xhr.send();
   });
 }
@@ -257,6 +304,9 @@ export async function loadModelWithWorker(
   signal: AbortSignal,
   onProgress?: (percent: number) => void,
 ) {
+  const session = activeSession;
+  if (!session) throw new Error("Viewer is not initialized");
+  const loadToken = session.beginLoad();
   const backgroundStartedAt = performance.now();
   const meshes = await loadPreviewMeshes({
     fileUrl,
@@ -264,6 +314,7 @@ export async function loadModelWithWorker(
     signal,
     onProgress,
   });
+  if (!session.isCurrent(loadToken) || signal.aborted) return;
   const backgroundWaitMs = performance.now() - backgroundStartedAt;
 
   window.polytray.emitPreviewMetric({
@@ -276,7 +327,8 @@ export async function loadModelWithWorker(
   });
 
   const buildStartedAt = performance.now();
-  await buildModelFromMeshes(meshes, fileName);
+  await buildModelFromMeshes(meshes, fileName, session, loadToken);
+  if (!session.isCurrent(loadToken)) return;
   const buildDurationMs = performance.now() - buildStartedAt;
 
   window.polytray.emitPreviewMetric({
@@ -301,7 +353,13 @@ export async function loadModel(
   arrayBuffer: ArrayBuffer,
   extension: string,
   name: string,
+  owner = activeSession,
+  requestedToken?: number,
 ) {
+  const session = owner;
+  if (!session) throw new Error("Viewer is not initialized");
+  const loadToken = requestedToken ?? session.beginLoad();
+  if (activeSession !== session || !session.isCurrent(loadToken)) return;
   // Remove previous model
   if (state.currentModel) {
     state.scene!.remove(state.currentModel);
@@ -310,6 +368,10 @@ export async function loadModel(
   }
 
   const group = await parseModelToGroup(arrayBuffer, extension);
+  if (!session.isCurrent(loadToken)) {
+    disposeObject(group);
+    return;
+  }
   group.name = name;
 
   // Apply smart orientation heuristics
@@ -334,9 +396,11 @@ export async function loadModel(
 
   state.scene!.add(group);
   state.currentModel = group;
+  session.invalidate();
 
   // Render multi-model carousel if applicable
-  await updateMultiModelThumbnailStrip(group);
+  await updateMultiModelThumbnailStrip(group, session, loadToken);
+  if (!session.isCurrent(loadToken)) return;
 
   // Expose current model for E2E testing diagnostics
   if (typeof window !== "undefined") {
@@ -349,11 +413,17 @@ export async function loadModel(
   fitCameraToObject(group);
 
   state.wireframeMode = false;
+  session.invalidate();
 }
 
 // ── Multi-Model Thumbnail Strip ───────────────────────────────────
 
-async function updateMultiModelThumbnailStrip(group: THREE.Group) {
+async function updateMultiModelThumbnailStrip(
+  group: THREE.Group,
+  session: ViewerSession<ViewerState>,
+  loadToken: number,
+) {
+  if (!session.isCurrent(loadToken)) return;
   const multiModelContainer = getMultiModelContainer();
   if (!multiModelContainer) return;
 
@@ -383,10 +453,12 @@ async function updateMultiModelThumbnailStrip(group: THREE.Group) {
 
   // Wait a frame so the UI flexbox can settle before generating thumbs
   await new Promise((r) => setTimeout(r, 10));
+  if (!session.isCurrent(loadToken)) return;
 
   for (let i = 0; i < state.multiModelMeshes.length; i++) {
     if (i > 0 && i % 2 === 0) {
-      await yieldToMainThread();
+      await session.yieldToFrame();
+      if (!session.isCurrent(loadToken)) return;
     }
 
     const sub = state.multiModelMeshes[i];
@@ -426,6 +498,7 @@ async function updateMultiModelThumbnailStrip(group: THREE.Group) {
   // Restore visibility to ALL objects to start
   state.multiModelMeshes.forEach((m) => (m.visible = true));
   fitCameraToObject(group); // Refit the main camera back to the whole group
+  session.invalidate();
 }
 
 function selectSubModel(index: number, htmlElement: HTMLElement) {
@@ -450,6 +523,7 @@ function selectSubModel(index: number, htmlElement: HTMLElement) {
     });
     fitCameraToObject(state.multiModelMeshes[index]);
   }
+  activeSession?.invalidate();
 }
 
 // ── Camera Operations ─────────────────────────────────────────────
@@ -463,11 +537,13 @@ function fitCameraToObject(object: THREE.Object3D) {
   state.controls!.update();
 
   state.camera!.updateProjectionMatrix();
+  activeSession?.invalidate();
 }
 
 export function resetCamera() {
   if (state.currentModel) {
     fitCameraToObject(state.currentModel);
+    activeSession?.invalidate();
   }
 }
 
@@ -482,21 +558,36 @@ export function toggleWireframe() {
       }
     });
   }
+  activeSession?.invalidate();
 }
 
 // ── Cleanup ───────────────────────────────────────────────────────
 
 export function disposeViewer() {
-  if (state.animationId) {
-    cancelAnimationFrame(state.animationId);
-    state.animationId = null;
-  }
-
-  window.removeEventListener("resize", handleResize);
+  const session = activeSession;
+  activeSession = null;
+  session?.dispose();
 
   if (state.currentModel) {
+    state.scene?.remove(state.currentModel);
     disposeObject(state.currentModel);
     state.currentModel = null;
+  }
+
+  if (state.gridHelper) {
+    state.scene?.remove(state.gridHelper);
+    state.gridHelper.geometry.dispose();
+    const materials = Array.isArray(state.gridHelper.material)
+      ? state.gridHelper.material
+      : [state.gridHelper.material];
+    materials.forEach((material) => material.dispose());
+    state.gridHelper = null;
+  }
+
+  const multiModelContainer = state.multiModelContainer ?? document.getElementById("viewer-multi-model");
+  if (multiModelContainer) {
+    multiModelContainer.replaceChildren();
+    multiModelContainer.classList.add("hidden");
   }
 
   if (state.controls) {
@@ -519,9 +610,17 @@ export function disposeViewer() {
   state.multiModelMeshes = [];
   state.activeSubModelIndex = -1;
   state.multiModelContainer = null;
+  state = createInitialState();
 }
 
-export async function buildModelFromMeshes(meshes: SerializedMesh[], name: string) {
+export async function buildModelFromMeshes(
+  meshes: SerializedMesh[],
+  name: string,
+  owner = activeSession,
+  requestedToken?: number,
+) {
+  if (!owner || owner.isDisposed || activeSession !== owner) return;
+  const loadToken = requestedToken ?? owner.beginLoad();
   // Remove previous model
   if (state.currentModel) {
     state.scene!.remove(state.currentModel);
@@ -559,8 +658,17 @@ export async function buildModelFromMeshes(meshes: SerializedMesh[], name: strin
     group.add(mesh);
 
     if (i > 0 && i % BUILD_MESH_BATCH_SIZE === 0) {
-      await yieldToMainThread();
+      await owner.yieldToFrame();
+      if (!owner.isCurrent(loadToken) || activeSession !== owner) {
+        disposeObject(group);
+        return;
+      }
     }
+  }
+
+  if (!owner.isCurrent(loadToken) || activeSession !== owner) {
+    disposeObject(group);
+    return;
   }
 
   // Apply smart orientation heuristics
@@ -585,8 +693,10 @@ export async function buildModelFromMeshes(meshes: SerializedMesh[], name: strin
 
   state.scene!.add(group);
   state.currentModel = group;
+  owner.invalidate();
 
-  await updateMultiModelThumbnailStrip(group);
+  await updateMultiModelThumbnailStrip(group, owner, loadToken);
+  if (!owner.isCurrent(loadToken) || activeSession !== owner) return;
 
   if (typeof window !== "undefined") {
     (window as Window & { __POLYTRAY_CURRENT_MODEL?: THREE.Object3D | null }).__POLYTRAY_CURRENT_MODEL = state.currentModel;
@@ -594,6 +704,7 @@ export async function buildModelFromMeshes(meshes: SerializedMesh[], name: strin
 
   fitCameraToObject(group);
   state.wireframeMode = false;
+  owner.invalidate();
 }
 
 function disposeObject(obj: THREE.Object3D) {
