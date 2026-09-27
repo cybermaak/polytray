@@ -286,7 +286,7 @@ test('an observed-absent scan add cannot overwrite a later watcher add', () => {
     };
     const watcherAdd = repository.applyWatchUpdate({
       kind: 'add', path: observedAbsent.path, name: 'watcher', extension: 'stl', directory: '/models',
-      sizeBytes: 11, modifiedAt: 21, archivePath: null,
+      sizeBytes: observedAbsent.sizeBytes, modifiedAt: observedAbsent.modifiedAt, archivePath: null,
     });
     assert.equal(watcherAdd.rowsChanged, true);
     notifications.length = 0;
@@ -300,6 +300,12 @@ test('an observed-absent scan add cannot overwrite a later watcher add', () => {
     assert.equal(repository.getFileIdentityByPath(observedAbsent.path)?.contentRevision, identityBeforeStaleAdd.contentRevision);
     assert.equal((db.prepare('SELECT name FROM files WHERE path = ?').get(observedAbsent.path) as { name: string }).name, 'watcher');
     assert.deepEqual(notifications, []);
+
+    const genuinelyAbsent = repository.applyIndexBatch({ scanGeneration: 1, records: [{
+      ...observedAbsent, path: '/models/genuinely-absent.stl', expectedContentRevision: 0,
+    }] });
+    assert.equal(genuinelyAbsent.inserted, 1);
+    assert.equal(genuinelyAbsent.committed.length, 1);
   } finally {
     db.close();
   }
