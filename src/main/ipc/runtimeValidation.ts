@@ -110,6 +110,10 @@ export function parseRuntimeSettings(value: unknown): RuntimeSettingsData {
     throw new Error("Invalid runtime settings");
   }
 
+  if (raw.thumbQuality !== undefined && !["128", "256", "512"].includes(raw.thumbQuality)) {
+    throw new Error("Invalid runtime settings");
+  }
+
   return normalized;
 }
 

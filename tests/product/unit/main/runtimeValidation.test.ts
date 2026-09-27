@@ -18,6 +18,7 @@ test('parseRuntimeSettings normalizes valid runtime settings', () => {
       watcher_stability: 500,
       page_size: 250,
       thumbnailColor: '#224466',
+      thumbQuality: '256',
     }),
     {
       thumbnail_timeout: 2500,
@@ -25,6 +26,7 @@ test('parseRuntimeSettings normalizes valid runtime settings', () => {
       watcher_stability: 500,
       page_size: 250,
       thumbnailColor: '#224466',
+      thumbQuality: '256',
     },
   );
 });
@@ -34,6 +36,11 @@ test('parseRuntimeSettings rejects invalid runtime settings', () => {
     () => parseRuntimeSettings({ thumbnail_timeout: 'fast' }),
     /Invalid runtime settings/,
   );
+});
+
+test('parseRuntimeSettings defaults older internal settings to the current thumbnail quality and rejects invalid quality', () => {
+  assert.equal(parseRuntimeSettings({ thumbnail_timeout: 2500, scanning_batch_size: 10, watcher_stability: 500, page_size: 250, thumbnailColor: '#224466' }).thumbQuality, '256');
+  assert.throws(() => parseRuntimeSettings({ thumbnail_timeout: 2500, scanning_batch_size: 10, watcher_stability: 500, page_size: 250, thumbnailColor: '#224466', thumbQuality: '1024' }), /Invalid runtime settings/);
 });
 
 test('path and preview validators reject malformed IPC payloads', () => {

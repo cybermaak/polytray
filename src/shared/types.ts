@@ -1,3 +1,5 @@
+import type { ThumbnailCacheKey, ThumbnailIdentity, ThumbnailSize } from './thumbnailContracts';
+
 export interface FileRecord {
   id: number;
   path: string;
@@ -158,6 +160,8 @@ export interface FileIndexedData {
 export interface ThumbnailReadyData {
   fileId: number;
   thumbnailPath: string;
+  identity: ThumbnailIdentity;
+  contentRevision: number;
 }
 
 /** THUMBNAIL_PROGRESS event payload */
@@ -174,6 +178,11 @@ export interface ThumbnailRequestData {
   ext: string;
   thumbPath: string;
   color: string;
+  requestId: string;
+  cacheKey: ThumbnailCacheKey;
+  cacheEpoch: number;
+  size: ThumbnailSize;
+  contentRevision: number;
 }
 
 /** THUMBNAIL_GENERATED result sent back from renderer */
@@ -181,6 +190,9 @@ export interface ThumbnailResultData {
   filePath: string;
   thumbPath: string;
   success: boolean;
+  requestId: string;
+  cacheKey: ThumbnailCacheKey;
+  cacheEpoch: number;
   dataUrl?: string;
 }
 
@@ -238,6 +250,7 @@ export interface RuntimeSettingsData {
   watcher_stability: number;
   page_size: number;
   thumbnailColor: string;
+  thumbQuality?: "128" | "256" | "512";
 }
 
 export interface UpdateFileMetadataData {
