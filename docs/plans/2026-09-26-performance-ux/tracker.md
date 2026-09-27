@@ -31,11 +31,11 @@
 | S06 | [Scan controls and targeted retry](scanning.md#s06---add-explicit-scan-job-pause-cancellation-and-targeted-retry) | P2 | S02, S03, S05 | PLANNED | Unassigned | - |
 | T01 | [Thumbnail identity and settlement](thumbnails.md#t01---make-thumbnail-requests-and-cache-identities-settle-correctly) | P1 | D01 | PLANNED | Unassigned | - |
 | T02 | [Authoritative refresh and cache reset](thumbnails.md#t02---make-refresh-clear-and-cache-version-reset-authoritative) | P1 | T01 | PLANNED | Unassigned | - |
-| T03 | [Shared path-only thumbnail presentation](thumbnails.md#t03---keep-file-state-path-only-and-share-thumbnail-reads) | P1 | F01, F02 | READY | Unassigned | - |
+| T03 | [Shared path-only thumbnail presentation](thumbnails.md#t03---keep-file-state-path-only-and-share-thumbnail-reads) | P1 | F01, F02 | IN_PROGRESS | baseline_validation reassigned (Luna/medium) | Active agent replaces unregistered chat dispatch |
 | T04 | [Thumbnail queue controls and accounting](thumbnails.md#t04---centralize-thumbnail-queue-state-controls-and-retry-accounting) | P2 | T02 | PLANNED | Unassigned | - |
 | V01 | [Viewer lifetime and idle rendering](preview.md#v01---give-each-viewer-a-lifecycle-and-stop-drawing-when-idle) | P2 | F01, F02 | DONE | f01_foundation + s01_safe_scanning (Luna/medium) | [V01](handoffs/V01.md); reviewed and integrated through `cb63f7a` |
 | V02 | [Stable preview state and lazy archive navigation](preview.md#v02---decouple-metadata-from-geometry-and-show-durable-preview-states) | P2 | V01, D02 | PLANNED | Unassigned | - |
-| V03 | [Owned cancellable preview runtime](preview.md#v03---cancel-obsolete-parsing-through-an-owned-preview-runtime) | P2 | F01, F02 | IN_PROGRESS | s01_safe_scanning reassigned (Luna/medium) | Isolated preview runtime implementation |
+| V03 | [Owned cancellable preview runtime](preview.md#v03---cancel-obsolete-parsing-through-an-owned-preview-runtime) | P2 | F01, F02, D01 | IN_PROGRESS | s01_safe_scanning reassigned (Luna/medium) | Implementing against reviewed D01 contract; runtime gate waits for D01 integration |
 | V04 | [Background preparation and bounded assembly](preview.md#v04---prepare-orientation-in-the-background-and-budget-visible-mesh-assembly) | P2 | V01, V03, S04 | PLANNED | Unassigned | - |
 | V05 | [Progressive part thumbnails](preview.md#v05---make-part-thumbnails-small-progressive-and-independent) | P2 | V04 | PLANNED | Unassigned | - |
 | U01 | [Complete browsing and consistent selection](browsing.md#u01---load-every-result-and-keep-selection-consistent-across-pages) | P1 | D02, T03 | PLANNED | Unassigned | - |
@@ -58,8 +58,8 @@
 | --- | --- | --- | --- |
 | D01 | d01_index_repository, Luna/medium | `/Users/maak/.codex/worktrees/polytray-foundation/polytray` / `codex/perf-d01` | Wiring and serialized app verification |
 | V03 | s01_safe_scanning reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-review/polytray` / `codex/perf-v03` | Implementing |
-| P02 | Completed; checkout available after review | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-p02` | Integrated producer; no active writer |
-| T03 | New Luna/medium chat requested | Client `eec1883f-42d5-4431-ad0b-955c2867d1b1` | Worktree created; waiting for task registration |
+| T03 | baseline_validation reassigned, Luna/medium | `/Users/maak/.codex/worktrees/polytray-fixtures/polytray` / `codex/perf-t03` | Implementing; replaces pending chat request below |
+| T03 old dispatch | Unregistered chat request | Client `eec1883f-42d5-4431-ad0b-955c2867d1b1` | Superseded for ownership; reconcile if it later registers |
 | U03 | New Luna/medium chat requested | Client `0a22ffff-ae10-4583-a008-f381c43fc15d` | Worktree created; waiting for task registration |
 | P01 | New Luna/medium chat requested | Client `530dfb9f-136d-417b-a4ea-610b0026ec0d` | Worktree created; waiting for task registration |
 
@@ -68,6 +68,8 @@ App-level/Electron checks use a serial coordinator lane; units/builds can run co
 The three requested chat tasks do not yet have usable task IDs and are not counted as active implementations.
 
 The coordinator explicitly delegated D01's startup/library-change bridge and V03's preview IPC/readiness/build-entry wiring in their separate checkouts. Each wiring delta is committed separately and receives coordinator review; common-file conflicts are resolved once at integration. V03 may mechanically remove the old preview hookup from thumbnail-owned files, while preserving thumbnail behavior.
+
+V03 also needs the persisted D01 content revision at its existing preview caller. This runtime prerequisite was exposed during source tracing and is now explicit; no timestamp/size substitute is permitted. Its narrow caller adaptation is authorized, while V02 retains geometry-identity and state refactoring. T03 has moved to the active subagent pool because the extra-chat request has not registered; no second active implementation is known.
 
 ## Integration log
 
