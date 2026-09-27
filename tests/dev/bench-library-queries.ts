@@ -1,4 +1,5 @@
 import path from 'node:path';
+import os from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { performance } from 'node:perf_hooks';
 import Database from 'better-sqlite3';
@@ -48,10 +49,13 @@ async function benchmark(count: number) {
 
   const allPaths = db.prepare('SELECT path FROM files ORDER BY id').pluck().all() as string[];
   const grouped: LibraryQuery = {
-    sort: 'name', direction: 'ASC', extension: null, folder: null, search: '',
+    sort: 'name', direction: 'ASC', extension: null, folder: path.join(fixture.root, 'library'), search: '',
     collectionPaths: null, limit: 500, offset: 0,
   };
   const collection: LibraryQuery = { ...grouped, collectionPaths: allPaths };
+  // Planning materializes collection membership too, so collect plans before the heartbeat window.
+  const groupedPlan = explainLibraryPageQuery(db, grouped).map((row) => row.detail);
+  const collectionPlan = explainLibraryPageQuery(db, collection).map((row) => row.detail);
   const heartbeatIntervalMs = 10;
   let maxHeartbeatLagMs = 0;
   let expectedHeartbeat = performance.now() + heartbeatIntervalMs;
@@ -62,7 +66,10 @@ async function benchmark(count: number) {
   }, heartbeatIntervalMs);
 
   async function measure(query: LibraryQuery) {
-    for (let index = 0; index < WARMUPS; index++) getLibraryPage(db, query);
+    for (let index = 0; index < WARMUPS; index++) {
+      getLibraryPage(db, query);
+      await delay(0);
+    }
     const elapsed: number[] = [];
     for (let index = 0; index < SAMPLES; index++) {
       const start = performance.now();
@@ -75,8 +82,6 @@ async function benchmark(count: number) {
   }
 
   try {
-    const groupedPlan = explainLibraryPageQuery(db, grouped).map((row) => row.detail);
-    const collectionPlan = explainLibraryPageQuery(db, collection).map((row) => row.detail);
     const groupedStats = await measure(grouped);
     const collectionStats = await measure(collection);
     return {
@@ -101,6 +106,8 @@ async function main() {
     runtime: process.version,
     platform: process.platform,
     arch: process.arch,
+    osRelease: os.release(),
+    cpu: os.cpus()[0]?.model ?? 'unknown',
     warmups: WARMUPS,
     samples: SAMPLES,
     results,
