@@ -1,5 +1,6 @@
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type { FileRecord } from "../../shared/types";
-import type { LibraryItem, LibraryPageResult } from "../../shared/libraryQuery";
+import type { LibraryItem, LibraryPageResult, LibraryQuery } from "../../shared/libraryQuery";
 
 export interface LibraryPagesState {
   generation: number;
@@ -67,7 +68,21 @@ export function libraryPagesReducer(
     };
   }
 
-  if (action.generation !== state.generation) return state;
+  if (action.type === "refresh-started") {
+    if (action.generation < state.generation) return state;
+    return {
+      ...state,
+      generation: action.generation,
+      loading: false,
+      loadingNext: false,
+      refreshing: true,
+      refreshRequired: true,
+      error: null,
+    };
+  }
+
+  if (action.type !== "file-patched" && action.type !== "files-removed"
+    && action.generation !== state.generation) return state;
 
   switch (action.type) {
     case "request-started":
@@ -130,17 +145,8 @@ export function libraryPagesReducer(
         loading: false,
         loadingNext: false,
         refreshing: false,
+        refreshRequired: false,
         error: { offset: action.offset, message: action.error },
-      };
-    case "refresh-started":
-      return {
-        ...state,
-        generation: action.generation,
-        loading: false,
-        loadingNext: false,
-        refreshing: true,
-        refreshRequired: true,
-        error: null,
       };
     case "refresh-completed":
       return {
@@ -183,4 +189,185 @@ function patchItemFile(item: LibraryItem, file: FileRecord): LibraryItem {
     ...item,
     thumbnailSamples: item.thumbnailSamples.map((sample) => sample.id === file.id ? file : sample),
   };
+}
+
+function getQueryKey(query: LibraryQuery) {
+  return JSON.stringify({
+    ...query,
+    offset: 0,
+    expectedBrowseRevision: undefined,
+    collectionPaths: query.collectionPaths === null
+      ? null
+      : [...query.collectionPaths].sort(),
+  });
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "The library page could not be loaded.";
+}
+
+interface PendingNextPage {
+  generation: number;
+  offset: number;
+  promise: Promise<void>;
+}
+
+interface PendingRefresh {
+  generation: number;
+  promise: Promise<void>;
+}
+
+export interface UseLibraryPagesResult extends LibraryPagesState {
+  queryKey: string;
+  refresh: () => Promise<void>;
+  loadNext: () => Promise<void>;
+  retry: () => Promise<void>;
+  patchFile: (file: FileRecord) => void;
+  removeFiles: (ids: number[]) => void;
+}
+
+/** Owns query generations, revision-consistent pages, and refresh/retry behavior. */
+export function useLibraryPages(query: LibraryQuery, enabled = true): UseLibraryPagesResult {
+  const [state, dispatch] = useReducer(libraryPagesReducer, undefined, createInitialLibraryPagesState);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const queryRef = useRef(query);
+  queryRef.current = query;
+  const queryKey = useMemo(() => getQueryKey(query), [query]);
+  const generationRef = useRef(0);
+  const pendingNextRef = useRef<PendingNextPage | null>(null);
+  const pendingRefreshRef = useRef<PendingRefresh | null>(null);
+
+  const fetchPage = useCallback(async (
+    generation: number,
+    offset: number,
+    expectedBrowseRevision?: number,
+  ) => {
+    dispatch({ type: "request-started", generation, offset });
+    try {
+      const page = await window.polytray.getLibraryPage({
+        ...queryRef.current,
+        offset,
+        ...(expectedBrowseRevision === undefined ? {} : { expectedBrowseRevision }),
+      });
+      dispatch({ type: "page-loaded", generation, offset, page });
+    } catch (error) {
+      dispatch({ type: "page-failed", generation, offset, error: errorMessage(error) });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const generation = ++generationRef.current;
+    pendingNextRef.current = null;
+    pendingRefreshRef.current = null;
+    dispatch({ type: "query-started", generation, queryKey });
+    void fetchPage(generation, 0);
+  }, [enabled, fetchPage, queryKey]);
+
+  const refresh = useCallback((): Promise<void> => {
+    if (!enabled) return Promise.resolve();
+    const existing = pendingRefreshRef.current;
+    if (existing?.generation === generationRef.current) return existing.promise;
+
+    const snapshot = stateRef.current;
+    const generation = ++generationRef.current;
+    const targetCount = Math.max(snapshot.items.length, queryRef.current.limit);
+    pendingNextRef.current = null;
+    dispatch({ type: "refresh-started", generation });
+
+    const promise = (async () => {
+      try {
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const items: LibraryItem[] = [];
+          let firstPage: Extract<LibraryPageResult, { status: "ok" }> | null = null;
+          let offset = 0;
+          let restart = false;
+          while (true) {
+            const response = await window.polytray.getLibraryPage({
+              ...queryRef.current,
+              offset,
+              ...(firstPage ? { expectedBrowseRevision: firstPage.revision } : {}),
+            });
+            if (response.status === "stale") {
+              restart = true;
+              break;
+            }
+            firstPage ??= response;
+            if (response.revision !== firstPage.revision) {
+              restart = true;
+              break;
+            }
+            items.push(...response.items);
+            if (response.nextOffset === null || items.length >= targetCount) {
+              dispatch({
+                type: "refresh-completed",
+                generation,
+                items,
+                revision: firstPage.revision,
+                totalItems: response.totalItems,
+                totalModels: response.totalModels,
+                nextOffset: response.nextOffset,
+              });
+              return;
+            }
+            offset = response.nextOffset;
+          }
+          if (!restart) return;
+        }
+        dispatch({
+          type: "page-failed",
+          generation,
+          offset: 0,
+          error: "The library changed again while refreshing. Retry to load the latest results.",
+        });
+      } catch (error) {
+        dispatch({ type: "page-failed", generation, offset: 0, error: errorMessage(error) });
+      }
+    })().finally(() => {
+      if (pendingRefreshRef.current?.generation === generation) pendingRefreshRef.current = null;
+    });
+
+    pendingRefreshRef.current = { generation, promise };
+    return promise;
+  }, [enabled]);
+
+  useEffect(() => {
+    if (enabled && state.refreshRequired && !state.refreshing) void refresh();
+  }, [enabled, refresh, state.refreshRequired, state.refreshing]);
+
+  const loadNext = useCallback((): Promise<void> => {
+    const current = stateRef.current;
+    if (!enabled || current.refreshing || current.nextOffset === null || current.revision === null) {
+      return Promise.resolve();
+    }
+    const existing = pendingNextRef.current;
+    if (existing?.generation === current.generation && existing.offset === current.nextOffset) {
+      return existing.promise;
+    }
+    const generation = current.generation;
+    const offset = current.nextOffset;
+    const promise = fetchPage(generation, offset, current.revision).finally(() => {
+      if (pendingNextRef.current?.generation === generation && pendingNextRef.current.offset === offset) {
+        pendingNextRef.current = null;
+      }
+    });
+    pendingNextRef.current = { generation, offset, promise };
+    return promise;
+  }, [enabled, fetchPage]);
+
+  const retry = useCallback((): Promise<void> => {
+    const failedOffset = stateRef.current.error?.offset;
+    return failedOffset !== undefined && failedOffset > 0 ? loadNext() : refresh();
+  }, [loadNext, refresh]);
+
+  const patchFile = useCallback((file: FileRecord) => {
+    dispatch({ type: "file-patched", file });
+  }, []);
+
+  const removeFiles = useCallback((ids: number[]) => {
+    if (ids.length > 0) dispatch({ type: "files-removed", ids });
+  }, []);
+
+  return { ...state, queryKey, refresh, loadNext, retry, patchFile, removeFiles };
 }
