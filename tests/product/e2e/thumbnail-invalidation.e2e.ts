@@ -24,18 +24,9 @@ let targetFolder: string;
 let targetPath: string;
 let otherPath: string;
 
-function writeModel(filename: string, xOffset = 0) {
+function copyModel(filename: string) {
   fs.mkdirSync(path.dirname(filename), { recursive: true });
-  fs.writeFileSync(filename, `solid invalidation
-facet normal 0 0 1
-  outer loop
-    vertex ${xOffset} 0 0
-    vertex ${xOffset + 1} 0 0
-    vertex ${xOffset} 1 0
-  endloop
-endfacet
-endsolid invalidation
-`);
+  fs.copyFileSync(path.join(appRoot, 'tests/support/fixtures/test_model_a.stl'), filename);
 }
 
 async function launchIsolatedApp() {
@@ -82,8 +73,8 @@ test.beforeAll(async () => {
   targetFolder = path.join(library, 'target');
   targetPath = path.join(targetFolder, 'blue-model.stl');
   otherPath = path.join(library, 'other', 'unrelated-model.stl');
-  writeModel(targetPath, 0);
-  writeModel(otherPath, 2);
+  copyModel(targetPath);
+  copyModel(otherPath);
   await launchIsolatedApp();
   await page.evaluate(({ folder, settings }) => window.polytray.scanFolder(folder, settings), { folder: library, settings: blueSettings });
 });
