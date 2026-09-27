@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { MetadataImportAnnotationUpdate, MetadataImportPlan } from './backupContracts';
 import { canonicalizeBackupPath, type MetadataBackupAnnotation, validateMetadataBackupV1 } from './metadataBackup';
 import { normalizeFileTags } from './fileTags';
@@ -26,17 +27,8 @@ export interface MetadataImportPlanInput {
 
 const PORTABLE_KEYS = ['lightMode','gridSize','autoScan','accentColor','previewColor','thumbnailColor','thumbQuality','showGrid','watch'] as const;
 const stable = (value: unknown) => JSON.stringify(value);
-function hash(value: string): string {
-  let h = 2166136261;
-  for (let i = 0; i < value.length; i++) { h ^= value.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return (h >>> 0).toString(16).padStart(8, '0');
-}
-function fingerprint(value: string): string {
-  const first = hash(value);
-  const second = hash(`p03:${value}`);
-  const third = hash(`${value.length}:${value}`);
-  const fourth = hash(`${first}:${second}:${third}:${value}`);
-  return `${first}${second}${third}${fourth}`;
+function sha256(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 function normalizedAnnotation(record: MetadataBackupAnnotation): MetadataBackupAnnotation {
   return {
@@ -152,11 +144,11 @@ export function createMetadataImportPlan(input: MetadataImportPlanInput): Metada
     }
     let id = imported.id;
     if (existing && existing.name !== imported.name) {
-      const baseId = `import-${hash(`${backup.exportedAt}|${backup.appVersion}|${imported.id}|${imported.name}`)}`;
+      const baseId = `import-${sha256(`${backup.exportedAt}|${backup.appVersion}|${imported.id}|${imported.name}`).slice(0, 16)}`;
       id = baseId;
       let collision = 0;
       while (collectionsById.has(id) && collectionsById.get(id)!.name !== imported.name) {
-        id = `import-${hash(`${baseId}|${++collision}`)}`;
+        id = `${baseId}-${++collision}`;
       }
       remaps.push({ oldId: imported.id, newId: id, name: imported.name });
       const remapped = collectionsById.get(id);
@@ -176,7 +168,7 @@ export function createMetadataImportPlan(input: MetadataImportPlanInput): Metada
     : settingsBefore;
   const rootsBefore = [...new Set(current.rendererState.libraryRoots.map(canonicalizeBackupPath))];
   const rootsAfter = input.options?.replaceRoots ? [...new Set(backup.libraryRoots)] : [...rootsBefore];
-  const inputRevision = fingerprint(stable({ backup, current }));
+  const inputRevision = sha256(stable({ backup, current }));
 
   return {
     transactionId: input.transactionId ?? `plan-${inputRevision}`,

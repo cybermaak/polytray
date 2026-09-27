@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import type { MetadataImportPlan as PublicMetadataImportPlan } from '../../../../src/shared/backupContracts';
 import { buildMetadataBackupV1 } from '../../../../src/shared/metadataBackup';
 import { createMetadataImportPlan, isMetadataImportPlanCurrent } from '../../../../src/shared/metadataImportPlan';
@@ -16,6 +17,7 @@ const current = (annotations: Array<{path:string; tags:string[]; notes:string|nu
 test('plan uses the single real browse revision and shared public plan contract', () => {
   const plan: PublicMetadataImportPlan = createMetadataImportPlan({ backup: backup(), current: current(), transactionId:'opaque' });
   assert.equal(plan.transactionId, 'opaque');
+  assert.match(plan.inputRevision,/^[0-9a-f]{64}$/);
   assert.equal(plan.currentBrowseRevision, 7);
   assert.equal(isMetadataImportPlanCurrent(plan, { browseRevision:7, rendererRevision:4 }), true);
   assert.equal(isMetadataImportPlanCurrent(plan, { browseRevision:8, rendererRevision:4 }), false);
@@ -69,13 +71,18 @@ test('empty notes and default print status fill; exact virtual paths match witho
 
 test('collection collision IDs are reused after a plan has been applied', () => {
   const doc=backup([],[],[{id:'same',name:'Backup',paths:['/offline/model.stl']}]);
-  const initial=current([], [{id:'same',name:'Local',paths:['/local/a.stl']}]);
+  const baseId=`import-${createHash('sha256').update('2026-09-26T12:00:00.000Z|1.1.1|same|Backup').digest('hex').slice(0,16)}`;
+  const initial=current([], [
+    {id:'same',name:'Local',paths:['/local/a.stl']},
+    {id:baseId,name:'Occupied',paths:['/occupied.stl']},
+  ]);
   const first=createMetadataImportPlan({backup:doc,current:initial});
+  assert.equal(first.collectionIdRemaps[0].newId,`${baseId}-1`);
   const appliedState=current([],first.collectionsAfter);
   const retry=createMetadataImportPlan({backup:doc,current:appliedState});
   assert.equal(first.collectionIdRemaps[0].newId,retry.collectionIdRemaps[0].newId);
-  assert.equal(retry.collectionsAfter.length,2);
-  assert.deepEqual(retry.collectionsAfter[1].paths,['/offline/model.stl']);
+  assert.equal(retry.collectionsAfter.length,3);
+  assert.deepEqual(retry.collectionsAfter[2].paths,['/offline/model.stl']);
 });
 
 test('settings preview retains the complete normalized local settings with replacement off or on', () => {
