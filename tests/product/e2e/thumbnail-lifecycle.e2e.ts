@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { buildElectronLaunchEnv } from '../../support/helpers/electronLaunch';
+import { buildElectronLaunchArgs, buildElectronLaunchEnv } from '../../support/helpers/electronLaunch';
 
 const appRoot = path.resolve(__dirname, '../../..');
 const settings = {
@@ -29,8 +29,8 @@ test.beforeAll(async () => {
   fs.mkdirSync(library);
   modelPath = path.join(library, 'model.stl');
   writeModel(modelPath);
-  const args = [path.join(appRoot, 'out/main/index.js'), `--user-data-dir=${userData}`];
-  if (process.platform === 'linux') args.push('--no-sandbox', '--disable-gpu');
+  const extraArgs = process.platform === 'linux' ? ['--no-sandbox', '--disable-gpu'] : [];
+  const args = buildElectronLaunchArgs(path.join(appRoot, 'out/main/index.js'), userData, extraArgs);
   app = await electron.launch({ args, env: buildElectronLaunchEnv(process.env, { ELECTRON_USER_DATA: userData }) });
   page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
