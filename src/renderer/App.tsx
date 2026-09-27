@@ -16,6 +16,7 @@ import { EmptyState } from "./components/EmptyState";
 import { FileGrid } from "./components/FileGrid";
 import { ScanProgress } from "./components/ScanProgress";
 import { createRefreshDebouncer } from "./lib/refreshDebouncer";
+import { getScanProgressPresentation } from "./lib/scanProgress";
 import {
   collapseArchiveEntriesForDisplay,
   type DisplayFileRecord,
@@ -51,7 +52,7 @@ import {
   addFilesToCollection,
 } from "../shared/libraryCollections";
 import { normalizeFileTags, parseStoredFileTags } from "../shared/fileTags";
-import type { FileRecord } from "../shared/types";
+import type { FileRecord, ScanProgressData } from "../shared/types";
 
 interface LibraryStats {
   total: number;
@@ -243,22 +244,15 @@ export const App: React.FC = () => {
     const cleanups: (() => void)[] = [];
 
     cleanups.push(
-      window.polytray.onScanProgress(
-        (data: {
-          current: number;
-          total: number;
-          filename: string;
-          skipped: boolean;
-        }) => {
-          const pct = Math.round((data.current / data.total) * 100);
-          setProgress({
-            visible: true,
-            percent: pct,
-            text: data.filename + (data.skipped ? " (cached)" : ""),
-            count: `${data.current} / ${data.total}`,
-          });
-        },
-      ),
+      window.polytray.onScanProgress((data: ScanProgressData) => {
+        const display = getScanProgressPresentation(data);
+        setProgress({
+          visible: true,
+          percent: display.percent,
+          text: display.text,
+          count: display.count,
+        });
+      }),
     );
 
     cleanups.push(

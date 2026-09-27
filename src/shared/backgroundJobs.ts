@@ -14,6 +14,8 @@ export interface BackgroundJobCounts {
   discovered: number;
   indexed: number;
   indexFailed: number;
+  metadataCompleted: number;
+  metadataFailed: number;
   thumbnailsSucceeded: number;
   thumbnailsFailed: number;
   thumbnailsPending: number;
