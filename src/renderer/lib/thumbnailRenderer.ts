@@ -10,6 +10,7 @@ import { parseModelToGroup, setModelColor } from "./modelParsers";
 import { applySmartOrientation } from "./orientation";
 import { computeCameraFit } from "./cameraUtils";
 import { isArchiveEntryPath } from "../../shared/archivePaths";
+import type { ThumbnailSize } from "../../shared/thumbnailContracts";
 
 // ── Thumbnail Rendering State ─────────────────────────────────────
 
@@ -112,7 +113,10 @@ export async function renderThumbnail(
   extension: string,
   canvas: HTMLCanvasElement,
   color: string,
+  requestedSize: ThumbnailSize = VIEWER_CONFIG.thumbnail.size,
 ): Promise<string | null> {
+  canvas.width = requestedSize;
+  canvas.height = requestedSize;
   ensureThumbnailRenderer(canvas);
   setModelColor(color);
 
@@ -185,11 +189,11 @@ async function readPreviewBuffer(filePath: string) {
  */
 export function initThumbnailGenerator(canvas: HTMLCanvasElement) {
   const cleanup = window.polytray.onThumbnailRequest(async (data) => {
-    const { filePath, ext, thumbPath, color } = data;
+    const { filePath, ext, thumbPath, color, requestId, cacheKey, cacheEpoch, size } = data;
 
     try {
       const buffer = await readPreviewBuffer(filePath);
-      const dataUrl = await renderThumbnail(buffer, ext, canvas, color);
+      const dataUrl = await renderThumbnail(buffer, ext, canvas, color, size);
 
       if (dataUrl) {
         window.polytray.sendThumbnailResult({
@@ -197,12 +201,18 @@ export function initThumbnailGenerator(canvas: HTMLCanvasElement) {
           thumbPath,
           success: true,
           dataUrl,
+          requestId,
+          cacheKey,
+          cacheEpoch,
         });
       } else {
         window.polytray.sendThumbnailResult({
           filePath,
           thumbPath,
           success: false,
+          requestId,
+          cacheKey,
+          cacheEpoch,
         });
       }
     } catch (e) {
@@ -211,6 +221,9 @@ export function initThumbnailGenerator(canvas: HTMLCanvasElement) {
         filePath,
         thumbPath,
         success: false,
+        requestId,
+        cacheKey,
+        cacheEpoch,
       });
     }
   });

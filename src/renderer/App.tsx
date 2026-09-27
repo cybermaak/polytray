@@ -954,6 +954,7 @@ export const App: React.FC = () => {
           item={comparisonActive ? null : previewItem}
           showGrid={settings.showGrid}
           thumbnailColor={settings.thumbnailColor}
+          thumbQuality={settings.thumbQuality}
           onFileChange={handleFileRecordUpdate}
           collections={collectionsState.collections}
           preferredWidth={settings.previewWidth}
