@@ -2,7 +2,7 @@
 
 [Execution plan](../2026-09-26-performance-ux-execution-plan.md) | [Shared contracts](contracts.md) | [Handoff template](handoff-template.md)
 
-**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01-D03, S01, T03, V01, and the P02/P03 backup services are reviewed and integrated. Six implementation lanes cover S02/T01/V03/U01/P01/P03, with independent reviews. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. The original unregistered chat requests are superseded by the active assignments below.
+**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01-D03, S01, T03, V01, and the P02/P03 backup services are reviewed and integrated. Six implementation lanes cover S02/T01/V02/V03/U01/P01, with independent reviews. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. The original unregistered chat requests are superseded by the active assignments below.
 
 **Progress:** 11 / 33 DONE. Foundation 2/2; data 3/3; scanning 1/6; thumbnails 1/4; preview 1/5; browsing 1/6; product workflows 2/4; validation 0/3. D02's query service, IPC smoke, benchmark and reviews are complete; UI paging remains U01/V02.
 
@@ -29,13 +29,13 @@
 | S04 | [Dimensions and units](scanning.md#s04---correct-dimensions-units-and-measurement-provenance) | P2 | S03 | PLANNED | Unassigned | - |
 | S05 | [Watcher ordering and thumbnail availability](scanning.md#s05---index-watcher-changes-before-thumbnail-work-and-preserve-ordering) | P1 | D01, S03, T01 | PLANNED | Unassigned | - |
 | S06 | [Scan controls and targeted retry](scanning.md#s06---add-explicit-scan-job-pause-cancellation-and-targeted-retry) | P2 | S02, S03, S05 | PLANNED | Unassigned | - |
-| T01 | [Thumbnail identity and settlement](thumbnails.md#t01---make-thumbnail-requests-and-cache-identities-settle-correctly) | P1 | D01 | IN_PROGRESS | Luna/medium chat `01a0e201-7438-7391-9843-ac3d21ed3c67` | Dedicated thumbnail worktree |
+| T01 | [Thumbnail identity and settlement](thumbnails.md#t01---make-thumbnail-requests-and-cache-identities-settle-correctly) | P1 | D01 | REVIEW | Luna/medium chat `01a0e201-7438-7391-9843-ac3d21ed3c67` | Static spec/quality PASS at `c810a3a`; actual hidden-renderer gate pending |
 | T02 | [Authoritative refresh and cache reset](thumbnails.md#t02---make-refresh-clear-and-cache-version-reset-authoritative) | P1 | T01 | PLANNED | Unassigned | - |
 | T03 | [Shared path-only thumbnail presentation](thumbnails.md#t03---keep-file-state-path-only-and-share-thumbnail-reads) | P1 | F01, F02 | DONE | baseline_validation (Luna/medium) | [T03](handoffs/T03.md); spec/independent quality PASS, 12 focused tests/Type/Build/lint PASS; producer integrated `d1c44b7`, `1fd9c44`; consumers U01/T02 |
 | T04 | [Thumbnail queue controls and accounting](thumbnails.md#t04---centralize-thumbnail-queue-state-controls-and-retry-accounting) | P2 | T02 | PLANNED | Unassigned | - |
 | V01 | [Viewer lifetime and idle rendering](preview.md#v01---give-each-viewer-a-lifecycle-and-stop-drawing-when-idle) | P2 | F01, F02 | DONE | f01_foundation + s01_safe_scanning (Luna/medium) | [V01](handoffs/V01.md); reviewed and integrated through `cb63f7a` |
-| V02 | [Stable preview state and lazy archive navigation](preview.md#v02---decouple-metadata-from-geometry-and-show-durable-preview-states) | P2 | V01, D02 | PLANNED | Unassigned | - |
-| V03 | [Owned cancellable preview runtime](preview.md#v03---cancel-obsolete-parsing-through-an-owned-preview-runtime) | P2 | F01, F02, D01 | IN_PROGRESS | s01_safe_scanning reassigned (Luna/medium) | Implementing against reviewed D01 contract; runtime gate waits for D01 integration |
+| V02 | [Stable preview state and lazy archive navigation](preview.md#v02---decouple-metadata-from-geometry-and-show-durable-preview-states) | P2 | V01, D02 | IN_PROGRESS | Luna/medium chat `01a0e202-0863-7f30-bfb8-c159d2e58053` | Reuses completed import checkout `codex/perf-v02`, base reviewed V03 `cba30cb`; joint U01 preview-target seam |
+| V03 | [Owned cancellable preview runtime](preview.md#v03---cancel-obsolete-parsing-through-an-owned-preview-runtime) | P2 | F01, F02, D01 | REVIEW | s01_safe_scanning reassigned (Luna/medium) | corrected direct geometry transport and lifecycle reviews PASS; native cancellation gate pending |
 | V04 | [Background preparation and bounded assembly](preview.md#v04---prepare-orientation-in-the-background-and-budget-visible-mesh-assembly) | P2 | V01, V03, S04 | PLANNED | Unassigned | - |
 | V05 | [Progressive part thumbnails](preview.md#v05---make-part-thumbnails-small-progressive-and-independent) | P2 | V04 | PLANNED | Unassigned | - |
 | U01 | [Complete browsing and consistent selection](browsing.md#u01---load-every-result-and-keep-selection-consistent-across-pages) | P1 | D02, T03 | IN_PROGRESS | Luna/medium chat `01a0e202-8608-7f21-a52d-5e89ef92806b` | Reuses completed layout checkout on `codex/perf-u01`, base `b84ba09` |
@@ -62,9 +62,9 @@
 | T03 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/61df/polytray`, `74d2e9e` | Preserved unreviewed alternative; active T03 producer already integrated |
 | T01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-thumbnails/polytray` / `codex/perf-t01` | Implementing |
 | U01 | Registered Luna/medium chat, U03 complete | `/Users/maak/.codex/worktrees/polytray-layout/polytray` / `codex/perf-u01` | Implementing complete paging and selection |
-| P03 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-import/polytray` / `codex/perf-p03` | DONE; reviewing S02 test hook while P04 awaits S02 |
+| V02 | Registered Luna/medium chat, P03 complete | `/Users/maak/.codex/worktrees/polytray-import/polytray` / `codex/perf-v02` | Implementing stable preview state and lazy archive navigation |
 | P01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-slicer/polytray` / `codex/perf-p01` | Implementing |
-| Independent review | Luna/medium chat `01a0e1fe-a466-7810-9892-71009a512cc2` | Read-only exact candidate checkouts | U03 final review; T01 and P03 reviewed concurrently by free subagents |
+| Independent review | Luna/medium chat `01a0e1fe-a466-7810-9892-71009a512cc2` | Read-only exact candidate checkouts | V03 static spec/quality PASS; P01 correction review active in free subagent |
 | U03 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/1221/polytray`, `3a3b13c` | Preserved unreviewed alternative; active owner is the registered layout chat |
 | P01 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/861a/polytray`, `b9701b5` | Preserved unreviewed alternative; active owner is the registered slicer chat |
 
@@ -101,6 +101,8 @@ S02 preparation exposed one additional D01 guard: a positive expected content re
 | 2026-09-27 | U03 gate | Independent spec/quality PASS; 154 units/1 skip, 36 E2E/1 optional skip, 18 responsive captures; combined main Type/Build and 9 focused tests PASS | Integrated; layout checkout reassigned U01; U04 owns keyboard/modal focus |
 
 | 2026-09-27 | P03 gate | Independent spec and coordinator quality PASS; combined Type/Build and 182 units/1 Windows-only skip PASS | Import preview integrated; test-only panel-settings expectation updated after observed combined failure and independent review. Apply/recovery remains P04/U06 |
+
+V02 can now proceed independently in the completed import checkout: V03's source is committed and statically reviewed, with remaining runtime work confined to its separate checkout. V02 starts from that reviewed candidate and may not be marked complete until the V03 native gate and joint U01 target wiring pass. The coordinator authorized a separate `src/shared/previewTarget.ts` type seam so U01 owns target creation and V02 owns lazy archive navigation.
 
 ## Blockers and decisions
 
