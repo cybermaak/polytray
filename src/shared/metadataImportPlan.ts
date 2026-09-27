@@ -34,7 +34,7 @@ function normalizedAnnotation(record: MetadataBackupAnnotation): MetadataBackupA
   return {
     path: canonicalizeBackupPath(record.path),
     tags: normalizeFileTags(record.tags),
-    notes: record.notes?.trim() || null,
+    notes: record.notes === null || record.notes.trim() === '' ? null : record.notes,
     ...(record.printStatus !== undefined ? { printStatus: record.printStatus.trim() } : {}),
   };
 }

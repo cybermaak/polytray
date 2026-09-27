@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import type { MetadataImportPlan as PublicMetadataImportPlan } from '../../../../src/shared/backupContracts';
-import { buildMetadataBackupV1 } from '../../../../src/shared/metadataBackup';
+import { buildMetadataBackupV1, serializeMetadataBackup, validateMetadataBackupV1 } from '../../../../src/shared/metadataBackup';
 import { createMetadataImportPlan, isMetadataImportPlanCurrent } from '../../../../src/shared/metadataImportPlan';
 
 const backup = (annotations: Array<{path:string; tags:string[]; notes:string|null; printStatus?:string}> = [], pendingAnnotations = annotations, collections: Array<{id:string;name:string;paths:string[]}> = [], preferences: Record<string, unknown> = { watch: false }) => buildMetadataBackupV1({
@@ -108,4 +108,18 @@ test('collection identity union preserves current collection ordering', () => {
   const plan=createMetadataImportPlan({backup:doc,current:state});
   assert.deepEqual(plan.collectionsAfter.map(c=>c.id),['z','c1','new']);
   assert.deepEqual(plan.collectionsAfter[1].paths,['/online.stl','/offline.stl']);
+});
+
+test('backup round-trip and tag merge preserve nonblank multiline note formatting verbatim', () => {
+  const note='\n  first line\n    indented detail\n';
+  const document=backup([{path:'/notes.stl',tags:['backup'],notes:note}],[]);
+  const roundTripped=validateMetadataBackupV1(JSON.parse(serializeMetadataBackup(document)));
+  assert.equal(roundTripped.annotations[0].notes,note);
+  const plan=createMetadataImportPlan({
+    backup:roundTripped,
+    current:current([{path:'/notes.stl',tags:['local'],notes:note}]),
+  });
+  assert.equal(plan.annotationUpdates[0].after.notes,note);
+  assert.deepEqual(plan.annotationUpdates[0].after.tags,['local','backup']);
+  assert.equal(plan.annotationConflicts.some(conflict=>conflict.field==='notes'),false);
 });
