@@ -48,11 +48,12 @@ test("metadata worker retries an in-flight request once after its owned process 
   const request = { requestId: "retry-1", fileId: 4, contentRevision: 9, filePath: "/tmp/model.stl", extension: "stl" };
   const extraction = client.extract(request);
   await new Promise((resolve) => setImmediate(resolve));
-  workers[0].emit("exit", 1);
+  const staleExit = workers[0].listeners("exit").find((listener) => listener !== undefined)! as (code: number) => void;
+  staleExit(1);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(starts, 2);
   assert.deepEqual(workers[1].requests, [request]);
-  workers[0].emit("exit", 1);
+  staleExit(1);
   const nextRequest = { ...request, requestId: "retry-followup" };
   const nextExtraction = client.extract(nextRequest);
   assert.equal(starts, 2);
@@ -63,6 +64,27 @@ test("metadata worker retries an in-flight request once after its owned process 
   assert.deepEqual(await extraction, { vertexCount: 3, faceCount: 1, dimensions: null });
   assert.deepEqual(await nextExtraction, { vertexCount: 3, faceCount: 1, dimensions: null });
   await client.shutdown();
+});
+
+test("metadata worker rejects malformed summaries and leaves the caller settled without committing bad values", async () => {
+  const invalidSummaries = [
+    { vertexCount: -1, faceCount: 1, dimensions: null },
+    { vertexCount: 1.5, faceCount: 1, dimensions: null },
+    { vertexCount: 1, faceCount: Number.NaN, dimensions: null },
+    { vertexCount: 1, faceCount: 1, dimensions: { x: 1, y: Number.POSITIVE_INFINITY, z: 0 } },
+    { vertexCount: 1, faceCount: 1, dimensions: { x: 1, y: 2 } },
+  ];
+  const child = new FakeUtility();
+  const client = new MetadataWorkerClient({ spawn: () => { setImmediate(() => child.emit("spawn")); return child as never; } });
+  try {
+    for (let index = 0; index < invalidSummaries.length; index++) {
+      const requestId = `malformed-${index}`;
+      const extraction = client.extract({ requestId, fileId: 1, contentRevision: 1, filePath: "/tmp/model.obj", extension: "obj" });
+      await new Promise((resolve) => setImmediate(resolve));
+      child.emit("message", { requestId, summary: invalidSummaries[index] });
+      await assert.rejects(extraction, /invalid|malformed/i);
+    }
+  } finally { await client.shutdown(); }
 });
 
 test("metadata worker client applies queue backpressure and promptly cancels a waiting caller", async () => {

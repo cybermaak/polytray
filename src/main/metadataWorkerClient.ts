@@ -17,6 +17,17 @@ export interface MetadataWorkerClientOptions {
 }
 type Pending = { request: MetadataWorkerRequest; resolve: (value: MetadataSummary) => void; reject: (error: Error) => void; signal?: AbortSignal; retries: number; abort?: () => void; };
 
+function isMetadataSummary(value: unknown): value is MetadataSummary {
+  if (!value || typeof value !== "object") return false;
+  const summary = value as Partial<MetadataSummary>;
+  if (!Number.isSafeInteger(summary.vertexCount) || (summary.vertexCount as number) < 0
+    || !Number.isSafeInteger(summary.faceCount) || (summary.faceCount as number) < 0) return false;
+  if (summary.dimensions === null) return true;
+  if (!summary.dimensions || typeof summary.dimensions !== "object") return false;
+  const { x, y, z } = summary.dimensions;
+  return [x, y, z].every((dimension) => typeof dimension === "number" && Number.isFinite(dimension) && dimension >= 0);
+}
+
 export class MetadataWorkerClient {
   private child: UtilityProcess | null = null;
   private childExitHandler: ((code: number) => void) | null = null;
@@ -81,19 +92,33 @@ export class MetadataWorkerClient {
     }).finally(() => { this.starting = null; });
     return this.starting;
   }
-  private readonly onMessage = (message: { requestId?: string; summary?: MetadataSummary; error?: string }) => {
+  private readonly onMessage = (input: unknown) => {
     const pending = this.active;
-    if (!pending || message.requestId !== pending.request.requestId) return;
+    if (!pending) return;
+    if (!input || typeof input !== "object") {
+      this.clearActive(pending);
+      pending.reject(new Error("Metadata worker returned an invalid response"));
+      this.pump();
+      return;
+    }
+    const message = input as { requestId?: unknown; summary?: unknown; error?: unknown };
+    if (message.requestId !== pending.request.requestId) {
+      if (typeof message.requestId === "string") return;
+      this.clearActive(pending);
+      pending.reject(new Error("Metadata worker returned an invalid response"));
+      this.pump();
+      return;
+    }
     this.clearActive(pending);
-    if (message.error) pending.reject(new Error(message.error));
-    else if (message.summary) pending.resolve(message.summary);
+    if (typeof message.error === "string" && message.error.length) pending.reject(new Error(message.error));
+    else if (isMetadataSummary(message.summary)) pending.resolve(message.summary);
     else pending.reject(new Error("Metadata worker returned an invalid response"));
     this.pump();
   };
   private handleExit(child: UtilityProcess, handler: (code: number) => void, code: number) {
+    if (this.child !== child) return;
     child.off("message", this.onMessage);
     child.off("exit", handler);
-    if (this.child !== child) return;
     this.child = null;
     this.childExitHandler = null;
     const pending = this.active;

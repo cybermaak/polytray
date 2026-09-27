@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
 import Database from 'better-sqlite3';
 import JSZip from 'jszip';
 import { createDbAtVersion } from '../../../support/helpers/databaseFixtures';
 import { createBarrier } from '../../../support/helpers/performanceProbe';
 import { createFileIndexRepository, subscribeToFileIndexMutations } from '../../../../src/main/fileIndexing';
 import { createScanService } from '../../../../src/main/scanService';
+import { MetadataWorkerClient, type MetadataWorkerRequest } from '../../../../src/main/metadataWorkerClient';
 import type { DiscoveryEvent } from '../../../../src/shared/backgroundJobs';
 import type { ScanProgressData } from '../../../../src/shared/types';
 import { streamDiscoverFolder } from '../../../../src/main/scanner';
@@ -380,6 +382,47 @@ test('metadata that finishes after a watcher revision cannot overwrite the watch
   } finally {
     unsubscribe();
     await service.dispose();
+    fixture.cleanup();
+    fs.rmSync(rootPath, { recursive: true, force: true });
+  }
+});
+
+test('malformed worker summaries fail enrichment without writing invalid metadata', async () => {
+  const fixture = createTestDb();
+  const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-invalid-metadata-'));
+  const filePath = path.join(rootPath, 'model.obj');
+  const requestReceived = createBarrier<MetadataWorkerRequest>();
+  class FakeWorker extends EventEmitter {
+    requests: MetadataWorkerRequest[] = [];
+    postMessage(request: MetadataWorkerRequest) { this.requests.push(request); requestReceived.release(request); }
+    kill() { return true; }
+  }
+  const worker = new FakeWorker();
+  const metadataClient = new MetadataWorkerClient({ spawn: () => { setImmediate(() => worker.emit('spawn')); return worker as never; } });
+  const service = createScanService({
+    db: fixture.db,
+    discover: async function* (_root, _signal, generation): AsyncGenerator<DiscoveryEvent> {
+      yield discovered(rootPath, filePath);
+      yield { type: 'scope-complete', rootPath, scopePath: rootPath, generation, kind: 'directory' };
+      yield { type: 'discovery-complete', rootPath, cancelled: false };
+    },
+    extractMetadata: (path, extension, context) => metadataClient.extract({
+      requestId: context.requestId, fileId: context.identity.id,
+      contentRevision: context.identity.contentRevision, filePath: path, extension,
+    }, { signal: context.signal }),
+  });
+  try {
+    const scan = service.scan(rootPath, { batchSize: 1 });
+    const request = await requestReceived.wait();
+    worker.emit('message', { requestId: request.requestId, summary: { vertexCount: -1, faceCount: 2, dimensions: { x: 1, y: 2, z: 3 } } });
+    const result = await scan;
+    assert.equal(result.metadataCompleted, 0);
+    assert.equal(result.metadataFailed, 1);
+    const row = fixture.db.prepare('SELECT vertex_count, face_count FROM files WHERE path = ?').get(filePath) as { vertex_count: number; face_count: number };
+    assert.deepEqual(row, { vertex_count: 0, face_count: 0 });
+  } finally {
+    await service.dispose();
+    await metadataClient.shutdown();
     fixture.cleanup();
     fs.rmSync(rootPath, { recursive: true, force: true });
   }
