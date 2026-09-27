@@ -1,5 +1,10 @@
 import type { IpcRenderer, IpcRendererEvent } from 'electron';
-import { IPC, type PreviewParseDispatchData, type PreviewParsePortData } from '../shared/types';
+import {
+  IPC,
+  type PreviewParseControlData,
+  type PreviewParseDispatchData,
+  type PreviewParsePortData,
+} from '../shared/types';
 import type {
   PreparedPreview,
   PreviewParseCancelRequest,
@@ -106,6 +111,15 @@ export function createPreviewBridge(
     port.start();
   });
 
+  ipcRenderer.on(IPC.PREVIEW_PARSE_CONTROL, (_event: IpcRendererEvent, control: PreviewParseControlData) => {
+    if (!control || typeof control.requestId !== 'string') return;
+    if (control.type === 'cancelled') {
+      settleParse(control.requestId, (pending) => pending.reject(abortError(control.reason)));
+    } else if (control.type === 'error' && typeof control.error === 'string') {
+      settleParse(control.requestId, (pending) => pending.reject(new Error(control.error)));
+    }
+  });
+
   ipcRenderer.on(IPC.GENERATE_PREVIEW_PARSE_REQUEST, (event: IpcRendererEvent, data: PreviewParseDispatchData) => {
     const [port] = event.ports;
     if (!port || !data?.request?.requestId) {
@@ -120,7 +134,7 @@ export function createPreviewBridge(
   });
 
   bridgeWindow.addEventListener('message', (event) => {
-    if (event.source !== window) return;
+    if (event.source !== bridgeWindow) return;
     const payload = event.data as
       | { type: '__polytray-preview-parse-result'; requestId: string; preview: PreparedPreview }
       | { type: '__polytray-preview-parse-error'; requestId: string; error: string }
@@ -129,6 +143,7 @@ export function createPreviewBridge(
     const port = hiddenPorts.get(payload.requestId);
     if (!port) return;
     hiddenPorts.delete(payload.requestId);
+    let error: string | undefined;
     try {
       if (payload.type === '__polytray-preview-parse-result') {
         port.postMessage(
@@ -136,12 +151,19 @@ export function createPreviewBridge(
           collectPreviewTransferables(payload.preview),
         );
       } else {
-        port.postMessage({ requestId: payload.requestId, type: 'error', error: payload.error } satisfies PreviewParsePortMessage);
+        error = payload.error.slice(0, 2048);
+        port.postMessage({ requestId: payload.requestId, type: 'error', error } satisfies PreviewParsePortMessage);
       }
-    } catch (error) {
-      console.warn('[PreviewBridge] Could not deliver hidden parse result:', error);
+    } catch (deliveryError) {
+      console.warn('[PreviewBridge] Could not deliver hidden parse result:', deliveryError);
+      const reason = deliveryError instanceof Error ? deliveryError.message : String(deliveryError);
+      error = reason.slice(0, 2048);
     } finally {
       port.close();
+      ipcRenderer.send(IPC.PREVIEW_PARSE_SETTLED, {
+        requestId: payload.requestId,
+        ...(error ? { error } : {}),
+      });
     }
   });
 
@@ -182,6 +204,14 @@ export function createPreviewBridge(
     onPreviewParseRequest(callback: (data: PreviewParseDispatchData) => void) {
       hiddenParseListeners.add(callback);
       return () => hiddenParseListeners.delete(callback);
+    },
+    getPendingCounts() {
+      return {
+        parses: pendingParses.size,
+        archiveReads: pendingArchiveReads.size,
+        hiddenPorts: hiddenPorts.size,
+        hiddenParseListeners: hiddenParseListeners.size,
+      };
     },
   };
 }

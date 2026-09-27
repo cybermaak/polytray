@@ -57,9 +57,28 @@ async function readPreviewBuffer(data: PreviewParseDispatchData) {
 
 export function initPreviewParseRenderer() {
   let active = true;
+  let heldFirstParse = false;
   const unsubscribe = window.polytray.onPreviewParseRequest(async (data) => {
     if (!active) return;
     const { requestId, path, extension } = data.request;
+    const testQuery = new URLSearchParams(window.location.search);
+    const requestedHold = testQuery.get('testHoldFirstParseMs');
+    const holdRequestId = testQuery.get('testHoldRequestId');
+    const holdMs = requestedHold ? Number.parseInt(requestedHold, 10) : 0;
+    if (!heldFirstParse && requestId === holdRequestId && Number.isSafeInteger(holdMs) && holdMs > 0) {
+      heldFirstParse = true;
+      console.info('[PreviewTest] synchronous hold started', { requestId, holdMs });
+      window.polytray.emitPreviewMetric({
+        source: 'hidden-renderer',
+        phase: 'fetch',
+        filePath: `__preview_test_hold__${requestId}`,
+        ext: extension,
+        durationMs: 0,
+      });
+      const deadline = performance.now() + holdMs;
+      while (performance.now() < deadline) { /* Deliberately uninterruptible fixture barrier. */ }
+      console.info('[PreviewTest] synchronous hold completed', { requestId });
+    }
     const totalStartedAt = performance.now();
     try {
       const fetchStartedAt = performance.now();

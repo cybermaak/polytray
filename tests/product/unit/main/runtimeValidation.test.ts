@@ -6,6 +6,7 @@ import {
   parsePreviewMetric,
   parsePreviewParseCancelRequest,
   parsePreviewParseRequest,
+  parsePreviewParseSettlementRequest,
   parseRuntimeSettings,
   parseThumbnailPath,
 } from '../../../../src/main/ipc/runtimeValidation';
@@ -56,6 +57,15 @@ test('path and preview validators reject malformed IPC payloads', () => {
   assert.deepEqual(
     parsePreviewParseCancelRequest({ requestId: 'abc', reason: 'replaced' }),
     { requestId: 'abc', reason: 'replaced' },
+  );
+  assert.deepEqual(parsePreviewParseSettlementRequest({ requestId: 'abc' }), { requestId: 'abc' });
+  assert.throws(
+    () => parsePreviewParseSettlementRequest({ requestId: 'abc', preview: { meshes: [] } }),
+    /Invalid preview parse settlement/,
+  );
+  assert.throws(
+    () => parsePreviewParseSettlementRequest({ requestId: 'abc', error: 'x'.repeat(2049) }),
+    /Invalid preview parse settlement/,
   );
   assert.deepEqual(
     parsePreviewMetric({

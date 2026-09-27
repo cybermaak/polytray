@@ -74,6 +74,8 @@ export const IPC = {
   READ_PREVIEW_ARCHIVE_BUFFER: "read-preview-archive-buffer",
   CANCEL_PREVIEW_PARSE: "cancel-preview-parse",
   PREVIEW_RUNTIME_READY: "preview-runtime-ready",
+  PREVIEW_PARSE_SETTLED: "preview-parse-settled",
+  PREVIEW_PARSE_CONTROL: "preview-parse-control",
   GET_STATS: "get-stats",
   START_WATCHING: "start-watching",
   STOP_WATCHING: "stop-watching",
@@ -217,6 +219,15 @@ export interface PreviewParseDispatchData {
 export interface PreviewParsePortData {
   requestId: string;
 }
+
+export interface PreviewParseSettlementData {
+  requestId: string;
+  error?: string;
+}
+
+export type PreviewParseControlData =
+  | { requestId: string; type: "cancelled"; reason: string }
+  | { requestId: string; type: "error"; error: string };
 
 export interface PreviewMetricData {
   source: "hidden-renderer" | "viewer";

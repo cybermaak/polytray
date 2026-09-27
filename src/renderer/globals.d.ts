@@ -51,6 +51,12 @@ interface PolytrayAPI {
   requestPreviewParse: (
     request: PreviewParseRequest,
   ) => Promise<PreparedPreview>;
+  __previewParsePendingCounts?: () => {
+    parses: number;
+    archiveReads: number;
+    hiddenPorts: number;
+    hiddenParseListeners: number;
+  };
   cancelPreviewParse: (
     requestId: string,
     reason: PreviewParseCancelRequestData["reason"],

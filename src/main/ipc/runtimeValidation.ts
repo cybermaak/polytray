@@ -3,6 +3,7 @@ import {
   PreviewMetricData,
   PreviewParseCancelRequestData,
   PreviewParseRequestData,
+  PreviewParseSettlementData,
   RuntimeSettingsData,
   SortOptions,
   UpdateFileMetadataData,
@@ -122,6 +123,21 @@ export function parsePreviewParseCancelRequest(value: unknown): PreviewParseCanc
     throw new Error("Invalid preview parse cancellation");
   }
   return { requestId: request.requestId, reason: request.reason as PreviewParseCancelRequestData["reason"] };
+}
+
+export function parsePreviewParseSettlementRequest(value: unknown): PreviewParseSettlementData {
+  if (!value || typeof value !== "object") throw new Error("Invalid preview parse settlement");
+  const settlement = value as Partial<PreviewParseSettlementData>;
+  if (Object.keys(value).some((key) => key !== "requestId" && key !== "error") ||
+    !isNonEmptyString(settlement.requestId) ||
+    (settlement.error !== undefined &&
+      (typeof settlement.error !== "string" || settlement.error.length > 2048))) {
+    throw new Error("Invalid preview parse settlement");
+  }
+  return {
+    requestId: settlement.requestId,
+    ...(settlement.error === undefined ? {} : { error: settlement.error }),
+  };
 }
 
 export function parsePreviewMetric(value: unknown): PreviewMetricData {

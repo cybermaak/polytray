@@ -98,7 +98,18 @@ if (fs.existsSync(portableDataDir)) {
 let mainWindow: BrowserWindow | null = null;
 let thumbnailWindow: BrowserWindow | null = null;
 let mainWindowVisibilityRevision = 0;
-const previewRuntime = createElectronPreviewWindowManager();
+function getWindowRendererPid(target: BrowserWindow | null): number {
+  try {
+    if (!target || target.isDestroyed() || target.webContents.isDestroyed()) return 0;
+    return target.webContents.getOSProcessId();
+  } catch {
+    return 0;
+  }
+}
+const previewRuntime = createElectronPreviewWindowManager(() => [
+  getWindowRendererPid(mainWindow),
+  getWindowRendererPid(thumbnailWindow),
+]);
 let previewParseRegistration: ReturnType<typeof registerPreviewParseHandler> | null = null;
 let fileIndexRuntime: FileIndexRuntime | null = null;
 let libraryMutationPublisher: LibraryMutationPublisher | null = null;

@@ -2,7 +2,7 @@ import { MessageChannelMain, type BrowserWindow, type IpcMain, type MessagePortM
 import type { Readable } from 'stream';
 import * as unzipper from 'unzipper';
 import type { Database } from 'better-sqlite3';
-import { IPC, type PreviewParsePortData } from '../shared/types';
+import { IPC, type PreviewParseControlData, type PreviewParsePortData } from '../shared/types';
 import type {
   PreparedPreview,
   PreviewParseCancelRequest,
@@ -12,7 +12,11 @@ import type {
 import { parseArchiveEntryPath } from '../shared/archivePaths';
 import { isPathContained } from './pathContainment';
 import { getDb } from './database';
-import { parsePreviewParseCancelRequest, parsePreviewParseRequest } from './ipc/runtimeValidation';
+import {
+  parsePreviewParseCancelRequest,
+  parsePreviewParseRequest,
+  parsePreviewParseSettlementRequest,
+} from './ipc/runtimeValidation';
 import type { PreviewWindowRuntime } from './previewWindow';
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
@@ -22,12 +26,13 @@ const MAX_CANCELLATION_TOMBSTONES = 256;
 export interface PreviewParseReplyPort {
   postMessage(message: PreviewParsePortMessage, transferables?: ArrayBuffer[]): void;
   close(): void;
+  transferPort?(): MessagePortMain;
   onClose?(listener: () => void): () => void;
 }
 
 export interface PreviewParseServiceDependencies {
   ensureRuntime(): Promise<void>;
-  runParse(request: PreviewParseRequest, archiveBuffer?: ArrayBuffer): Promise<PreparedPreview>;
+  runParse(request: PreviewParseRequest, archiveBuffer?: ArrayBuffer, responsePort?: MessagePortMain): Promise<PreparedPreview | void>;
   restartRuntime(): Promise<void>;
   readArchiveEntryBuffer?(request: PreviewParseRequest, signal: AbortSignal): Promise<ArrayBuffer>;
   validateIndexedRequest?(request: PreviewParseRequest): void;
@@ -191,7 +196,7 @@ export function createPreviewParseService(dependencies: PreviewParseServiceDepen
 
   function settle(
     job: PreviewParseJob,
-    message: PreviewParsePortMessage,
+    message?: PreviewParsePortMessage,
   ) {
     if (job.settled) return;
     job.settled = true;
@@ -201,10 +206,12 @@ export function createPreviewParseService(dependencies: PreviewParseServiceDepen
     jobs.delete(requestKey(job.ownerId, job.request.requestId));
     if (queuedJob === job) queuedJob = null;
     try {
-      job.reply.postMessage(
-        message,
-        message.type === 'done' ? collectTransferables(message.preview) : undefined,
-      );
+      if (message) {
+        job.reply.postMessage(
+          message,
+          message.type === 'done' ? collectTransferables(message.preview) : undefined,
+        );
+      }
     } catch {
       // The requesting renderer may have closed its port while work settled.
     } finally {
@@ -272,7 +279,7 @@ export function createPreviewParseService(dependencies: PreviewParseServiceDepen
         archiveBuffer = await dependencies.readArchiveEntryBuffer(job.request, job.abortController.signal);
         if (job.abortController.signal.aborted) return;
       }
-      return dependencies.runParse(job.request, archiveBuffer);
+      return dependencies.runParse(job.request, archiveBuffer, job.reply.transferPort?.());
     })();
 
     try {
@@ -282,6 +289,9 @@ export function createPreviewParseService(dependencies: PreviewParseServiceDepen
       ]);
       if (preview && !job.settled) {
         settle(job, { requestId: job.request.requestId, type: 'done', preview });
+      } else if (!job.settled) {
+        // Electron's owned preview renderer already transferred its meshes directly to the requester.
+        settle(job);
       }
     } catch (error) {
       if (!job.settled) {
@@ -431,18 +441,31 @@ export function createPreviewParseService(dependencies: PreviewParseServiceDepen
 
 export { collectTransferables as collectPreviewTransferables };
 
-function adaptReplyPort(port: MessagePortMain): PreviewParseReplyPort {
+function adaptReplyPort(
+  port: MessagePortMain,
+  sendControl: (control: PreviewParseControlData) => void,
+): PreviewParseReplyPort {
+  let transferred = false;
   return {
     postMessage(message) {
-      port.postMessage(message);
+      if (!transferred) {
+        port.postMessage(message);
+        return;
+      }
+      if (message.type === 'cancelled') {
+        sendControl({ requestId: message.requestId, type: 'cancelled', reason: message.reason });
+      } else if (message.type === 'error') {
+        sendControl({ requestId: message.requestId, type: 'error', error: message.error.slice(0, 2048) });
+      } else {
+        sendControl({ requestId: message.requestId, type: 'error', error: 'Unexpected main-thread preview payload' });
+      }
     },
     close() {
       port.close();
     },
-    onClose(listener) {
-      const handleClose = () => listener();
-      port.on('close', handleClose);
-      return () => port.removeListener('close', handleClose);
+    transferPort() {
+      transferred = true;
+      return port;
     },
   };
 }
@@ -454,7 +477,10 @@ export function registerPreviewParseHandler(
 ) {
   const service = createPreviewParseService({
     ensureRuntime: async () => { await previewRuntime.ensureReady(); },
-    runParse: (request, sourceBuffer) => previewRuntime.parse(request, sourceBuffer),
+    runParse: (request, sourceBuffer, responsePort) => {
+      if (!responsePort) throw new Error('Requester response port is unavailable');
+      return previewRuntime.parse(request, responsePort, sourceBuffer);
+    },
     restartRuntime: () => previewRuntime.restart(),
     validateIndexedRequest: (request) => validateIndexedPreviewRequest(getDb(), request),
     readArchiveEntryBuffer: (request, signal) => readIndexedPreviewArchiveBuffer(getDb(), request, signal),
@@ -470,12 +496,26 @@ export function registerPreviewParseHandler(
 
   const trackRequester = (sender: WebContents) => {
     if (requesterCleanup.has(sender.id)) return;
-    const onDestroyed = () => {
+    let cleaned = false;
+    const onGone = () => {
+      if (cleaned) return;
+      cleaned = true;
+      cleanup();
       requesterCleanup.delete(sender.id);
       void service.cancelRequester(sender.id);
     };
-    sender.once('destroyed', onDestroyed);
-    requesterCleanup.set(sender.id, () => sender.removeListener('destroyed', onDestroyed));
+    const onNavigation = (_event: Electron.Event, _url: string, _isInPlace: boolean, isMainFrame: boolean) => {
+      if (isMainFrame) onGone();
+    };
+    const cleanup = () => {
+      sender.removeListener('destroyed', onGone);
+      sender.removeListener('render-process-gone', onGone);
+      sender.removeListener('did-start-navigation', onNavigation);
+    };
+    sender.once('destroyed', onGone);
+    sender.once('render-process-gone', onGone);
+    sender.on('did-start-navigation', onNavigation);
+    requesterCleanup.set(sender.id, cleanup);
   };
 
   function cancelHandler(event: Electron.IpcMainEvent, payload: unknown) {
@@ -492,6 +532,17 @@ export function registerPreviewParseHandler(
     }
   }
 
+  function settledHandler(event: Electron.IpcMainEvent, payload: unknown) {
+    try {
+      const settlement = parsePreviewParseSettlementRequest(payload);
+      if (!previewRuntime.markParseSettled(event.sender.id, settlement)) {
+        console.warn('[PreviewParse] Ignored settlement from an unowned or inactive preview request');
+      }
+    } catch (error) {
+      console.warn('[PreviewParse] Ignored invalid settlement:', error);
+    }
+  }
+
   ipcMain.handle(IPC.REQUEST_PREVIEW_PARSE, (event, payload: unknown) => {
     assertMainRequester(event.sender);
     const request = parsePreviewParseRequest(payload);
@@ -501,8 +552,10 @@ export function registerPreviewParseHandler(
     try {
       const portData: PreviewParsePortData = { requestId: request.requestId };
       event.sender.postMessage(IPC.PREVIEW_PARSE_PORT, portData, [channel.port1]);
-      channel.port2.start();
-      service.request(event.sender.id, request, adaptReplyPort(channel.port2));
+      const requester = event.sender;
+      service.request(event.sender.id, request, adaptReplyPort(channel.port2, (control) => {
+        if (!requester.isDestroyed()) requester.send(IPC.PREVIEW_PARSE_CONTROL, control);
+      }));
       return true;
     } catch (error) {
       channel.port1.close();
@@ -520,6 +573,7 @@ export function registerPreviewParseHandler(
 
   ipcMain.on(IPC.CANCEL_PREVIEW_PARSE, cancelHandler);
   ipcMain.on(IPC.PREVIEW_RUNTIME_READY, readyHandler);
+  ipcMain.on(IPC.PREVIEW_PARSE_SETTLED, settledHandler);
 
   return {
     service,
@@ -532,6 +586,7 @@ export function registerPreviewParseHandler(
       ipcMain.removeHandler(IPC.READ_PREVIEW_ARCHIVE_BUFFER);
       ipcMain.removeListener(IPC.CANCEL_PREVIEW_PARSE, cancelHandler);
       ipcMain.removeListener(IPC.PREVIEW_RUNTIME_READY, readyHandler);
+      ipcMain.removeListener(IPC.PREVIEW_PARSE_SETTLED, settledHandler);
     },
   };
 }

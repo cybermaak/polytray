@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { PreviewParseRequest, PreparedPreview, PreviewParsePortMessage } from '../../../../src/shared/previewContracts';
+import type { MessagePortMain } from 'electron';
 import { createPreviewParseService } from '../../../../src/main/previewParseService';
 
 function deferred<T>() {
@@ -32,6 +33,7 @@ function makeReply() {
     messages,
     closed,
     done: done.promise,
+    transferPort: undefined as (() => MessagePortMain) | undefined,
     postMessage(message: PreviewParsePortMessage) {
       messages.push(message);
       if (messages.length === 1) done.resolve(message);
@@ -215,5 +217,33 @@ test('independent thumbnail work completes while preview runtime is cancelled', 
   assert.equal((await reply.done).type, 'cancelled');
   activeParse.resolve(prepared('obsolete'));
   assert.equal(reply.messages.length, 1);
+  await service.dispose();
+});
+
+test('direct renderer result settles the main job without posting geometry through main', async () => {
+  const responsePort = {} as MessagePortMain;
+  const started = deferred<void>();
+  const rendererAck = deferred<void>();
+  let receivedPort: MessagePortMain | undefined;
+  const service = createPreviewParseService({
+    ensureRuntime: async () => {},
+    runParse: async (_request, _archiveBuffer, port) => {
+      receivedPort = port;
+      started.resolve();
+      await rendererAck.promise;
+      return undefined;
+    },
+    restartRuntime: async () => {},
+    timeoutMs: 10_000,
+  });
+  const reply = makeReply();
+  reply.transferPort = () => responsePort;
+  service.request(82, request('direct-result', 'A'), reply);
+  await started.promise;
+  assert.equal(receivedPort, responsePort);
+  rendererAck.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(reply.messages, []);
+  assert.equal(reply.closed.value, true);
   await service.dispose();
 });

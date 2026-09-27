@@ -1,7 +1,7 @@
-import { BrowserWindow, MessageChannelMain } from 'electron';
+import { BrowserWindow, type MessagePortMain } from 'electron';
 import { join } from 'path';
-import { IPC, type PreviewParseDispatchData } from '../shared/types';
-import type { PreparedPreview, PreviewParsePortMessage, PreviewParseRequest } from '../shared/previewContracts';
+import { IPC, type PreviewParseDispatchData, type PreviewParseSettlementData } from '../shared/types';
+import type { PreviewParseRequest } from '../shared/previewContracts';
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -11,15 +11,32 @@ interface Deferred<T> {
 
 export interface PreviewWindowRuntime {
   ensureReady(): Promise<BrowserWindow>;
-  parse(request: PreviewParseRequest, sourceBuffer?: ArrayBuffer): Promise<PreparedPreview>;
+  parse(request: PreviewParseRequest, responsePort: MessagePortMain, sourceBuffer?: ArrayBuffer): Promise<void>;
   markReady(senderId: number): boolean;
+  markParseSettled(senderId: number, settlement: PreviewParseSettlementData): boolean;
   markLost(senderId: number, error?: Error): boolean;
   getCurrentWindow(): BrowserWindow | null;
   restart(): Promise<void>;
   close(): Promise<void>;
 }
 
-export function createElectronPreviewWindowManager(): PreviewWindowRuntime {
+export function canForceCrashPreviewRenderer(previewPid: number, protectedPids: readonly number[]): boolean {
+  return Number.isSafeInteger(previewPid) && previewPid > 0 &&
+    !protectedPids.some((pid) => Number.isSafeInteger(pid) && pid > 0 && pid === previewPid);
+}
+
+function getWindowRendererPid(previewWindow: BrowserWindow): number {
+  try {
+    if (previewWindow.isDestroyed() || previewWindow.webContents.isDestroyed()) return 0;
+    return previewWindow.webContents.getOSProcessId();
+  } catch {
+    return 0;
+  }
+}
+
+export function createElectronPreviewWindowManager(getProtectedProcessIds: () => readonly number[] = () => []): PreviewWindowRuntime {
+  const settlements = new Map<string, { senderId: number; timer: ReturnType<typeof setTimeout>; deferred: Deferred<void> }>();
+  const senderIds = new WeakMap<BrowserWindow, number>();
   let manager: ReturnType<typeof createPreviewWindowManager<BrowserWindow>>;
   manager = createPreviewWindowManager<BrowserWindow>({
     create: () => {
@@ -35,27 +52,53 @@ export function createElectronPreviewWindowManager(): PreviewWindowRuntime {
           backgroundThrottling: false,
         },
       });
+      const senderId = previewWindow.webContents.id;
+      senderIds.set(previewWindow, senderId);
       previewWindow.webContents.on('render-process-gone', (_event, details) => {
-        manager.markLost(previewWindow.webContents.id, new Error(`Preview renderer exited: ${details.reason}`));
+        manager.markLost(senderId, new Error(`Preview renderer exited: ${details.reason}`));
       });
       previewWindow.on('closed', () => {
-        manager.markLost(previewWindow.webContents.id, new Error('Preview window closed'));
+        manager.markLost(senderId, new Error('Preview window closed'));
       });
       return previewWindow;
     },
     load: (previewWindow) => {
+      const testHoldMs = process.env.POLYTRAY_ISOLATED_TEST === '1'
+        ? Number.parseInt(process.env.POLYTRAY_PREVIEW_TEST_HOLD_MS ?? '0', 10)
+        : 0;
+      const testHoldRequestId = process.env.POLYTRAY_ISOLATED_TEST === '1'
+        ? (process.env.POLYTRAY_PREVIEW_TEST_HOLD_REQUEST_ID ?? 'preview-A')
+        : '';
+      const testQuery = Number.isSafeInteger(testHoldMs) && testHoldMs > 0
+        ? `?testHoldFirstParseMs=${testHoldMs}&testHoldRequestId=${encodeURIComponent(testHoldRequestId)}`
+        : '';
       if (process.env.ELECTRON_RENDERER_URL) {
-        return previewWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}/src/renderer/preview.html`);
+        return previewWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}/src/renderer/preview.html${testQuery}`);
       }
-      return previewWindow.loadFile(join(__dirname, '../renderer/preview.html'));
+      return previewWindow.loadFile(join(__dirname, '../renderer/preview.html'), {
+        query: testQuery ? {
+          testHoldFirstParseMs: String(testHoldMs),
+          testHoldRequestId,
+        } : undefined,
+      });
     },
     destroy: async (previewWindow) => {
+      const senderId = senderIds.get(previewWindow);
+      for (const [requestId, settlement] of settlements) {
+        if (senderId === undefined || settlement.senderId !== senderId) continue;
+        clearTimeout(settlement.timer);
+        settlements.delete(requestId);
+        settlement.deferred.reject(new Error('Preview renderer was stopped before settling the request'));
+      }
       if (previewWindow.isDestroyed()) return;
       const closed = new Promise<void>((resolve) => previewWindow.once('closed', () => resolve()));
-      try {
-        previewWindow.webContents.forcefullyCrashRenderer();
-      } catch {
-        // The owned renderer may already have exited.
+      const previewPid = getWindowRendererPid(previewWindow);
+      if (canForceCrashPreviewRenderer(previewPid, getProtectedProcessIds())) {
+        try {
+          previewWindow.webContents.forcefullyCrashRenderer();
+        } catch {
+          // The owned renderer may already have exited.
+        }
       }
       if (!previewWindow.isDestroyed()) previewWindow.destroy();
       let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -64,51 +107,62 @@ export function createElectronPreviewWindowManager(): PreviewWindowRuntime {
     },
     senderId: (previewWindow) => previewWindow.webContents.id,
     isDestroyed: (previewWindow) => previewWindow.isDestroyed() || previewWindow.webContents.isDestroyed(),
-    dispatch: (previewWindow, request, sourceBuffer) => dispatchPreviewParse(previewWindow, request, sourceBuffer),
+    canForceCrash: (previewWindow) => canForceCrashPreviewRenderer(
+      getWindowRendererPid(previewWindow),
+      getProtectedProcessIds(),
+    ),
+    dispatch: (previewWindow, request, sourceBuffer, responsePort) => dispatchPreviewParse(
+      previewWindow, request, responsePort, sourceBuffer, settlements,
+    ),
   });
-  return manager;
+  return {
+    ...manager,
+    parse(request, responsePort, sourceBuffer) {
+      return manager.parse(request, responsePort, sourceBuffer);
+    },
+    markParseSettled(senderId, settlement) {
+      const currentWindow = manager.getCurrentWindow();
+      if (!currentWindow || currentWindow.isDestroyed() || currentWindow.webContents.isDestroyed() ||
+        currentWindow.webContents.id !== senderId) {
+        return false;
+      }
+      const pending = settlements.get(settlement.requestId);
+      if (!pending || pending.senderId !== senderId) return false;
+      settlements.delete(settlement.requestId);
+      clearTimeout(pending.timer);
+      if (settlement.error) pending.deferred.reject(new Error(settlement.error));
+      else pending.deferred.resolve();
+      return true;
+    },
+  };
 }
 
 function dispatchPreviewParse(
   previewWindow: BrowserWindow,
   request: PreviewParseRequest,
-  sourceBuffer?: ArrayBuffer,
-): Promise<PreparedPreview> {
-  const channel = new MessageChannelMain();
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => finish(new Error('Preview renderer did not return a result')), 120_000);
-    const finish = (error?: Error, preview?: PreparedPreview) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      channel.port1.removeAllListeners();
-      channel.port1.close();
-      if (error) reject(error);
-      else resolve(preview!);
-    };
-    channel.port1.on('message', (event) => {
-      const message = event.data as PreviewParsePortMessage;
-      if (!message || message.requestId !== request.requestId) {
-        finish(new Error('Preview renderer returned a mismatched request ID'));
-      } else if (message.type === 'done') {
-        finish(undefined, message.preview);
-      } else if (message.type === 'cancelled') {
-        finish(new Error(`Preview parse cancelled: ${message.reason}`));
-      } else {
-        finish(new Error(message.error));
-      }
-    });
-    channel.port1.on('close', () => finish(new Error('Preview renderer response port closed')));
-    channel.port1.start();
-    const dispatch: PreviewParseDispatchData = { request, ...(sourceBuffer ? { sourceBuffer } : {}) };
-    try {
-      previewWindow.webContents.postMessage(IPC.GENERATE_PREVIEW_PARSE_REQUEST, dispatch, [channel.port2]);
-    } catch (error) {
-      channel.port2.close();
-      finish(error instanceof Error ? error : new Error(String(error)));
+  responsePort: MessagePortMain,
+  sourceBuffer: ArrayBuffer | undefined,
+  settlements: Map<string, { senderId: number; timer: ReturnType<typeof setTimeout>; deferred: Deferred<void> }>,
+): Promise<void> {
+  const completed = deferred<void>();
+  const timer = setTimeout(() => {
+    const pending = settlements.get(request.requestId);
+    if (pending?.deferred === completed) {
+      settlements.delete(request.requestId);
+      completed.reject(new Error('Preview renderer did not acknowledge its response'));
     }
-  });
+  }, 120_000);
+  settlements.set(request.requestId, { senderId: previewWindow.webContents.id, timer, deferred: completed });
+  const dispatch: PreviewParseDispatchData = { request, ...(sourceBuffer ? { sourceBuffer } : {}) };
+  try {
+    previewWindow.webContents.postMessage(IPC.GENERATE_PREVIEW_PARSE_REQUEST, dispatch, [responsePort]);
+  } catch (error) {
+    clearTimeout(timer);
+    settlements.delete(request.requestId);
+    responsePort.close();
+    completed.reject(error instanceof Error ? error : new Error(String(error)));
+  }
+  return completed.promise;
 }
 
 function deferred<T>(): Deferred<T> {
@@ -124,7 +178,8 @@ export interface PreviewWindowPlatform<WindowHandle> {
   destroy(window: WindowHandle): Promise<void>;
   senderId(window: WindowHandle): number;
   isDestroyed(window: WindowHandle): boolean;
-  dispatch(window: WindowHandle, request: PreviewParseRequest, sourceBuffer?: ArrayBuffer): Promise<PreparedPreview>;
+  canForceCrash?(window: WindowHandle): boolean;
+  dispatch(window: WindowHandle, request: PreviewParseRequest, sourceBuffer: ArrayBuffer | undefined, responsePort: MessagePortMain): Promise<void>;
 }
 
 export function createPreviewWindowManager<WindowHandle>(
@@ -132,6 +187,7 @@ export function createPreviewWindowManager<WindowHandle>(
   readinessTimeoutMs = 10_000,
 ) {
   let currentWindow: WindowHandle | null = null;
+  let currentSenderId: number | null = null;
   let ready = false;
   let readiness: Deferred<WindowHandle> | null = null;
   let readinessTimer: ReturnType<typeof setTimeout> | null = null;
@@ -159,6 +215,7 @@ export function createPreviewWindowManager<WindowHandle>(
   function failCurrent(window: WindowHandle, error: unknown) {
     if (currentWindow !== window) return;
     currentWindow = null;
+    currentSenderId = null;
     ready = false;
     clearReadinessTimer();
     readiness?.reject(error);
@@ -181,6 +238,7 @@ export function createPreviewWindowManager<WindowHandle>(
       return Promise.reject(error);
     }
     currentWindow = window;
+    currentSenderId = platform.senderId(window);
     ready = false;
     createAttempt += 1;
     const currentReadiness = deferred<WindowHandle>();
@@ -196,6 +254,7 @@ export function createPreviewWindowManager<WindowHandle>(
   async function restart() {
     const oldWindow = currentWindow;
     currentWindow = null;
+    currentSenderId = null;
     ready = false;
     clearReadinessTimer();
     readiness?.reject(new Error('Preview parser runtime was replaced'));
@@ -206,16 +265,20 @@ export function createPreviewWindowManager<WindowHandle>(
 
   return {
     ensureReady,
-    async parse(request: PreviewParseRequest, sourceBuffer?: ArrayBuffer) {
+    async parse(request: PreviewParseRequest, responsePort: MessagePortMain, sourceBuffer?: ArrayBuffer) {
       const owner = await ensureReady();
       if (currentWindow !== owner || !ready || platform.isDestroyed(owner)) {
         throw new Error('Preview parser runtime is no longer current');
       }
-      return platform.dispatch(owner, request, sourceBuffer);
+      return platform.dispatch(owner, request, sourceBuffer, responsePort);
     },
     markReady(senderId: number) {
       const window = currentWindow;
-      if (!window || platform.isDestroyed(window) || platform.senderId(window) !== senderId || !readiness) {
+      if (!window || platform.isDestroyed(window) || currentSenderId !== senderId || !readiness) {
+        return false;
+      }
+      if (platform.canForceCrash && !platform.canForceCrash(window)) {
+        failCurrent(window, new Error('Preview parser renderer does not have an isolated, valid OS process'));
         return false;
       }
       ready = true;
@@ -225,7 +288,7 @@ export function createPreviewWindowManager<WindowHandle>(
     },
     markLost(senderId: number, error = new Error('Preview parser renderer exited')) {
       const window = currentWindow;
-      if (!window || platform.senderId(window) !== senderId) return false;
+      if (!window || currentSenderId !== senderId) return false;
       failCurrent(window, error);
       return true;
     },
