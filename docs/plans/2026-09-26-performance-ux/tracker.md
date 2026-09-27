@@ -2,9 +2,9 @@
 
 [Execution plan](../2026-09-26-performance-ux-execution-plan.md) | [Shared contracts](contracts.md) | [Handoff template](handoff-template.md)
 
-**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01-D03, S01, T03, V01, and the P02 export service are reviewed and integrated. Six implementation lanes cover S02/T01/V03/U01/P01/P03, with independent reviews. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. The original unregistered chat requests are superseded by the active assignments below.
+**Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01-D03, S01, T03, V01, and the P02/P03 backup services are reviewed and integrated. Six implementation lanes cover S02/T01/V03/U01/P01/P03, with independent reviews. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. The original unregistered chat requests are superseded by the active assignments below.
 
-**Progress:** 10 / 33 DONE. Foundation 2/2; data 3/3; scanning 1/6; thumbnails 1/4; preview 1/5; browsing 1/6; product workflows 1/4; validation 0/3. D02's query service, IPC smoke, benchmark and reviews are complete; UI paging remains U01/V02.
+**Progress:** 11 / 33 DONE. Foundation 2/2; data 3/3; scanning 1/6; thumbnails 1/4; preview 1/5; browsing 1/6; product workflows 2/4; validation 0/3. D02's query service, IPC smoke, benchmark and reviews are complete; UI paging remains U01/V02.
 
 ## Status and update rules
 
@@ -46,7 +46,7 @@
 | U06 | [Workflow and measurement UI integration](browsing.md#u06---integrate-slicer-backuprestore-and-honest-measurements) | P2 | U04, P01, P02, P04, S04 | PLANNED | Unassigned | - |
 | P01 | [Local slicer and archive handoff](product.md#p01---add-explicit-local-slicer-handoff-including-zip-members) | P2 | F01, F02 | IN_PROGRESS | Luna/medium chat `01a0e204-6183-7ee2-a2ac-0bbd43568fa3` | Active registered chat; files disjoint from P03 |
 | P02 | [Versioned metadata export](product.md#p02---export-complete-versioned-metadata-backups) | P2 | F01, F02 | DONE | s01_safe_scanning (Luna/medium) | [P02](handoffs/P02.md); producer reviewed/integrated `e1c66e8`, `6de841f`; consumer binding P04/U06 |
-| P03 | [Deterministic import preview](product.md#p03---preview-imports-and-compute-deterministic-mergeconflict-results) | P2 | P02, D01 | IN_PROGRESS | Luna/medium chat `01a0e202-0863-7f30-bfb8-c159d2e58053` | Dedicated import-planning worktree |
+| P03 | [Deterministic import preview](product.md#p03---preview-imports-and-compute-deterministic-mergeconflict-results) | P2 | P02, D01 | DONE | Luna/medium chat `01a0e202-0863-7f30-bfb8-c159d2e58053` | [P03](handoffs/P03.md); independent spec/coordinator quality PASS; combined Type/Build, 182 units/1 skip; integrated `447cebe` through `eb2f00e` plus test fixture integration |
 | P04 | [Recoverable restore transaction](product.md#p04---apply-restores-with-crash-recovery-across-both-stores) | P2 | P03, S02 | PLANNED | Unassigned | - |
 | G01 | [Integrated correctness and recovery](validation.md#g01---prove-integrated-correctness-and-recovery) | Gate | U05, U06, V05 | PLANNED | Unassigned | - |
 | G02 | [Performance and resource evidence](validation.md#g02---verify-performance-and-resource-budgets) | Gate | G01 | PLANNED | Unassigned | - |
@@ -62,7 +62,7 @@
 | T03 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/61df/polytray`, `74d2e9e` | Preserved unreviewed alternative; active T03 producer already integrated |
 | T01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-thumbnails/polytray` / `codex/perf-t01` | Implementing |
 | U01 | Registered Luna/medium chat, U03 complete | `/Users/maak/.codex/worktrees/polytray-layout/polytray` / `codex/perf-u01` | Implementing complete paging and selection |
-| P03 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-import/polytray` / `codex/perf-p03` | Implementing |
+| P03 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-import/polytray` / `codex/perf-p03` | DONE; reviewing S02 test hook while P04 awaits S02 |
 | P01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-slicer/polytray` / `codex/perf-p01` | Implementing |
 | Independent review | Luna/medium chat `01a0e1fe-a466-7810-9892-71009a512cc2` | Read-only exact candidate checkouts | U03 final review; T01 and P03 reviewed concurrently by free subagents |
 | U03 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/1221/polytray`, `3a3b13c` | Preserved unreviewed alternative; active owner is the registered layout chat |
@@ -99,6 +99,8 @@ S02 preparation exposed one additional D01 guard: a positive expected content re
 | 2026-09-27 | D03 gate | Independent spec and coordinator quality PASS; 164 unit passes/1 Windows-only skip, Type/Build PASS; production summary IPC handlers exercised with real SQLite | Integrated revision-keyed summaries and precise mutation flags; renderer query reduction remains U02 |
 
 | 2026-09-27 | U03 gate | Independent spec/quality PASS; 154 units/1 skip, 36 E2E/1 optional skip, 18 responsive captures; combined main Type/Build and 9 focused tests PASS | Integrated; layout checkout reassigned U01; U04 owns keyboard/modal focus |
+
+| 2026-09-27 | P03 gate | Independent spec and coordinator quality PASS; combined Type/Build and 182 units/1 Windows-only skip PASS | Import preview integrated; test-only panel-settings expectation updated after observed combined failure and independent review. Apply/recovery remains P04/U06 |
 
 ## Blockers and decisions
 

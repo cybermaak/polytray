@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import type { MetadataImportPlan as PublicMetadataImportPlan } from '../../../../src/shared/backupContracts';
 import { buildMetadataBackupV1, serializeMetadataBackup, validateMetadataBackupV1 } from '../../../../src/shared/metadataBackup';
 import { createMetadataImportPlan, isMetadataImportPlanCurrent } from '../../../../src/shared/metadataImportPlan';
+import { DEFAULT_APP_SETTINGS } from '../../../../src/shared/settings';
 
 const backup = (annotations: Array<{path:string; tags:string[]; notes:string|null; printStatus?:string}> = [], pendingAnnotations = annotations, collections: Array<{id:string;name:string;paths:string[]}> = [], preferences: Record<string, unknown> = { watch: false }, libraryRoots=['/backup']) => buildMetadataBackupV1({
   exportedAt: '2026-09-26T12:00:00.000Z', appVersion: '1.1.1', indexedAnnotations: annotations, pendingAnnotations,
@@ -101,11 +102,11 @@ test('collection collision IDs are reused after a plan has been applied', () => 
 });
 
 test('settings preview retains the complete normalized local settings with replacement off or on', () => {
-  const local={watch:true,page_size:700,thumbnail_timeout:3210,slicerPath:'/apps/slicer',previewPanelWidth:777,gridSize:'large'};
-  const doc=backup([],[],[],{watch:false,gridSize:'small',slicerPath:'/foreign/slicer',page_size:1} as never);
+  const local={watch:true,page_size:700,thumbnail_timeout:3210,slicerPath:'/apps/slicer',sidebarWidth:333,previewWidth:777,gridSize:'large'};
+  const doc=backup([],[],[],{watch:false,gridSize:'small',slicerPath:'/foreign/slicer',page_size:1,sidebarWidth:600,previewWidth:900} as never);
   const state=current([],[],local);
   const off=createMetadataImportPlan({backup:doc,current:state});
-  const complete={...local,lightMode:false,autoScan:true,showGrid:true,thumbQuality:'256',accentColor:'#6d9fff',previewColor:'#8888aa',thumbnailColor:'#8888aa',scanning_batch_size:50,watcher_stability:1000};
+  const complete={...DEFAULT_APP_SETTINGS,...local};
   assert.deepEqual(off.settingsBefore,complete);
   assert.deepEqual(off.settingsAfter,complete);
   const on=createMetadataImportPlan({backup:doc,current:state,options:{replaceSettings:true}});
@@ -114,7 +115,8 @@ test('settings preview retains the complete normalized local settings with repla
   assert.equal(on.settingsAfter.page_size,700);
   assert.equal(on.settingsAfter.thumbnail_timeout,3210);
   assert.equal(on.settingsAfter.slicerPath,'/apps/slicer');
-  assert.equal(on.settingsAfter.previewPanelWidth,777);
+  assert.equal(on.settingsAfter.sidebarWidth,333);
+  assert.equal(on.settingsAfter.previewWidth,777);
 });
 
 test('collection identity union preserves current collection ordering', () => {
