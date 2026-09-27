@@ -17,7 +17,8 @@ export interface ArchivePreviewPages {
   readonly pageSize: number;
   readonly cachedPageCount: number;
   loadPage(offset: number): Promise<ArchivePreviewPage>;
-  updateThumbnail(fileId: number, thumbnailPath: string): void;
+  invalidate(browseRevision: number): void;
+  updateThumbnail(fileId: number, contentRevision: number, thumbnailPath: string): void;
   dispose(): void;
 }
 
@@ -123,12 +124,12 @@ export function createArchivePreviewPages(
   return {
     pageSize,
     get cachedPageCount() { return cache.size; },
-    updateThumbnail(fileId: number, thumbnailPath: string) {
+    updateThumbnail(fileId: number, contentRevision: number, thumbnailPath: string) {
       if (disposed) return;
       for (const [offset, page] of cache) {
         let changed = false;
         const files = page.files.map((file) => {
-          if (file.id !== fileId) return file;
+          if (file.id !== fileId || file.content_revision !== contentRevision) return file;
           changed = true;
           return { ...file, thumbnail: thumbnailPath, thumbnail_failed: 0 };
         });
@@ -151,6 +152,12 @@ export function createArchivePreviewPages(
       });
       pending.set(pageOffset, request);
       return request;
+    },
+    invalidate(nextRevision: number) {
+      if (disposed || !Number.isSafeInteger(nextRevision) || nextRevision < 0) return;
+      const currentRevision = browseRevision ?? originQuery.expectedBrowseRevision;
+      if (currentRevision !== undefined && nextRevision <= currentRevision) return;
+      rebase(nextRevision);
     },
     dispose() {
       if (disposed) return;

@@ -1,6 +1,8 @@
-import React, { useRef, useEffect, useState, useCallback } from "react";
+import React, { useRef, useEffect, useState, useCallback, useMemo, useReducer } from "react";
 import { formatDimensions, formatSize, formatNumber } from "../lib/formatters";
 import type { FileRecord, ModelDimensions } from "../../shared/types";
+import type { LibraryArchiveItem, LibraryQueryClient } from "../../shared/libraryQuery";
+import type { PreviewTarget } from "../../shared/previewTarget";
 import { normalizeFileTags, parseStoredFileTags } from "../../shared/fileTags";
 import type { CollectionRecord } from "../../shared/libraryCollections";
 import { DEFAULT_APP_SETTINGS } from "../../shared/settings";
@@ -9,12 +11,15 @@ import { normalizePanelPreferences } from "../../shared/panelPreferences";
 import {
   type DisplayFileRecord,
   isArchiveSummaryRecord,
+  isLibraryArchiveDisplayRecord,
 } from "../lib/archiveDisplay";
 import { AppIcon } from "./AppIcon";
+import { ThumbnailImage } from "./ThumbnailImage";
+import { createPreviewGeometryIdentity, previewStateReducer } from "../lib/previewState";
+import { createArchivePreviewPages, type ArchivePreviewPage } from "../lib/archivePreviewPages";
 import {
   initViewer,
   loadModelWithWorker,
-  disposeViewer,
   toggleWireframe,
   resetCamera,
   toggleGrid,
@@ -24,6 +29,8 @@ import {
 interface Props {
   file: FileRecord | null;
   item: DisplayFileRecord | null;
+  target?: PreviewTarget | null;
+  libraryQueryClient?: LibraryQueryClient;
   showGrid: boolean;
   thumbnailColor: string;
   thumbQuality: ThumbnailQuality;
@@ -38,34 +45,94 @@ interface Props {
   onPreferredWidthChange: (width: number) => void;
 }
 
-const ArchiveThumbImage: React.FC<{ thumbnailPath: string; name: string }> = ({
-  thumbnailPath,
-  name,
-}) => {
-  const [src, setSrc] = useState<string | null>(null);
+interface ArchivePreviewView {
+  key: string;
+  page: ArchivePreviewPage | null;
+  selectedIndex: number;
+  loading: boolean;
+  error: string | null;
+  requestedOffset: number;
+  requestedIndex: number;
+  requestedFilePath: string | null;
+}
 
-  useEffect(() => {
-    let canceled = false;
-    window.polytray.readThumbnail(thumbnailPath).then((dataUrl) => {
-      if (!canceled) {
-        setSrc(dataUrl);
-      }
-    });
-    return () => {
-      canceled = true;
-    };
-  }, [thumbnailPath]);
-
-  if (!src) {
-    return <span className="archive-thumb-fallback">{name.slice(0, 1).toUpperCase()}</span>;
-  }
-
-  return <img src={src} alt={name} draggable={false} />;
+const EMPTY_ARCHIVE_VIEW: ArchivePreviewView = {
+  key: '', page: null, selectedIndex: 0, loading: false, error: null, requestedOffset: 0, requestedIndex: 0, requestedFilePath: null,
 };
+
+function targetFromLegacyProps(file: FileRecord | null, item: DisplayFileRecord | null): PreviewTarget | null {
+  if (file) return { kind: 'file', file };
+  if (!item) return null;
+  if (isLibraryArchiveDisplayRecord(item)) {
+    return {
+      kind: 'archive',
+      archive: item.source,
+      query: {
+        sort: 'name', direction: 'ASC', extension: null, folder: null, search: '',
+        collectionPaths: null, limit: 24, offset: 0,
+      },
+    };
+  }
+  if (!isArchiveSummaryRecord(item)) return { kind: 'file', file: item };
+  const archive: LibraryArchiveItem = {
+    kind: 'archive',
+    key: `archive:${item.path}`,
+    archivePath: item.path,
+    name: item.name,
+    // A legacy display summary contains only page samples. The exact count is
+    // filled by the archive-scoped file query below.
+    modelCount: 0,
+    vertexCount: item.vertex_count,
+    faceCount: item.face_count,
+    sizeBytes: item.size_bytes,
+    thumbnailSamples: item.entries.slice(0, 4),
+  };
+  return {
+    kind: 'archive',
+    archive,
+    query: {
+      sort: 'name', direction: 'ASC', extension: null, folder: item.directory === '.' ? null : item.directory, search: '',
+      collectionPaths: null, limit: 24, offset: 0,
+    },
+  };
+}
+
+function archivePreviewIdentity(target: Extract<PreviewTarget, { kind: 'archive' }>): string {
+  const { limit: _limit, offset: _offset, expectedBrowseRevision: _revision, archivePath: _queryArchivePath, collectionPaths, ...scope } = target.query;
+  return JSON.stringify([
+    target.archive.archivePath,
+    { ...scope, collectionPaths: collectionPaths === null ? null : [...collectionPaths].sort() },
+  ]);
+}
+
+function waitForViewerContainer(container: HTMLElement, signal: AbortSignal): Promise<boolean> {
+  if (signal.aborted) return Promise.resolve(false);
+  if (container.clientWidth > 0 && container.clientHeight > 0) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (ready: boolean) => {
+      if (settled) return;
+      settled = true;
+      observer.disconnect();
+      signal.removeEventListener('abort', onAbort);
+      resolve(ready);
+    };
+    const checkSize = () => {
+      if (container.clientWidth > 0 && container.clientHeight > 0) finish(true);
+    };
+    const onAbort = () => finish(false);
+    const observer = new ResizeObserver(checkSize);
+    observer.observe(container);
+    signal.addEventListener('abort', onAbort, { once: true });
+    checkSize();
+  });
+}
 
 export const PreviewPanel: React.FC<Props> = ({
   file,
   item,
+  target,
+  libraryQueryClient,
   showGrid,
   thumbnailColor,
   thumbQuality,
@@ -80,30 +147,62 @@ export const PreviewPanel: React.FC<Props> = ({
   onPreferredWidthChange,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const thumbQualityRef = useRef(thumbQuality);
   const panelRef = useRef<HTMLElement>(null);
   const dragStartX = useRef<number>(0);
   const dragStartWidth = useRef<number>(0);
   const lastViewerSize = useRef<{ width: number; height: number } | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [loadProgress, setLoadProgress] = useState<number>(-1);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
-  const [wireframe, setWireframe] = useState(false);
-  const [tagsInput, setTagsInput] = useState("");
-  const [savedTags, setSavedTags] = useState<string[]>([]);
-  const [newCollectionName, setNewCollectionName] = useState("");
-  const [selectedCollectionId, setSelectedCollectionId] = useState("");
-  const [archiveEntryIndex, setArchiveEntryIndex] = useState(0);
-  const archiveSummary = item && isArchiveSummaryRecord(item) ? item : null;
-
+  const viewerSessionRef = useRef<ReturnType<typeof initViewer> | null>(null);
+  const thumbQualityRef = useRef(thumbQuality);
+  const activeLoadRef = useRef<AbortController | null>(null);
+  const loadTokenRef = useRef(0);
+  const currentFileRef = useRef<FileRecord | null>(null);
+  const showGridRef = useRef(showGrid);
+  showGridRef.current = showGrid;
   useEffect(() => {
     thumbQualityRef.current = thumbQuality;
   }, [thumbQuality]);
-  const currentFile = archiveSummary
-    ? archiveSummary.entries[Math.min(archiveEntryIndex, archiveSummary.entries.length - 1)] ?? null
-    : file;
+  const archiveRequestRef = useRef(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [loadState, dispatchLoadState] = useReducer(previewStateReducer, { status: 'idle' } as const);
+  const [retryNonce, setRetryNonce] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const [wireframe, setWireframe] = useState(false);
+  const [tagsInput, setTagsInput] = useState("");
+  const [notesInput, setNotesInput] = useState("");
+  const [savedTags, setSavedTags] = useState<string[]>([]);
+  const [newCollectionName, setNewCollectionName] = useState("");
+  const [selectedCollectionId, setSelectedCollectionId] = useState("");
+  const activeTarget = target !== undefined ? target : targetFromLegacyProps(file, item);
+  const archiveTarget = activeTarget?.kind === 'archive' ? activeTarget : null;
+  const archiveKey = archiveTarget ? archivePreviewIdentity(archiveTarget) : '';
+  const archiveTargetRef = useRef(archiveTarget);
+  archiveTargetRef.current = archiveTarget;
+  const defaultQueryClient = useMemo<LibraryQueryClient>(() => ({
+    getLibraryPage: (query) => window.polytray.getLibraryPage(query),
+  }), []);
+  const pageClient = libraryQueryClient ?? defaultQueryClient;
+  const pageClientRef = useRef(pageClient);
+  pageClientRef.current = pageClient;
+  const stablePageClient = useMemo<LibraryQueryClient>(() => ({
+    getLibraryPage: (query) => pageClientRef.current.getLibraryPage(query),
+  }), []);
+  const archivePages = useMemo(() => {
+    const currentTarget = archiveTargetRef.current;
+    return currentTarget ? createArchivePreviewPages(currentTarget, stablePageClient) : null;
+  }, [archiveKey, stablePageClient]);
+  const [archiveView, setArchiveView] = useState<ArchivePreviewView>(EMPTY_ARCHIVE_VIEW);
+  const archiveViewRef = useRef(archiveView);
+  archiveViewRef.current = archiveView;
+  const currentArchiveView = archiveKey && archiveView.key === archiveKey ? archiveView : null;
+  const archiveFiles = currentArchiveView?.page?.files ?? [];
+  const currentFile = archiveTarget
+    ? archiveFiles[currentArchiveView?.selectedIndex ?? 0] ?? null
+    : activeTarget?.kind === 'file' ? activeTarget.file : null;
+  currentFileRef.current = currentFile;
+  const geometryIdentity = currentFile ? createPreviewGeometryIdentity(currentFile) : null;
+  const stateForCurrentFile = geometryIdentity && loadState.status !== 'idle' && loadState.identity === geometryIdentity
+    ? loadState
+    : geometryIdentity ? { status: 'loading' as const, identity: geometryIdentity, token: -1, progress: -1 } : { status: 'idle' as const };
   const currentCollections = React.useMemo(
     () =>
       currentFile
@@ -111,6 +210,131 @@ export const PreviewPanel: React.FC<Props> = ({
         : [],
     [collections, currentFile],
   );
+
+  const loadArchivePage = useCallback(async (offset: number, selectedIndex: number, selectedFilePath: string | null = null) => {
+    if (!archivePages || !archiveKey) return;
+    const request = ++archiveRequestRef.current;
+    setArchiveView((previous) => {
+      const current = previous.key === archiveKey ? previous : EMPTY_ARCHIVE_VIEW;
+      return {
+        ...current,
+        key: archiveKey,
+        loading: true,
+        error: null,
+        requestedOffset: offset,
+        requestedIndex: selectedIndex,
+        requestedFilePath: selectedFilePath,
+      };
+    });
+    try {
+      const page = await archivePages.loadPage(offset);
+      if (request !== archiveRequestRef.current) return;
+      const matchingIndex = selectedFilePath ? page.files.findIndex((record) => record.path === selectedFilePath) : -1;
+      setArchiveView({
+        key: archiveKey,
+        page,
+        selectedIndex: page.files.length
+          ? matchingIndex >= 0 ? matchingIndex : Math.min(Math.max(0, selectedIndex), page.files.length - 1)
+          : 0,
+        loading: false,
+        error: null,
+        requestedOffset: offset,
+        requestedIndex: selectedIndex,
+        requestedFilePath: selectedFilePath,
+      });
+    } catch (error: unknown) {
+      if (request !== archiveRequestRef.current) return;
+      setArchiveView((previous) => {
+        const current = previous.key === archiveKey ? previous : EMPTY_ARCHIVE_VIEW;
+        return {
+          ...current,
+          key: archiveKey,
+          loading: false,
+          error: error instanceof Error ? error.message : 'Could not load archive models.',
+          requestedOffset: offset,
+          requestedIndex: selectedIndex,
+          requestedFilePath: selectedFilePath,
+        };
+      });
+    }
+  }, [archiveKey, archivePages]);
+
+  useEffect(() => {
+    if (!archiveKey || !archivePages) {
+      setArchiveView(EMPTY_ARCHIVE_VIEW);
+      return;
+    }
+    void loadArchivePage(0, 0);
+    return () => {
+      archiveRequestRef.current++;
+      archivePages.dispose();
+    };
+  }, [archiveKey, archivePages, loadArchivePage]);
+
+  useEffect(() => {
+    if (!archiveKey || !archivePages) return;
+    return window.polytray.onThumbnailReady((data) => {
+      const contentRevision = Reflect.get(data, 'contentRevision') as unknown;
+      if (!Number.isSafeInteger(contentRevision)) return;
+      archivePages.updateThumbnail(data.fileId, contentRevision as number, data.thumbnailPath);
+      setArchiveView((previous) => {
+        if (previous.key !== archiveKey || !previous.page) return previous;
+        let changed = false;
+        const files = previous.page.files.map((record) => {
+          if (record.id !== data.fileId || record.content_revision !== contentRevision) return record;
+          changed = true;
+          return { ...record, thumbnail: data.thumbnailPath, thumbnail_failed: 0 };
+        });
+        return changed ? { ...previous, page: { ...previous.page, files } } : previous;
+      });
+    });
+  }, [archiveKey, archivePages]);
+
+  const handleArchiveStep = useCallback((direction: -1 | 1) => {
+    const view = archiveView.key === archiveKey ? archiveView : null;
+    const page = view?.page;
+    if (!page || view?.loading) return;
+    const nextIndex = view.selectedIndex + direction;
+    if (nextIndex >= 0 && nextIndex < page.files.length) {
+      setArchiveView({ ...view, selectedIndex: nextIndex });
+      return;
+    }
+    if (direction > 0 && page.nextOffset !== null) {
+      void loadArchivePage(page.nextOffset, 0);
+    } else if (direction < 0 && page.offset > 0 && archivePages) {
+      const previousOffset = Math.max(0, page.offset - archivePages.pageSize);
+      void loadArchivePage(previousOffset, archivePages.pageSize - 1);
+    }
+  }, [archiveKey, archivePages, archiveView, loadArchivePage]);
+
+  const handleArchiveRetry = useCallback(() => {
+    if (!archiveKey || archiveView.key !== archiveKey || !archiveView.error) return;
+    void loadArchivePage(archiveView.requestedOffset, archiveView.requestedIndex, archiveView.requestedFilePath);
+  }, [archiveKey, archiveView, loadArchivePage]);
+
+  useEffect(() => {
+    if (!archiveKey || !archivePages) return;
+    return window.polytray.onLibraryChanged((change) => {
+      if (!change.rowsChanged && !change.annotationsChanged) return;
+      const previous = archiveViewRef.current;
+      const page = previous.key === archiveKey ? previous.page : null;
+      const selectedFile = page?.files[previous.selectedIndex];
+      archivePages.invalidate(change.browseRevision);
+      void loadArchivePage(page?.offset ?? 0, previous.selectedIndex, selectedFile?.path ?? null);
+    });
+  }, [archiveKey, archivePages, loadArchivePage]);
+
+  const previewIsActive = activeTarget !== null;
+  useEffect(() => {
+    if (!previewIsActive) return;
+    return () => {
+      activeLoadRef.current?.abort();
+      activeLoadRef.current = null;
+      const session = viewerSessionRef.current;
+      viewerSessionRef.current = null;
+      session?.dispose();
+    };
+  }, [previewIsActive]);
 
   // Keep viewer canvas in sync when the container is resized (e.g. panel drag)
   useEffect(() => {
@@ -130,66 +354,75 @@ export const PreviewPanel: React.FC<Props> = ({
     return () => observer.disconnect();
   }, []);
 
-  // Load model when file changes
+  // Load geometry only when its stable file identity changes or the user retries.
   useEffect(() => {
-    if (!currentFile) return;
-
-    const abortController = new AbortController();
-    const { signal } = abortController;
-
-    // These setState calls are intentional: reset UI state before async loading
-    setLoading(true);
-    setLoadError(null);
+    if (!geometryIdentity) {
+      dispatchLoadState({ type: 'reset' });
+      return;
+    }
+    const loadToken = ++loadTokenRef.current;
+    const controller = new AbortController();
+    activeLoadRef.current = controller;
+    dispatchLoadState({ type: 'start', identity: geometryIdentity, token: loadToken });
     setWireframe(false);
     setExpanded(false);
 
-    const load = async () => {
-      // Wait for the container to have dimensions
-      await new Promise((r) => setTimeout(r, 50));
-      if (signal.aborted || !containerRef.current) return;
-
+    void (async () => {
       try {
-        initViewer(containerRef.current);
-        await loadModelWithWorker(
-          currentFile.path,
-          currentFile.extension,
-          currentFile.name,
-          currentFile.content_revision,
-          signal,
-          (percent) => {
-            if (!signal.aborted) setLoadProgress(percent);
-          }
-        );
-
-        if (signal.aborted) return;
-        setLoading(false);
-
-        // Thumbnail robustness: attempt one last generation if missing
-        if (!currentFile.thumbnail) {
-          window.polytray.requestThumbnailGeneration(currentFile.path, currentFile.extension, {
-            thumbnail_timeout: DEFAULT_APP_SETTINGS.thumbnail_timeout,
-            scanning_batch_size: DEFAULT_APP_SETTINGS.scanning_batch_size,
-            watcher_stability: DEFAULT_APP_SETTINGS.watcher_stability,
-            page_size: DEFAULT_APP_SETTINGS.page_size,
-            thumbnailColor,
-            thumbQuality: thumbQualityRef.current,
-          });
+        const fileToLoad = currentFileRef.current;
+        const container = containerRef.current;
+        if (!fileToLoad || !container || !(await waitForViewerContainer(container, controller.signal))) return;
+        if (controller.signal.aborted) return;
+        let session = viewerSessionRef.current;
+        if (!session || session.isDisposed) {
+          session = initViewer(container);
+          viewerSessionRef.current = session;
+          toggleGrid(showGridRef.current);
         }
-      } catch (e) {
-        if (signal.aborted || (e instanceof Error && e.name === "AbortError")) return;
-        console.error("Failed to load model:", e);
-        setLoadError("Failed to load model file");
-        setLoading(false);
+        await loadModelWithWorker(
+          fileToLoad.path,
+          fileToLoad.extension,
+          fileToLoad.name,
+          fileToLoad.content_revision,
+          controller.signal,
+          (progress) => {
+            dispatchLoadState({ type: 'progress', identity: geometryIdentity, token: loadToken, progress });
+          },
+        );
+        if (controller.signal.aborted || session.isDisposed) return;
+        dispatchLoadState({ type: 'ready', identity: geometryIdentity, token: loadToken });
+      } catch (error: unknown) {
+        if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) return;
+        console.error('Failed to load model:', error);
+        dispatchLoadState({
+          type: 'error', identity: geometryIdentity, token: loadToken,
+          message: "Couldn't load this model. Check the file and retry.",
+        });
       }
-    };
-
-    load();
+    })();
 
     return () => {
-      abortController.abort();
-      disposeViewer();
+      controller.abort();
+      if (activeLoadRef.current === controller) activeLoadRef.current = null;
     };
-  }, [currentFile, thumbnailColor]);
+  }, [geometryIdentity, retryNonce]);
+
+  useEffect(() => {
+    if (previewIsActive && viewerSessionRef.current) toggleGrid(showGrid);
+  }, [previewIsActive, showGrid]);
+
+  useEffect(() => {
+    if (!currentFile || !geometryIdentity || stateForCurrentFile.status !== 'ready' || currentFile.thumbnail) return;
+    const thumbnailSettings = {
+      thumbnail_timeout: DEFAULT_APP_SETTINGS.thumbnail_timeout,
+      scanning_batch_size: DEFAULT_APP_SETTINGS.scanning_batch_size,
+      watcher_stability: DEFAULT_APP_SETTINGS.watcher_stability,
+      page_size: DEFAULT_APP_SETTINGS.page_size,
+      thumbnailColor,
+      thumbQuality: thumbQualityRef.current,
+    };
+    void window.polytray.requestThumbnailGeneration(currentFile.path, currentFile.extension, thumbnailSettings);
+  }, [currentFile?.thumbnail, currentFile?.path, currentFile?.extension, geometryIdentity, stateForCurrentFile.status, thumbnailColor, thumbQuality]);
 
   // Fire resize when expanding/collapsing
   useEffect(() => {
@@ -204,21 +437,59 @@ export const PreviewPanel: React.FC<Props> = ({
 
   const handleClose = useCallback(() => {
     setExpanded(false);
-    disposeViewer();
+    activeLoadRef.current?.abort();
+    activeLoadRef.current = null;
+    const session = viewerSessionRef.current;
+    viewerSessionRef.current = null;
+    session?.dispose();
     onClose();
   }, [onClose]);
 
   const handleSaveTags = useCallback(async () => {
     if (!currentFile) return;
+    const fileId = currentFile.id;
     const normalized = normalizeFileTags(tagsInput.split(","));
     const updated = (await window.polytray.updateFileMetadata({
-      id: currentFile.id,
+      id: fileId,
       tags: normalized,
     })) as FileRecord;
-    setSavedTags(normalized);
-    setTagsInput(normalized.join(", "));
     onFileChange?.(updated);
-  }, [currentFile, onFileChange, tagsInput]);
+    if (currentFileRef.current?.id === fileId) {
+      setSavedTags(normalized);
+      setTagsInput(normalized.join(", "));
+    }
+    setArchiveView((previous) => {
+      if (!archiveKey || previous.key !== archiveKey || !previous.page) return previous;
+      let changed = false;
+      const files = previous.page.files.map((record) => {
+        if (record.id !== fileId) return record;
+        changed = true;
+        return updated;
+      });
+      return changed ? { ...previous, page: { ...previous.page, files } } : previous;
+    });
+  }, [archiveKey, currentFile, onFileChange, tagsInput]);
+
+  const handleSaveNotes = useCallback(async () => {
+    if (!currentFile) return;
+    const fileId = currentFile.id;
+    const updated = (await window.polytray.updateFileMetadata({
+      id: fileId,
+      notes: notesInput,
+    })) as FileRecord;
+    onFileChange?.(updated);
+    if (currentFileRef.current?.id === fileId) setNotesInput(updated.notes ?? '');
+    setArchiveView((previous) => {
+      if (!archiveKey || previous.key !== archiveKey || !previous.page) return previous;
+      let changed = false;
+      const files = previous.page.files.map((record) => {
+        if (record.id !== fileId) return record;
+        changed = true;
+        return updated;
+      });
+      return changed ? { ...previous, page: { ...previous.page, files } } : previous;
+    });
+  }, [archiveKey, currentFile, notesInput, onFileChange]);
 
   const handleCreateAndAddCollection = useCallback(() => {
     if (!currentFile || !newCollectionName.trim()) return;
@@ -235,43 +506,17 @@ export const PreviewPanel: React.FC<Props> = ({
     setSelectedCollectionId("");
   }, [currentFile, onAddFilesToCollection, selectedCollectionId]);
 
-  // Escape key
-  useEffect(() => {
-    if (!item) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (expanded) {
-          setExpanded(false);
-          setTimeout(() => window.dispatchEvent(new Event("resize")), 300);
-        } else {
-          handleClose();
-        }
-      }
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [item, expanded, handleClose]);
-
-  useEffect(() => {
-    if (item) {
-      toggleGrid(showGrid);
-    }
-  }, [showGrid, item]);
-
   useEffect(() => {
     const nextTags = parseStoredFileTags(currentFile?.tags);
     setSavedTags(nextTags);
     setTagsInput(nextTags.join(", "));
-  }, [currentFile?.id, currentFile?.tags]);
+    setNotesInput(currentFile?.notes ?? '');
+  }, [currentFile?.id, currentFile?.tags, currentFile?.notes]);
 
   useEffect(() => {
     setSelectedCollectionId("");
     setNewCollectionName("");
   }, [currentFile?.id]);
-
-  useEffect(() => {
-    setArchiveEntryIndex(0);
-  }, [archiveSummary?.path]);
 
   useEffect(() => {
     if (!selectedCollectionId) {
@@ -310,7 +555,7 @@ export const PreviewPanel: React.FC<Props> = ({
 
   const panelClasses = [
     "preview-panel",
-    !item ? "hidden" : "",
+    !previewIsActive ? "hidden" : "",
     expanded ? "expanded" : "",
     overlay && !expanded ? "overlay" : "",
   ]
@@ -326,24 +571,18 @@ export const PreviewPanel: React.FC<Props> = ({
     }
   }, [currentFile?.dimensions]);
 
-  const archiveFormats = archiveSummary
-    ? Array.from(new Set(archiveSummary.entries.map((entry) => entry.extension.toUpperCase()))).join(", ")
-    : "";
-  const renderArchiveThumb = (entry: FileRecord) => {
-    if (!entry.thumbnail) {
-      return <span className="archive-thumb-fallback">{entry.extension.toUpperCase()}</span>;
-    }
-
-    const src = entry.thumbnail.startsWith("data:")
-      ? entry.thumbnail
-      : undefined;
-
-    if (src) {
-      return <img src={src} alt={entry.name} draggable={false} />;
-    }
-
-    return <ArchiveThumbImage thumbnailPath={entry.thumbnail} name={entry.name} />;
-  };
+  const handleRetryPreview = useCallback(() => {
+    if (geometryIdentity) setRetryNonce((retry) => retry + 1);
+  }, [geometryIdentity]);
+  const archivePath = archiveTarget?.archive.archivePath ?? null;
+  const archiveName = archiveTarget?.archive.name ?? '';
+  const archivePage = currentArchiveView?.page ?? null;
+  const archiveTotal = archivePage?.totalModels ?? (archiveTarget?.archive.modelCount || null);
+  const archiveSelectedNumber = archivePage && currentFile
+    ? archivePage.offset + (currentArchiveView?.selectedIndex ?? 0) + 1
+    : null;
+  const progress = stateForCurrentFile.status === 'loading' ? stateForCurrentFile.progress : -1;
+  const modelLoadError = stateForCurrentFile.status === 'error' ? stateForCurrentFile.message : null;
 
   return (
     <aside
@@ -396,20 +635,65 @@ export const PreviewPanel: React.FC<Props> = ({
       </div>
 
       <div
-        className={`viewer-multi-model${archiveSummary ? "" : " hidden"}`}
+        className={`viewer-multi-model${archiveTarget ? "" : " hidden"}`}
         id="archive-preview-models"
       >
-        {archiveSummary?.entries.map((entry, index) => (
+        {archiveTarget && (
+          <button
+            id="archive-preview-previous"
+            type="button"
+            className="multi-model-thumb"
+            aria-label="Previous archive model"
+            title="Previous model"
+            disabled={!archivePage || currentArchiveView?.loading || (!archivePage.offset && !currentArchiveView?.selectedIndex)}
+            onClick={() => handleArchiveStep(-1)}
+          >
+            ‹
+          </button>
+        )}
+        {archivePage?.files.map((entry, index) => (
           <button
             key={entry.path}
             type="button"
-            className={`multi-model-thumb${archiveEntryIndex === index ? " active" : ""}`}
-            onClick={() => setArchiveEntryIndex(index)}
+            className={`multi-model-thumb${currentArchiveView?.selectedIndex === index ? " active" : ""}`}
+            disabled={currentArchiveView?.loading}
+            onClick={() => setArchiveView({ ...currentArchiveView!, selectedIndex: index })}
             title={`${entry.name}.${entry.extension}`}
           >
-            {renderArchiveThumb(entry)}
+            {entry.thumbnail
+              ? <ThumbnailImage thumbnailPath={entry.thumbnail} identity={entry.id} alt={`${entry.name}.${entry.extension}`} />
+              : <span className="archive-thumb-fallback">{entry.extension.toUpperCase()}</span>}
           </button>
         ))}
+        {archiveTarget && (
+          <>
+            <span id="archive-preview-count" aria-live="polite">
+              {currentArchiveView?.error && !archivePage
+                ? 'Archive models unavailable'
+                : archivePage
+                  ? `${archiveSelectedNumber ?? 0} of ${archivePage.totalModels} models`
+                  : 'Loading archive models…'}
+            </span>
+            <button
+              id="archive-preview-next"
+              type="button"
+              className="multi-model-thumb"
+              aria-label="Next archive model"
+              title="Next model"
+              disabled={!archivePage || currentArchiveView?.loading ||
+                (currentArchiveView!.selectedIndex >= archivePage.files.length - 1 && archivePage.nextOffset === null)}
+              onClick={() => handleArchiveStep(1)}
+            >
+              ›
+            </button>
+          </>
+        )}
+        {currentArchiveView?.error && (
+          <span role="alert">
+            {currentArchiveView.error}
+            <button type="button" id="archive-preview-retry" onClick={handleArchiveRetry}>Retry</button>
+          </span>
+        )}
       </div>
 
       <div className="viewer-multi-model hidden" id="viewer-multi-model" />
@@ -420,16 +704,32 @@ export const PreviewPanel: React.FC<Props> = ({
         className="viewer-container"
       />
 
+      {modelLoadError && (
+        <div
+          id="viewer-error"
+          role="alert"
+          style={{
+            position: 'absolute', inset: 'var(--toolbar-height) 0 0', zIndex: 11,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: 12, padding: 24, textAlign: 'center',
+            background: 'color-mix(in srgb, var(--bg-base) 94%, black 6%)',
+            color: 'var(--text-primary)',
+          }}
+        >
+          <span>{modelLoadError}</span>
+          <button id="btn-retry-preview" className="btn-copy-path" onClick={handleRetryPreview}>Retry</button>
+        </div>
+      )}
+
       <div
         id="viewer-loading"
-        className={`viewer-loading${loading ? "" : " hidden"}`}
+        className={`viewer-loading${stateForCurrentFile.status === 'loading' ? "" : " hidden"}`}
       >
-        {!loadError &&
-          (() => {
+        {(() => {
             const radius = 20;
             const circumference = 2 * Math.PI * radius;
-            const isIndeterminate = loadProgress < 0;
-            const pct = isIndeterminate ? 25 : loadProgress;
+            const isIndeterminate = progress < 0;
+            const pct = isIndeterminate ? 25 : progress;
             const offset = circumference - (pct / 100) * circumference;
             return (
               <div
@@ -446,17 +746,13 @@ export const PreviewPanel: React.FC<Props> = ({
                     strokeDashoffset={offset}
                   />
                 </svg>
-                {!isIndeterminate && (
-                  <span className="ring-label">{loadProgress}%</span>
-                )}
+                {!isIndeterminate && <span className="ring-label">{progress}%</span>}
               </div>
             );
           })()}
         <span>
-          {loadError
-            ? loadError
-            : loadProgress >= 0
-              ? `Loading model (${loadProgress}%)...`
+          {progress >= 0
+              ? `Loading model (${progress}%)...`
               : "Processing 3D data..."}
         </span>
       </div>
@@ -464,8 +760,8 @@ export const PreviewPanel: React.FC<Props> = ({
       <div className="viewer-footer">
         <div className="viewer-title">
           <h2 id="viewer-filename" style={{ userSelect: "text" }}>
-            {archiveSummary
-              ? archiveSummary.name
+            {archiveTarget
+              ? archiveName
               : currentFile
                 ? `${currentFile.name}.${currentFile.extension}`
                 : "model_name.stl"}
@@ -473,20 +769,20 @@ export const PreviewPanel: React.FC<Props> = ({
           <div
             className="viewer-path"
             id="viewer-path"
-            title={archiveSummary?.path || currentFile?.path || ""}
+            title={archivePath || currentFile?.path || ""}
           >
             <span
               style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}
             >
-              {archiveSummary?.path || currentFile?.path || ""}
+              {archivePath || currentFile?.path || ""}
             </span>
-            {(archiveSummary || currentFile) && (
+            {(archiveTarget || currentFile) && (
               <button
                 className="btn-copy-path"
                 title="Copy full path"
                 onClick={(e) => {
                   e.stopPropagation();
-                  navigator.clipboard.writeText(archiveSummary?.path || currentFile?.path || "");
+                  navigator.clipboard.writeText(archivePath || currentFile?.path || "");
                 }}
               >
                 <svg
@@ -506,8 +802,8 @@ export const PreviewPanel: React.FC<Props> = ({
             )}
           </div>
           <div className="viewer-meta" id="viewer-meta">
-            {archiveSummary
-              ? `${archiveSummary.entries.length} models | ${formatSize(archiveSummary.size_bytes)} total | ${archiveFormats || "Mixed formats"}${currentFile ? ` | Viewing: ${currentFile.name}.${currentFile.extension}` : ""}`
+            {archiveTarget
+              ? `${archiveTotal ?? '…'} models${currentFile ? ` | Viewing: ${currentFile.name}.${currentFile.extension}` : ""}`
               : currentFile
               ? `Volume: ${formatSize(currentFile.size_bytes)} | ${formatNumber(currentFile.face_count)} Faces | ${formatNumber(currentFile.vertex_count)} Vertices | ${formatDimensions(parsedDimensions)} | ${currentFile.extension.toUpperCase()}`
               : ""}
@@ -541,6 +837,33 @@ export const PreviewPanel: React.FC<Props> = ({
                 disabled={!currentFile}
               >
                 Save Tags
+              </button>
+            </div>
+          </div>
+          <div className="viewer-tags">
+            <div className="viewer-tags-header">Notes</div>
+            <div className="viewer-tag-editor" style={{ alignItems: 'stretch' }}>
+              <textarea
+                id="file-notes-input"
+                rows={3}
+                value={notesInput}
+                placeholder="Add a note about this model"
+                onChange={(event) => setNotesInput(event.target.value)}
+                disabled={!currentFile}
+                style={{
+                  minWidth: 0, flex: 1, resize: 'vertical',
+                  background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)',
+                  padding: '8px 10px', fontSize: 12,
+                }}
+              />
+              <button
+                id="save-file-notes"
+                className="btn-copy-path"
+                onClick={handleSaveNotes}
+                disabled={!currentFile}
+              >
+                Save Notes
               </button>
             </div>
           </div>

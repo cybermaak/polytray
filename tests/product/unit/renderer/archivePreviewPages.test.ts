@@ -66,10 +66,29 @@ test('stale browse revision rebases the page query and retries once at the retur
 test('thumbnail arrival patches cached archive pages without changing file geometry identity',async()=>{
   const loader=createArchivePreviewPages(target,{getLibraryPage:async query=>result(query.offset)});
   const before=await loader.loadPage(0);
-  loader.updateThumbnail(before.files[0].id,'/cache/new.png');
+  loader.updateThumbnail(before.files[0].id,before.files[0].content_revision - 1,'/cache/stale.png');
+  assert.equal((await loader.loadPage(0)).files[0].thumbnail,null);
+  loader.updateThumbnail(before.files[0].id,before.files[0].content_revision,'/cache/new.png');
   const after=await loader.loadPage(0);
   assert.equal(after.files[0].thumbnail,'/cache/new.png');
   assert.equal(after.files[0].content_revision,before.files[0].content_revision);
+  loader.dispose();
+});
+
+test('browse revision invalidation clears cached pages and uses the new revision for later offsets',async()=>{
+  const revisions:number[]=[];
+  const loader=createArchivePreviewPages(target,{getLibraryPage:async query=>{
+    const revision=query.expectedBrowseRevision ?? 7;
+    revisions.push(revision);
+    return result(query.offset,65,revision);
+  }});
+  await loader.loadPage(0);
+  assert.equal(loader.cachedPageCount,1);
+  loader.invalidate(8);
+  assert.equal(loader.cachedPageCount,0);
+  const page=await loader.loadPage(24);
+  assert.equal(page.revision,8);
+  assert.deepEqual(revisions,[7,8]);
   loader.dispose();
 });
 
