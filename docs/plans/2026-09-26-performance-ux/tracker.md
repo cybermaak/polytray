@@ -4,7 +4,7 @@
 
 **Execution authorized:** Luna agents at medium reasoning, isolated worktrees, task commits, and coordinator integration into local main. No push to origin/main without explicit user permission. F01, F02, D01-D03, S01, T03, V01, and the P02/P03 backup services are reviewed and integrated. Six implementation lanes cover S02/T01/V02/V03/U01/P01, with independent reviews. P02's renderer revision binding, pending-annotation provider, and user-facing export action remain explicitly owned by P04/U06; T03 consumers remain U01/T02. The original unregistered chat requests are superseded by the active assignments below.
 
-**Progress:** 11 / 33 DONE. Foundation 2/2; data 3/3; scanning 1/6; thumbnails 1/4; preview 1/5; browsing 1/6; product workflows 2/4; validation 0/3. D02's query service, IPC smoke, benchmark and reviews are complete; UI paging remains U01/V02.
+**Progress:** 13 / 33 DONE. Foundation 2/2; data 3/3; scanning 1/6; thumbnails 2/4; preview 1/5; browsing 1/6; product workflows 3/4; validation 0/3. D02's query service, IPC smoke, benchmark and reviews are complete; UI paging remains U01/V02.
 
 ## Status and update rules
 
@@ -29,8 +29,8 @@
 | S04 | [Dimensions and units](scanning.md#s04---correct-dimensions-units-and-measurement-provenance) | P2 | S03 | PLANNED | Unassigned | - |
 | S05 | [Watcher ordering and thumbnail availability](scanning.md#s05---index-watcher-changes-before-thumbnail-work-and-preserve-ordering) | P1 | D01, S03, T01 | PLANNED | Unassigned | - |
 | S06 | [Scan controls and targeted retry](scanning.md#s06---add-explicit-scan-job-pause-cancellation-and-targeted-retry) | P2 | S02, S03, S05 | PLANNED | Unassigned | - |
-| T01 | [Thumbnail identity and settlement](thumbnails.md#t01---make-thumbnail-requests-and-cache-identities-settle-correctly) | P1 | D01 | REVIEW | Luna/medium chat `01a0e201-7438-7391-9843-ac3d21ed3c67` | Static spec/quality PASS at `c810a3a`; actual hidden-renderer gate pending |
-| T02 | [Authoritative refresh and cache reset](thumbnails.md#t02---make-refresh-clear-and-cache-version-reset-authoritative) | P1 | T01 | PLANNED | Unassigned | - |
+| T01 | [Thumbnail identity and settlement](thumbnails.md#t01---make-thumbnail-requests-and-cache-identities-settle-correctly) | P1 | D01 | DONE | Luna/medium chat `01a0e201-7438-7391-9843-ac3d21ed3c67` | [T01](handoffs/T01.md); both reviews, actual hidden renderer and full Product PASS; merged `9479c7f` |
+| T02 | [Authoritative refresh and cache reset](thumbnails.md#t02---make-refresh-clear-and-cache-version-reset-authoritative) | P1 | T01 | READY | Luna/medium thumbnail chat | Reuse verified thumbnail checkout after new local branch |
 | T03 | [Shared path-only thumbnail presentation](thumbnails.md#t03---keep-file-state-path-only-and-share-thumbnail-reads) | P1 | F01, F02 | DONE | baseline_validation (Luna/medium) | [T03](handoffs/T03.md); spec/independent quality PASS, 12 focused tests/Type/Build/lint PASS; producer integrated `d1c44b7`, `1fd9c44`; consumers U01/T02 |
 | T04 | [Thumbnail queue controls and accounting](thumbnails.md#t04---centralize-thumbnail-queue-state-controls-and-retry-accounting) | P2 | T02 | PLANNED | Unassigned | - |
 | V01 | [Viewer lifetime and idle rendering](preview.md#v01---give-each-viewer-a-lifecycle-and-stop-drawing-when-idle) | P2 | F01, F02 | DONE | f01_foundation + s01_safe_scanning (Luna/medium) | [V01](handoffs/V01.md); reviewed and integrated through `cb63f7a` |
@@ -44,7 +44,7 @@
 | U04 | [Keyboard navigation and focus](browsing.md#u04---support-keyboard-navigation-and-predictable-focus) | P2 | U01, U03, V02 | PLANNED | Unassigned | - |
 | U05 | [Background work UI and watch preferences](browsing.md#u05---present-useful-progress-and-respect-watcher-preferences) | P2 | U02, S06, T04 | PLANNED | Unassigned | - |
 | U06 | [Workflow and measurement UI integration](browsing.md#u06---integrate-slicer-backuprestore-and-honest-measurements) | P2 | U04, P01, P02, P04, S04 | PLANNED | Unassigned | - |
-| P01 | [Local slicer and archive handoff](product.md#p01---add-explicit-local-slicer-handoff-including-zip-members) | P2 | F01, F02 | REVIEW | Luna/medium chat `01a0e204-6183-7ee2-a2ac-0bbd43568fa3` | [P01](handoffs/P01.md); source/reviews integrated through `5eda926`; combined 209 units/1 skip, Type/Build PASS; startup Product pending |
+| P01 | [Local slicer and archive handoff](product.md#p01---add-explicit-local-slicer-handoff-including-zip-members) | P2 | F01, F02 | DONE | Luna/medium chat `01a0e204-6183-7ee2-a2ac-0bbd43568fa3` | [P01](handoffs/P01.md); source/reviews and combined startup Product PASS at T01 merge `9479c7f`; U06 owns explicit UI activation |
 | P02 | [Versioned metadata export](product.md#p02---export-complete-versioned-metadata-backups) | P2 | F01, F02 | DONE | s01_safe_scanning (Luna/medium) | [P02](handoffs/P02.md); producer reviewed/integrated `e1c66e8`, `6de841f`; consumer binding P04/U06 |
 | P03 | [Deterministic import preview](product.md#p03---preview-imports-and-compute-deterministic-mergeconflict-results) | P2 | P02, D01 | DONE | Luna/medium chat `01a0e202-0863-7f30-bfb8-c159d2e58053` | [P03](handoffs/P03.md); independent spec/coordinator quality PASS; combined Type/Build, 182 units/1 skip; integrated `447cebe` through `eb2f00e` plus test fixture integration |
 | P04 | [Recoverable restore transaction](product.md#p04---apply-restores-with-crash-recovery-across-both-stores) | P2 | P03, S02 | PLANNED | Unassigned | - |
@@ -106,6 +106,8 @@ V02 can now proceed independently in the completed import checkout: V03's source
 
 | 2026-09-27 | Test-launch repair | Exact native stack proved macOS crash-restore dialog blocked Electron ready; per-launch ignore-state flag removes it without global preference/state changes. Independent spec/quality and portable helper tests 3/3 PASS | Integrated `55b1bed`; all new app tests must use shared launch arguments. S02 database-startup stop still needs separate diagnosis |
 | 2026-09-27 | P01 source integration | Independent spec/quality corrections complete; combined Type/Build and 209 unit passes/1 Windows-only skip PASS | Kept REVIEW pending combined Product startup gate; U06 activation remains downstream |
+
+| 2026-09-27 | T01/P01 combined gate | 219 unit passes/1 Windows skip, 38 E2E passes/1 optional model skip; actual hidden-renderer lifecycle and startup passed. Both source reviews PASS | Merged `9479c7f`; source/test/config tree matches tested `a809295` exactly, combined main Type/Build PASS. T01 and P01 DONE; S02 takes native lane |
 
 ## Blockers and decisions
 
