@@ -1,4 +1,5 @@
 import type { FileRecord } from "../../shared/types";
+import type { LibraryArchiveItem, LibraryItem } from "../../shared/libraryQuery";
 import {
   ARCHIVE_ENTRY_SEPARATOR,
   parseArchiveEntryPath,
@@ -24,7 +25,25 @@ export interface ArchiveSummaryRecord {
   entries: FileRecord[];
 }
 
-export type DisplayFileRecord = FileRecord | ArchiveSummaryRecord;
+export interface LibraryArchiveDisplayRecord {
+  kind: "archive-summary";
+  key: string;
+  path: string;
+  archivePath: string;
+  name: string;
+  extension: "zip";
+  directory: string;
+  size_bytes: number;
+  vertex_count: number;
+  face_count: number;
+  thumbnail: null;
+  thumbnail_failed: number;
+  modelCount: number;
+  thumbnailSamples: FileRecord[];
+  source: LibraryArchiveItem;
+}
+
+export type DisplayFileRecord = FileRecord | ArchiveSummaryRecord | LibraryArchiveDisplayRecord;
 
 function basename(filePath: string) {
   const normalized = filePath.replace(/\\+/g, "/").replace(/\/+$/, "");
@@ -44,7 +63,34 @@ function dirname(filePath: string) {
 export function isArchiveSummaryRecord(
   file: DisplayFileRecord,
 ): file is ArchiveSummaryRecord {
-  return "kind" in file && file.kind === "archive-summary";
+  return "kind" in file && file.kind === "archive-summary" && "entries" in file;
+}
+
+export function isLibraryArchiveDisplayRecord(
+  file: DisplayFileRecord,
+): file is LibraryArchiveDisplayRecord {
+  return "kind" in file && file.kind === "archive-summary" && "source" in file;
+}
+
+export function libraryItemToDisplayRecord(item: LibraryItem): FileRecord | LibraryArchiveDisplayRecord {
+  if (item.kind === "file") return item.file;
+  return {
+    kind: "archive-summary",
+    key: item.key,
+    path: item.archivePath,
+    archivePath: item.archivePath,
+    name: item.name,
+    extension: "zip",
+    directory: dirname(item.archivePath),
+    size_bytes: item.sizeBytes,
+    vertex_count: item.vertexCount,
+    face_count: item.faceCount,
+    thumbnail: null,
+    thumbnail_failed: 0,
+    modelCount: item.modelCount,
+    thumbnailSamples: item.thumbnailSamples,
+    source: item,
+  };
 }
 
 export function getArchiveRootVirtualPath(archivePath: string) {

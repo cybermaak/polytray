@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { formatDimensions, formatNumber, formatSize } from "../lib/formatters";
 import type { FileRecord, ModelDimensions } from "../../shared/types";
 import { parseStoredFileTags } from "../../shared/fileTags";
+import { ThumbnailImage } from "./ThumbnailImage";
 
 interface Props {
   files: FileRecord[];
@@ -9,43 +10,18 @@ interface Props {
   onOpenPreview: (file: FileRecord) => void;
 }
 
-const CompareThumbnail: React.FC<{ thumbnailPath: string | null; name: string }> = ({
-  thumbnailPath,
-  name,
-}) => {
-  const [src, setSrc] = useState<string | null>(null);
-
-  useEffect(() => {
-    let disposed = false;
-    setSrc(null);
-
-    if (!thumbnailPath) {
-      return () => {
-        disposed = true;
-      };
-    }
-
-    window.polytray.readThumbnail(thumbnailPath).then((value) => {
-      if (!disposed) {
-        setSrc(value);
-      }
-    });
-
-    return () => {
-      disposed = true;
-    };
-  }, [thumbnailPath]);
-
-  if (!src) {
-    return (
-      <div className="compare-thumb-placeholder">
-        <span>{name.slice(0, 1).toUpperCase()}</span>
-      </div>
-    );
-  }
-
-  return <img className="compare-thumb-image" src={src} alt={name} />;
-};
+const CompareThumbnail: React.FC<{ file: FileRecord }> = ({ file }) => (
+  <div className="compare-thumb-placeholder" style={{ position: "relative" }}>
+    <span>{file.name.slice(0, 1).toUpperCase()}</span>
+    <ThumbnailImage
+      thumbnailPath={file.thumbnail}
+      identity={file.content_revision}
+      className="compare-thumb-image"
+      alt=""
+      style={{ position: "absolute", inset: 0 }}
+    />
+  </div>
+);
 
 function parseDimensions(dimensions: string | null | undefined): ModelDimensions | null {
   if (!dimensions) return null;
@@ -80,7 +56,7 @@ export const ComparePanel: React.FC<Props> = ({ files, onClose, onOpenPreview })
           return (
             <section key={file.id} className="compare-card" id={`compare-card-${index + 1}`}>
               <div className="compare-thumb-wrap">
-                <CompareThumbnail thumbnailPath={file.thumbnail} name={file.name} />
+                <CompareThumbnail file={file} />
               </div>
               <div className="compare-card-body">
                 <div className="compare-file-header">

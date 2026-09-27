@@ -1,114 +1,76 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import { VirtuosoGrid } from "react-virtuoso";
 import { formatSize, formatTimestamp, formatVertices } from "../lib/formatters";
 import type { FileRecord } from "../../shared/types";
 import { isArchiveEntryPath } from "../../shared/archivePaths";
+import { ThumbnailImage } from "./ThumbnailImage";
 import {
   type DisplayFileRecord,
+  isLibraryArchiveDisplayRecord,
   isArchiveSummaryRecord,
 } from "../lib/archiveDisplay";
 
 interface Props {
   files: DisplayFileRecord[];
   gridSize: "small" | "medium" | "large";
-  activeFileId: number | null;
-  comparisonFileIds: number[];
-  selectedFileIds: number[];
-  onToggleFileSelection: (fileId: number) => void;
+  activeItemKey: string | null;
+  comparisonItemKeys: ReadonlySet<string>;
+  selectedFileIds: ReadonlySet<number>;
+  onToggleFileSelection: (file: FileRecord) => void;
   onSelectFile: (file: DisplayFileRecord) => void;
-  onOpenArchive: (file: DisplayFileRecord) => void;
+  onOpenArchive: (archivePath: string) => void;
+  pageLoading: boolean;
+  pageRefreshing: boolean;
+  pageLoadingNext: boolean;
+  pageError: string | null;
+  hasMore: boolean;
+  onEndReached: () => void;
+  onRetry: () => void;
 }
 
-const ThumbnailImage: React.FC<{ thumbnailPath: string; name: string }> = ({
-  thumbnailPath,
-  name,
-}) => {
-  const [src, setSrc] = useState<string | null>(null);
-  const mountedRef = useRef(true);
+function isArchiveDisplay(file: DisplayFileRecord): file is Extract<DisplayFileRecord, { kind: "archive-summary" }> {
+  return isArchiveSummaryRecord(file) || isLibraryArchiveDisplayRecord(file);
+}
 
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
+function archiveThumbnailSamples(file: Extract<DisplayFileRecord, { kind: "archive-summary" }>) {
+  return isLibraryArchiveDisplayRecord(file) ? file.thumbnailSamples : file.entries.slice(0, 4);
+}
 
-  useEffect(() => {
-    let canceled = false;
-    setSrc(null);
-    window.polytray.readThumbnail(thumbnailPath).then((dataUrl) => {
-      if (!canceled && mountedRef.current) {
-        setSrc(dataUrl);
-      }
-    });
-    return () => {
-      canceled = true;
-    };
-  }, [thumbnailPath]);
+function archiveModelCount(file: Extract<DisplayFileRecord, { kind: "archive-summary" }>) {
+  return isLibraryArchiveDisplayRecord(file) ? file.modelCount : file.entries.length;
+}
 
-  if (!src) {
-    return null;
-  }
+function archivePath(file: Extract<DisplayFileRecord, { kind: "archive-summary" }>) {
+  return isLibraryArchiveDisplayRecord(file) ? file.archivePath : file.path;
+}
 
-  return <img src={src} alt={name} draggable={false} />;
-};
+function displayItemKey(file: DisplayFileRecord) {
+  if (isLibraryArchiveDisplayRecord(file)) return file.key;
+  if (isArchiveSummaryRecord(file)) return `archive:${file.path}`;
+  return `file:${file.id}`;
+}
 
-const ArchiveThumbnailGrid: React.FC<{ files: FileRecord[] }> = ({ files }) => {
-  const [sources, setSources] = useState<string[]>([]);
-
-  useEffect(() => {
-    let canceled = false;
-    const thumbnails = files
-      .map((file) => file.thumbnail)
-      .filter((thumbnail): thumbnail is string => Boolean(thumbnail))
-      .slice(0, 4);
-
-    if (thumbnails.length === 0) {
-      setSources([]);
-      return;
-    }
-
-    Promise.all(
-      thumbnails.map((thumbnailPath) =>
-        thumbnailPath.startsWith("data:")
-          ? Promise.resolve(thumbnailPath)
-          : window.polytray.readThumbnail(thumbnailPath),
-      ),
-    ).then((resolved) => {
-      if (!canceled) {
-        setSources(resolved.filter((entry): entry is string => Boolean(entry)));
-      }
-    });
-
-    return () => {
-      canceled = true;
-    };
-  }, [files]);
-
-  if (sources.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="archive-thumbnail-grid">
-      {sources.map((src, index) => (
-        <img key={`${index}-${src}`} src={src} alt="" draggable={false} />
-      ))}
-    </div>
-  );
-};
+const ArchiveThumbnailGrid: React.FC<{ files: FileRecord[] }> = ({ files }) => (
+  <div className="archive-thumbnail-grid">
+    {files.slice(0, 4).map((file) => (
+      <ThumbnailImage key={file.id} thumbnailPath={file.thumbnail} identity={file.content_revision} alt="" />
+    ))}
+  </div>
+);
 
 const FileCard: React.FC<{
   file: DisplayFileRecord;
   selected: boolean;
   selectedForBatch: boolean;
-  onToggleSelect: () => void;
-  onClick: () => void;
-  onDoubleClick: () => void;
+  onToggleSelect: (file: FileRecord) => void;
+  onClick: (file: DisplayFileRecord) => void;
+  onDoubleClick: (archivePath: string) => void;
 }> = ({ file, selected, selectedForBatch, onToggleSelect, onClick, onDoubleClick }) => {
-  const isArchiveSummary = isArchiveSummaryRecord(file);
+  const isArchiveSummary = isArchiveDisplay(file);
+  const fileRecord = isArchiveSummary ? null : file as FileRecord;
   const extClass = file.extension === "3mf" ? "threemf" : file.extension;
-  const isArchiveEntry = !isArchiveSummary && isArchiveEntryPath(file.path);
+  const itemPath = isLibraryArchiveDisplayRecord(file) ? file.archivePath : file.path;
+  const isArchiveEntry = fileRecord ? isArchiveEntryPath(fileRecord.path) : false;
   const clickTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -121,7 +83,7 @@ const FileCard: React.FC<{
 
   const handleCardClick = () => {
     if (!isArchiveSummary) {
-      onClick();
+      onClick(file);
       return;
     }
 
@@ -131,7 +93,7 @@ const FileCard: React.FC<{
 
     clickTimeoutRef.current = window.setTimeout(() => {
       clickTimeoutRef.current = null;
-      onClick();
+      onClick(file);
     }, 180);
   };
 
@@ -140,28 +102,29 @@ const FileCard: React.FC<{
       window.clearTimeout(clickTimeoutRef.current);
       clickTimeoutRef.current = null;
     }
-    onDoubleClick();
+    if (isArchiveDisplay(file)) onDoubleClick(archivePath(file));
   };
 
   return (
     <div
       className={`file-card${selected ? " selected" : ""}${isArchiveSummary ? " archive-summary" : ""}`}
-      data-file-id={file.id}
-      title={file.path}
+      data-item-key={displayItemKey(file)}
+      {...(fileRecord ? { "data-file-id": fileRecord.id } : {})}
+      title={itemPath}
       onClick={handleCardClick}
       onDoubleClick={handleCardDoubleClick}
       draggable={!isArchiveEntry && !isArchiveSummary}
       onDragStart={(e) => {
         if (isArchiveEntry || isArchiveSummary) return;
         e.preventDefault();
-        window.polytray.startDrag(file.path);
+        if (fileRecord) window.polytray.startDrag(fileRecord.path);
       }}
       onContextMenu={(e) => {
         e.preventDefault();
         if (isArchiveSummary || isArchiveEntry) {
-          window.polytray.showArchiveContextMenu(file.path, isArchiveSummary);
+          window.polytray.showArchiveContextMenu(itemPath, isArchiveSummary);
         } else {
-          window.polytray.showContextMenu(file.path);
+          window.polytray.showContextMenu(itemPath);
         }
       }}
     >
@@ -171,7 +134,7 @@ const FileCard: React.FC<{
           className={`file-select-toggle${selectedForBatch ? " active" : ""}`}
           onClick={(e) => {
             e.stopPropagation();
-            onToggleSelect();
+            if (fileRecord) onToggleSelect(fileRecord);
           }}
         >
           {selectedForBatch ? "✓" : ""}
@@ -208,9 +171,9 @@ const FileCard: React.FC<{
           </>
         )}
         {isArchiveSummary ? (
-          <ArchiveThumbnailGrid files={file.entries} />
+          <ArchiveThumbnailGrid files={archiveThumbnailSamples(file)} />
         ) : (
-          file.thumbnail && <ThumbnailImage thumbnailPath={file.thumbnail} name={file.name} />
+          <ThumbnailImage thumbnailPath={fileRecord?.thumbnail} identity={fileRecord?.content_revision} alt="" />
         )}
         <span className={`card-ext-badge ${extClass}`}>{file.extension.toUpperCase()}</span>
         {isArchiveEntry && (
@@ -219,8 +182,8 @@ const FileCard: React.FC<{
           </span>
         )}
         {isArchiveSummary && (
-          <span className="card-source-badge" title={`${file.entries.length} models in archive`}>
-            {file.entries.length} items
+          <span className="card-source-badge" title={`${archiveModelCount(file)} models in archive`}>
+            {archiveModelCount(file)} items
           </span>
         )}
       </div>
@@ -230,7 +193,7 @@ const FileCard: React.FC<{
           {isArchiveSummary ? (
             <>
               <span>{formatSize(file.size_bytes)}</span>
-              <span>{file.entries.length} models</span>
+            <span>{archiveModelCount(file)} models</span>
             </>
           ) : (
             <>
@@ -239,27 +202,41 @@ const FileCard: React.FC<{
             </>
           )}
         </div>
-        <div className="card-timestamp">{formatTimestamp(file.modified_at)}</div>
+        <div className="card-timestamp">{fileRecord ? formatTimestamp(fileRecord.modified_at) : "Archive"}</div>
       </div>
     </div>
   );
 };
 
-const FileCardMemo = React.memo(FileCard, (prev, next) => {
-  const prevArchive = isArchiveSummaryRecord(prev.file) ? prev.file.entries.map((entry) => `${entry.id}:${entry.thumbnail ?? ""}`).join("|") : "";
-  const nextArchive = isArchiveSummaryRecord(next.file) ? next.file.entries.map((entry) => `${entry.id}:${entry.thumbnail ?? ""}`).join("|") : "";
-  return (
-    prev.file.id === next.file.id &&
-    prev.file.thumbnail === next.file.thumbnail &&
-    prevArchive === nextArchive &&
-    prev.selected === next.selected &&
-    prev.selectedForBatch === next.selectedForBatch
-  );
-});
+const FileCardMemo = React.memo(FileCard);
+
+interface GridContext {
+  gridSize: string;
+  pageRefreshing: boolean;
+  pageLoadingNext: boolean;
+  pageError: string | null;
+  hasMore: boolean;
+  onRetry: () => void;
+}
+
+const GridFooter: React.FC<{ context?: GridContext }> = ({ context }) => {
+  if (!context) return null;
+  if (context.pageError) {
+    return (
+      <div className="library-page-footer" role="status" aria-live="polite">
+        <span>{context.pageError}</span>
+        <button type="button" className="btn-secondary" onClick={context.onRetry}>Retry</button>
+      </div>
+    );
+  }
+  if (context.pageRefreshing) return <div className="library-page-footer" role="status">Refreshing results…</div>;
+  if (context.pageLoadingNext) return <div className="library-page-footer" role="status">Loading more…</div>;
+  return context.hasMore ? <div className="library-page-footer" aria-hidden="true" /> : null;
+};
 
 const GridList = React.forwardRef<
   HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement> & { context?: { gridSize?: string } }
+  React.HTMLAttributes<HTMLDivElement> & { context?: GridContext }
 >(({ style, children, context, ...props }, ref) => {
   return (
     <div
@@ -289,14 +266,32 @@ const GridItem = ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) 
 export const FileGrid: React.FC<Props> = ({
   files,
   gridSize,
-  activeFileId,
-  comparisonFileIds,
+  activeItemKey,
+  comparisonItemKeys,
   selectedFileIds,
   onToggleFileSelection,
   onSelectFile,
   onOpenArchive,
+  pageLoading,
+  pageRefreshing,
+  pageLoadingNext,
+  pageError,
+  hasMore,
+  onEndReached,
+  onRetry,
 }) => {
   if (files.length === 0) {
+    if (pageError) {
+      return (
+        <div className="library-page-empty-status" role="status" aria-live="polite">
+          <span>{pageError}</span>
+          <button type="button" className="btn-secondary" onClick={onRetry}>Retry</button>
+        </div>
+      );
+    }
+    if (pageLoading || pageRefreshing) {
+      return <div className="library-page-empty-status" role="status">Loading library…</div>;
+    }
     return null;
   }
 
@@ -304,17 +299,18 @@ export const FileGrid: React.FC<Props> = ({
     <VirtuosoGrid
       style={{ flex: 1, minHeight: 0 }}
       data={files}
-      context={{ gridSize }}
-      components={{ List: GridList, Item: GridItem }}
+      context={{ gridSize, pageRefreshing, pageLoadingNext, pageError, hasMore, onRetry }}
+      components={{ List: GridList, Item: GridItem, Footer: GridFooter }}
+      computeItemKey={(_index, item) => displayItemKey(item)}
+      endReached={hasMore ? onEndReached : undefined}
       itemContent={(index, file) => (
         <FileCardMemo
-          key={file.id}
           file={file}
-          selected={activeFileId === file.id || comparisonFileIds.includes(file.id)}
-          selectedForBatch={selectedFileIds.includes(file.id)}
-          onToggleSelect={() => onToggleFileSelection(file.id)}
-          onClick={() => onSelectFile(file)}
-          onDoubleClick={() => onOpenArchive(file)}
+          selected={activeItemKey === displayItemKey(file) || comparisonItemKeys.has(displayItemKey(file))}
+          selectedForBatch={!isArchiveDisplay(file) && selectedFileIds.has(file.id)}
+          onToggleSelect={onToggleFileSelection}
+          onClick={onSelectFile}
+          onDoubleClick={onOpenArchive}
         />
       )}
     />

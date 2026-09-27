@@ -5,7 +5,7 @@
  * vanilla index.html + app.js, ensuring CSS and E2E tests work unchanged.
  */
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { Toolbar } from "./components/Toolbar";
 import { PreviewPanel } from "./components/PreviewPanel";
@@ -18,12 +18,14 @@ import { ScanProgress } from "./components/ScanProgress";
 import { createRefreshDebouncer } from "./lib/refreshDebouncer";
 import { getScanProgressPresentation } from "./lib/scanProgress";
 import { calculatePanelLayout } from "./lib/panelLayout";
+import { libraryQueryScopeKey, useLibraryPages } from "./hooks/useLibraryPages";
 import {
-  collapseArchiveEntriesForDisplay,
   type DisplayFileRecord,
   formatArchiveFolderLabel,
   getArchiveRootVirtualPath,
   isArchiveSummaryRecord,
+  isLibraryArchiveDisplayRecord,
+  libraryItemToDisplayRecord,
 } from "./lib/archiveDisplay";
 import {
   AppSettings,
@@ -54,6 +56,9 @@ import {
 } from "../shared/libraryCollections";
 import { normalizeFileTags, parseStoredFileTags } from "../shared/fileTags";
 import type { FileRecord, ScanProgressData } from "../shared/types";
+import type { LibraryQuery, LibraryItem } from "../shared/libraryQuery";
+import type { PreviewTarget } from "../shared/previewTarget";
+import { thumbnailImageCache } from "./lib/thumbnailImageCache";
 
 interface LibraryStats {
   total: number;
@@ -80,21 +85,23 @@ export const App: React.FC = () => {
     threemf: 0,
     totalSize: 0,
   });
-  const [files, setFiles] = useState<FileRecord[]>([]);
+  const [legacyFiles, setLegacyFiles] = useState<FileRecord[]>([]);
+  const [legacyTotalItems, setLegacyTotalItems] = useState(0);
+  const [libraryReady, setLibraryReady] = useState(false);
   const [sort, setSort] = useState("name");
   const [order, setOrder] = useState<"ASC" | "DESC">("ASC");
   const [extension, setExtension] = useState<string | null>(null);
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [directories, setDirectories] = useState<string[]>([]);
   const [search, setSearch] = useState("");
-  const [previewFile, setPreviewFile] = useState<FileRecord | null>(null);
-  const [previewItem, setPreviewItem] = useState<DisplayFileRecord | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
   const [comparisonFiles, setComparisonFiles] = useState<FileRecord[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collectionsState, setCollectionsState] = useState<CollectionsState>(
     DEFAULT_COLLECTIONS_STATE,
   );
-  const [selectedFileIds, setSelectedFileIds] = useState<number[]>([]);
+  const [selectedFilesById, setSelectedFilesById] = useState<Map<number, FileRecord>>(() => new Map());
+  const [selectionAnnouncement, setSelectionAnnouncement] = useState("");
   const [batchTagsInput, setBatchTagsInput] = useState("");
   const [batchCollectionId, setBatchCollectionId] = useState("");
   const [progress, setProgress] = useState<ProgressState>({
@@ -118,12 +125,43 @@ export const App: React.FC = () => {
     (collection) => collection.id === collectionsState.activeCollectionId,
   ) || null;
   const activeCollectionLabel = activeCollection?.name || null;
-  const selectedFiles = files.filter((file) => selectedFileIds.includes(file.id));
-  const displayFiles = collapseArchiveEntriesForDisplay(files, {
-    activeFolder,
+  const previewFile = previewTarget?.kind === "file" ? previewTarget.file : null;
+  const pageQuery = useMemo<LibraryQuery>(() => ({
+    sort: sort as LibraryQuery["sort"],
+    direction: order,
+    extension,
+    folder: activeFolder,
     search,
-    hasActiveCollection: Boolean(collectionsState.activeCollectionId),
-  });
+    collectionPaths: activeCollection?.filePaths ?? null,
+    limit: settings.page_size,
+    offset: 0,
+  }), [sort, order, extension, activeFolder, search, activeCollection, settings.page_size]);
+  const libraryPages = useLibraryPages(pageQuery, libraryReady);
+  const legacyItems = useMemo<LibraryItem[]>(() => legacyFiles.map((file) => ({
+    kind: "file",
+    key: `file:${file.id}`,
+    file,
+  })), [legacyFiles]);
+  const pageItems = libraryPages.ready
+    ? libraryPages.items
+    : libraryPages.generation <= 1 ? legacyItems : [];
+  const displayFiles = useMemo(() => pageItems.map(libraryItemToDisplayRecord), [pageItems]);
+  const selectedFiles = useMemo(() => [...selectedFilesById.values()], [selectedFilesById]);
+  const selectedFileIds = useMemo(() => new Set(selectedFilesById.keys()), [selectedFilesById]);
+  const comparisonItemKeys = useMemo(
+    () => new Set(comparisonFiles.map((file) => `file:${file.id}`)),
+    [comparisonFiles],
+  );
+  const activeItemKey = previewTarget
+    ? previewTarget.kind === "file" ? `file:${previewTarget.file.id}` : previewTarget.archive.key
+    : null;
+  const resultTotalItems = libraryPages.ready ? libraryPages.totalItems : legacyTotalItems;
+  const resultTotalModels = libraryPages.ready ? libraryPages.totalModels : legacyTotalItems;
+  const resultCountLabel = !libraryReady || (libraryPages.loading && !libraryPages.ready)
+    ? "Loading result counts…"
+    : resultTotalItems === resultTotalModels
+      ? `${resultTotalModels} ${resultTotalModels === 1 ? "model" : "models"}`
+      : `${resultTotalItems} items / ${resultTotalModels} models`;
   const comparisonActive = comparisonFiles.length === 2;
 
   // Refs to get latest state in IPC callbacks
@@ -145,6 +183,9 @@ export const App: React.FC = () => {
   settingsRef.current = settings;
   const libraryStateRef = useRef<LibraryState>(DEFAULT_LIBRARY_STATE);
   const collectionsStateRef = useRef<CollectionsState>(DEFAULT_COLLECTIONS_STATE);
+  collectionsStateRef.current = collectionsState;
+  const selectedFilesRef = useRef(selectedFilesById);
+  selectedFilesRef.current = selectedFilesById;
   const fileRefreshDebouncerRef = useRef<ReturnType<
     typeof createRefreshDebouncer
   > | null>(null);
@@ -223,33 +264,56 @@ export const App: React.FC = () => {
     );
   }, []);
 
-  const fetchFiles = useCallback(async () => {
-    const result = await window.polytray.getFiles({
-      sort: sortRef.current,
-      order: orderRef.current,
-      extension: extensionRef.current,
-      folder: activeFolderRef.current,
-      search: searchRef.current,
-      limit: settings.page_size,
-      offset: 0,
-    });
-    const collection = collectionsStateRef.current.collections.find(
-      (entry) => entry.id === collectionsStateRef.current.activeCollectionId,
-    );
-    const filteredFiles = collection
-      ? result.files.filter((file) => collection.filePaths.includes(file.path))
-      : result.files;
-    setFiles(filteredFiles);
+  const clearSelection = useCallback((announcement = "Selection cleared because the library query changed.") => {
+    if (selectedFilesRef.current.size === 0) return;
+    selectedFilesRef.current = new Map();
+    setSelectedFilesById(new Map());
+    setBatchTagsInput("");
+    setBatchCollectionId("");
+    setSelectionAnnouncement(announcement);
+  }, []);
 
-    const s = await window.polytray.getStats();
-    setStats(s);
-    const d = await window.polytray.getDirectories();
-    setDirectories(d);
-  }, [settings.page_size]);
+  const updateSelectedFile = useCallback((file: FileRecord) => {
+    const current = selectedFilesRef.current;
+    if (!current.has(file.id)) return;
+    const next = new Map(current);
+    next.set(file.id, file);
+    selectedFilesRef.current = next;
+    setSelectedFilesById(next);
+  }, []);
+
+  const removeSelectedFiles = useCallback((ids: number[]) => {
+    if (ids.length === 0) return;
+    const next = new Map(selectedFilesRef.current);
+    for (const id of ids) next.delete(id);
+    selectedFilesRef.current = next;
+    setSelectedFilesById(next);
+    libraryPages.removeFiles(ids);
+  }, [libraryPages.removeFiles]);
+
+  const refreshLibrary = useCallback(async () => {
+    const pageRefresh = libraryPages.refresh();
+    const [nextStats, nextDirectories] = await Promise.all([
+      window.polytray.getStats(),
+      window.polytray.getDirectories(),
+    ]);
+    setStats(nextStats);
+    setDirectories(nextDirectories);
+    await pageRefresh;
+  }, [libraryPages.refresh]);
+
+  const queryScopeKey = libraryQueryScopeKey(pageQuery);
+  const previousScopeKey = useRef(queryScopeKey);
+  useEffect(() => {
+    if (previousScopeKey.current !== queryScopeKey) {
+      previousScopeKey.current = queryScopeKey;
+      clearSelection();
+    }
+  }, [clearSelection, queryScopeKey]);
 
   useEffect(() => {
     const debouncer = createRefreshDebouncer(() => {
-      void fetchFiles();
+      void refreshLibrary();
     }, 150);
     fileRefreshDebouncerRef.current = debouncer;
 
@@ -259,7 +323,7 @@ export const App: React.FC = () => {
         fileRefreshDebouncerRef.current = null;
       }
     };
-  }, [fetchFiles]);
+  }, [refreshLibrary]);
 
   // ── IPC Listeners (once) ────────────────────────────────────────
   useEffect(() => {
@@ -285,7 +349,7 @@ export const App: React.FC = () => {
           text: `Scan complete — ${data.totalFiles} files`,
         }));
 
-        await fetchFiles();
+        await refreshLibrary();
 
         window.polytray.startWatching(foldersRef.current, getRuntimeSettings());
 
@@ -348,16 +412,39 @@ export const App: React.FC = () => {
       window.polytray.onThumbnailReady(
         async (data: { fileId: number; thumbnailPath: string }) => {
           const { fileId, thumbnailPath } = data;
-          const dataUrl = await window.polytray.readThumbnail(thumbnailPath);
-          if (!dataUrl) return;
-
-          setFiles((prevFiles) =>
-            prevFiles.map((f) =>
-              f.id === fileId ? { ...f, thumbnail: dataUrl } : f,
-            ),
-          );
+          thumbnailImageCache.invalidate(thumbnailPath);
+          const file = await window.polytray.getFileById(fileId);
+          if (!file) return;
+          libraryPages.patchFile(file);
+          updateSelectedFile(file);
+          setLegacyFiles((previous) => previous.map((entry) => entry.id === fileId ? file : entry));
+          setPreviewTarget((current) => current?.kind === "file" && current.file.id === fileId
+            ? { kind: "file", file }
+            : current);
         },
       ),
+    );
+
+    cleanups.push(
+      window.polytray.onLibraryChanged(async (mutation) => {
+        if (mutation.rowsChanged || mutation.annotationsChanged) {
+          const affected = new Set(mutation.affectedPaths);
+          const selected = [...selectedFilesRef.current.values()].filter((file) => affected.has(file.path));
+          const results = await Promise.all(selected.map(async (file) => ({
+            id: file.id,
+            latest: await window.polytray.getFileById(file.id),
+          })));
+          const deletedIds = results.filter((result) => !result.latest).map((result) => result.id);
+          for (const result of results) {
+            if (result.latest) {
+              libraryPages.patchFile(result.latest);
+              updateSelectedFile(result.latest);
+            }
+          }
+          removeSelectedFiles(deletedIds);
+          fileRefreshDebouncerRef.current?.trigger();
+        }
+      }),
     );
 
     cleanups.push(
@@ -369,7 +456,7 @@ export const App: React.FC = () => {
     return () => {
       cleanups.forEach((c) => c());
     };
-  }, [fetchFiles, getRuntimeSettings]);
+  }, [getRuntimeSettings, libraryPages.patchFile, refreshLibrary, removeSelectedFiles, updateSelectedFile]);
 
   // ── Boot ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -435,27 +522,37 @@ export const App: React.FC = () => {
       applyCollectionsState(loadedCollectionsState);
       persistCollectionsState(loadedCollectionsState);
 
-      if (loadedLibraryState.libraryFolders.length > 0) {
-        const result = await window.polytray.getFiles({
-          limit: loadedSettings.page_size,
-          offset: 0,
-        });
-        setFiles(result.files);
-        const s = await window.polytray.getStats();
-        setStats(s);
-        const d = await window.polytray.getDirectories();
-        setDirectories(d);
+      try {
+        const [legacyResult, nextStats, nextDirectories] = await Promise.all([
+          window.polytray.getFiles({ limit: loadedSettings.page_size, offset: 0 }),
+          window.polytray.getStats(),
+          window.polytray.getDirectories(),
+        ]);
+        const activeCollection = loadedCollectionsState.collections.find(
+          (collection) => collection.id === loadedCollectionsState.activeCollectionId,
+        );
+        const fallbackFiles = activeCollection
+          ? legacyResult.files.filter((file) => activeCollection.filePaths.includes(file.path))
+          : legacyResult.files;
+        setLegacyFiles(fallbackFiles);
+        setLegacyTotalItems(activeCollection ? fallbackFiles.length : legacyResult.total);
+        setStats(nextStats);
+        setDirectories(nextDirectories);
+      } catch (error) {
+        console.warn("The legacy library reader could not provide startup results; the paged reader will retry.", error);
+      } finally {
+        setLibraryReady(true);
+      }
 
-        if (loadedSettings.watch) {
-          window.polytray.startWatching(
-            loadedLibraryState.libraryFolders,
-            toRuntimeSettings(loadedSettings),
-          );
-        }
+      if (loadedLibraryState.libraryFolders.length > 0 && loadedSettings.watch) {
+        window.polytray.startWatching(
+          loadedLibraryState.libraryFolders,
+          toRuntimeSettings(loadedSettings),
+        );
+      }
 
-        if (loadedSettings.autoScan) {
-          handleRescan();
-        }
+      if (loadedLibraryState.libraryFolders.length > 0 && loadedSettings.autoScan) {
+        handleRescan();
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -521,25 +618,15 @@ export const App: React.FC = () => {
         setActiveFolder(null);
         activeFolderRef.current = null;
       }
-      const result = await window.polytray.getFiles({
-        sort: sortRef.current,
-        order: orderRef.current,
-        extension: extensionRef.current,
-        folder: activeFolderRef.current,
-        search: searchRef.current,
-        limit: settingsRef.current.page_size,
-        offset: 0,
-      });
-      setFiles(result.files);
-      const s = await window.polytray.getStats();
-      setStats(s);
-      const d = await window.polytray.getDirectories();
-      setDirectories(d);
+      clearSelection();
+      await refreshLibrary();
     },
     [
       applyLibraryState,
+      clearSelection,
       getRuntimeSettings,
       persistLibraryState,
+      refreshLibrary,
       settings.watch,
     ],
   );
@@ -559,7 +646,7 @@ export const App: React.FC = () => {
   const handleClearThumbnails = useCallback(async () => {
     if (confirm("Regenerate all thumbnails? This may take a while.")) {
       await window.polytray.clearThumbnails(getRuntimeSettings());
-      fetchFiles(); // Immediate UI update to show clear state
+      await refreshLibrary();
       for (const folder of foldersRef.current) {
         setProgress({
           visible: true,
@@ -570,49 +657,49 @@ export const App: React.FC = () => {
         await window.polytray.scanFolder(folder, getRuntimeSettings());
       }
     }
-  }, [fetchFiles, getRuntimeSettings]);
+  }, [getRuntimeSettings, refreshLibrary]);
 
   const handleSortChange = useCallback(
     async (newSort: string) => {
+      clearSelection();
       setSort(newSort);
       sortRef.current = newSort;
-      fetchFiles();
     },
-    [fetchFiles],
+    [clearSelection],
   );
 
   const handleOrderToggle = useCallback(async () => {
+    clearSelection();
     const newOrder = orderRef.current === "ASC" ? "DESC" : "ASC";
     setOrder(newOrder);
     orderRef.current = newOrder;
-    fetchFiles();
-  }, [fetchFiles]);
+  }, [clearSelection]);
 
   const handleExtensionFilter = useCallback(
     async (ext: string | null) => {
+      clearSelection();
       setExtension(ext);
       extensionRef.current = ext;
-      fetchFiles();
     },
-    [fetchFiles],
+    [clearSelection],
   );
 
   const handleSearch = useCallback(
     async (query: string) => {
+      clearSelection();
       setSearch(query);
       searchRef.current = query;
-      fetchFiles();
     },
-    [fetchFiles],
+    [clearSelection],
   );
 
   const handleFolderSelect = useCallback(
     async (folderPath: string | null) => {
+      clearSelection();
       setActiveFolder(folderPath);
       activeFolderRef.current = folderPath;
-      fetchFiles();
     },
-    [fetchFiles],
+    [clearSelection],
   );
 
   const handleRescanFolder = useCallback(
@@ -640,38 +727,28 @@ export const App: React.FC = () => {
         folderPath,
         getRuntimeSettings(),
       );
-      fetchFiles(); // Update UI to show loading pulses
+      await refreshLibrary();
     },
-    [fetchFiles, getRuntimeSettings],
+    [getRuntimeSettings, refreshLibrary],
   );
 
   const handleFileRecordUpdate = useCallback((updatedFile: FileRecord) => {
-    setFiles((current) =>
-      current.map((file) => (file.id === updatedFile.id ? updatedFile : file)),
-    );
-    setPreviewFile((current) =>
-      current?.id === updatedFile.id ? updatedFile : current,
-    );
-    setPreviewItem((current) => {
-      if (!current) return current;
-      if (isArchiveSummaryRecord(current)) {
-        return {
-          ...current,
-          entries: current.entries.map((entry) =>
-            entry.id === updatedFile.id ? updatedFile : entry,
-          ),
-        };
-      }
-      return current.id === updatedFile.id ? updatedFile : current;
-    });
-  }, []);
+    libraryPages.patchFile(updatedFile);
+    updateSelectedFile(updatedFile);
+    setLegacyFiles((current) => current.map((file) => file.id === updatedFile.id ? updatedFile : file));
+    setPreviewTarget((current) => current?.kind === "file" && current.file.id === updatedFile.id
+      ? { kind: "file", file: updatedFile }
+      : current);
+  }, [libraryPages.patchFile, updateSelectedFile]);
 
-  const handleToggleFileSelection = useCallback((fileId: number) => {
-    setSelectedFileIds((current) =>
-      current.includes(fileId)
-        ? current.filter((id) => id !== fileId)
-        : [...current, fileId],
-    );
+  const handleToggleFileSelection = useCallback((file: FileRecord) => {
+    const current = selectedFilesRef.current;
+    const next = new Map(current);
+    if (next.has(file.id)) next.delete(file.id);
+    else next.set(file.id, file);
+    selectedFilesRef.current = next;
+    setSelectedFilesById(next);
+    setSelectionAnnouncement("");
   }, []);
 
   const handleApplyBatchTags = useCallback(async () => {
@@ -691,29 +768,19 @@ export const App: React.FC = () => {
       }),
     );
 
-    setFiles((current) =>
-      current.map(
-        (file) =>
-          updates.find((updated) => updated.id === file.id) ?? file,
-      ),
-    );
-    setPreviewFile((current) =>
-      current
-        ? (updates.find((updated) => updated.id === current.id) ?? current)
-        : current,
-    );
+    updates.forEach(handleFileRecordUpdate);
     setBatchTagsInput("");
-  }, [batchTagsInput, selectedFiles]);
+  }, [batchTagsInput, handleFileRecordUpdate, selectedFiles]);
 
   const handleCollectionSelect = useCallback((collectionId: string | null) => {
+    clearSelection();
     const nextState = normalizeCollectionsState({
       ...collectionsStateRef.current,
       activeCollectionId: collectionId,
     });
     applyCollectionsState(nextState);
     persistCollectionsState(nextState);
-    void fetchFiles();
-  }, [applyCollectionsState, fetchFiles, persistCollectionsState]);
+  }, [applyCollectionsState, clearSelection, persistCollectionsState]);
 
   const handleCreateCollection = useCallback(
     (name: string, filePaths: string[]) => {
@@ -727,11 +794,11 @@ export const App: React.FC = () => {
         ...nextState,
         activeCollectionId: id,
       });
+      clearSelection();
       applyCollectionsState(nextState);
       persistCollectionsState(nextState);
-      void fetchFiles();
     },
-    [applyCollectionsState, fetchFiles, persistCollectionsState],
+    [applyCollectionsState, clearSelection, persistCollectionsState],
   );
 
   const handleAddFilesToCollection = useCallback(
@@ -743,9 +810,12 @@ export const App: React.FC = () => {
       );
       applyCollectionsState(nextState);
       persistCollectionsState(nextState);
-      void fetchFiles();
+      if (collectionsStateRef.current.activeCollectionId === collectionId) {
+        clearSelection();
+        void refreshLibrary();
+      }
     },
-    [applyCollectionsState, fetchFiles, persistCollectionsState],
+    [applyCollectionsState, clearSelection, persistCollectionsState, refreshLibrary],
   );
 
   const handleBatchAddToCollection = useCallback(() => {
@@ -756,14 +826,45 @@ export const App: React.FC = () => {
     );
   }, [batchCollectionId, handleAddFilesToCollection, selectedFiles]);
 
+  const handleSelectLibraryItem = useCallback((item: DisplayFileRecord) => {
+    setComparisonFiles([]);
+    if (isLibraryArchiveDisplayRecord(item)) {
+      setPreviewTarget({ kind: "archive", archive: item.source, query: pageQuery });
+      return;
+    }
+    if (isArchiveSummaryRecord(item)) return;
+    setPreviewTarget({ kind: "file", file: item });
+  }, [pageQuery]);
+
+  const handleOpenArchive = useCallback((archivePath: string) => {
+    clearSelection();
+    const archiveFolder = getArchiveRootVirtualPath(archivePath);
+    setActiveFolder(archiveFolder);
+    activeFolderRef.current = archiveFolder;
+  }, [clearSelection]);
+
+  const handleCompareSelected = useCallback(() => {
+    setPreviewTarget(null);
+    setComparisonFiles(selectedFiles.slice(0, 2));
+  }, [selectedFiles]);
+
+  const handleOpenComparedFile = useCallback((file: FileRecord) => {
+    setComparisonFiles([]);
+    setPreviewTarget({ kind: "file", file });
+  }, []);
+
+  const handleClosePreview = useCallback(() => setPreviewTarget(null), []);
+  const handleLoadNextPage = useCallback(() => { void libraryPages.loadNext(); }, [libraryPages.loadNext]);
+  const handleRetryPage = useCallback(() => { void libraryPages.retry(); }, [libraryPages.retry]);
+
   const handleRemoveCollection = useCallback(
     (collectionId: string) => {
       const nextState = removeCollection(collectionsStateRef.current, collectionId);
+      clearSelection();
       applyCollectionsState(nextState);
       persistCollectionsState(nextState);
-      void fetchFiles();
     },
-    [applyCollectionsState, fetchFiles, persistCollectionsState],
+    [applyCollectionsState, clearSelection, persistCollectionsState],
   );
 
   const handleSettingsChange = useCallback(
@@ -813,11 +914,11 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     return window.polytray.onArchiveOpen((archiveVirtualPath) => {
+      clearSelection();
       setActiveFolder(archiveVirtualPath);
       activeFolderRef.current = archiveVirtualPath;
-      void fetchFiles();
     });
-  }, [fetchFiles]);
+  }, [clearSelection]);
 
   // Keyboard: Escape
   useEffect(() => {
@@ -875,7 +976,7 @@ export const App: React.FC = () => {
             activeFolderLabel={activeFolderLabel}
             activeCollectionLabel={activeCollectionLabel}
             activeFilter={extension}
-            resultCount={displayFiles.length}
+            resultCount={resultTotalItems}
             onSortChange={handleSortChange}
             onOrderToggle={handleOrderToggle}
             onSearch={handleSearch}
@@ -886,47 +987,49 @@ export const App: React.FC = () => {
             onDismissFilter={() => handleExtensionFilter(null)}
             onDismissSearch={() => handleSearch("")}
           />
+          <div
+            id="library-result-total"
+            role="status"
+            aria-live="polite"
+            style={{ padding: "0 var(--space-4) var(--space-2)", color: "var(--text-muted)", fontSize: "var(--font-size-xs)" }}
+          >
+            {resultCountLabel}
+          </div>
           <BatchActionsBar
-            selectedCount={selectedFileIds.length}
+            selectedCount={selectedFiles.length}
             batchTagsInput={batchTagsInput}
             batchCollectionId={batchCollectionId}
             collections={collectionsState.collections}
-            canCompare={selectedFileIds.length === 2}
+            canCompare={selectedFiles.length === 2}
             onBatchTagsInputChange={setBatchTagsInput}
             onBatchCollectionChange={setBatchCollectionId}
             onApplyBatchTags={() => void handleApplyBatchTags()}
             onAddToCollection={handleBatchAddToCollection}
-            onCompare={() => {
-              setPreviewFile(null);
-              setPreviewItem(null);
-              setComparisonFiles(selectedFiles.slice(0, 2));
-            }}
+            onCompare={handleCompareSelected}
             onClear={() => {
-              setSelectedFileIds([]);
+              clearSelection("Selection cleared.");
               setComparisonFiles([]);
             }}
+            selectionAnnouncement={selectionAnnouncement}
           />
           <FileGrid
             files={displayFiles}
             gridSize={settings.gridSize}
-            activeFileId={previewItem?.id ?? null}
-            comparisonFileIds={comparisonFiles.map((file) => file.id)}
+            activeItemKey={activeItemKey}
+            comparisonItemKeys={comparisonItemKeys}
             selectedFileIds={selectedFileIds}
             onToggleFileSelection={handleToggleFileSelection}
-            onSelectFile={(file) => {
-              setComparisonFiles([]);
-              setPreviewItem(file);
-              setPreviewFile(isArchiveSummaryRecord(file) ? null : file);
-            }}
-            onOpenArchive={(file) => {
-              if (!isArchiveSummaryRecord(file)) return;
-              const archiveFolder = getArchiveRootVirtualPath(file.path);
-              setActiveFolder(archiveFolder);
-              activeFolderRef.current = archiveFolder;
-              void fetchFiles();
-            }}
+            onSelectFile={handleSelectLibraryItem}
+            onOpenArchive={handleOpenArchive}
+            pageLoading={libraryPages.loading}
+            pageRefreshing={libraryPages.refreshing}
+            pageLoadingNext={libraryPages.loadingNext}
+            pageError={libraryPages.error?.message ?? null}
+            hasMore={libraryPages.nextOffset !== null}
+            onEndReached={handleLoadNextPage}
+            onRetry={handleRetryPage}
           />
-          <EmptyState hidden={displayFiles.length > 0} />
+          <EmptyState hidden={displayFiles.length > 0 || !libraryReady || libraryPages.loading || libraryPages.refreshing || libraryPages.error !== null} />
           <ScanProgress
             visible={progress.visible}
             percent={progress.percent}
@@ -937,15 +1040,11 @@ export const App: React.FC = () => {
         <ComparePanel
           files={comparisonFiles}
           onClose={() => setComparisonFiles([])}
-          onOpenPreview={(file) => {
-            setComparisonFiles([]);
-            setPreviewItem(file);
-            setPreviewFile(file);
-          }}
+          onOpenPreview={handleOpenComparedFile}
         />
         <PreviewPanel
           file={comparisonActive ? null : previewFile}
-          item={comparisonActive ? null : previewItem}
+          item={comparisonActive ? null : previewFile}
           showGrid={settings.showGrid}
           thumbnailColor={settings.thumbnailColor}
           thumbQuality={settings.thumbQuality}
@@ -957,10 +1056,7 @@ export const App: React.FC = () => {
           onPreferredWidthChange={(previewWidth) => handleSettingsChange({ previewWidth })}
           onCreateCollection={handleCreateCollection}
           onAddFilesToCollection={handleAddFilesToCollection}
-          onClose={() => {
-            setPreviewFile(null);
-            setPreviewItem(null);
-          }}
+          onClose={handleClosePreview}
         />
       </div>
       <SettingsModal

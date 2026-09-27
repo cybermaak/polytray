@@ -2,10 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import type { FileRecord } from "../../../../src/shared/types";
+import type { LibraryArchiveItem } from "../../../../src/shared/libraryQuery";
 import {
   collapseArchiveEntriesForDisplay,
   formatArchiveFolderLabel,
   isArchiveSummaryRecord,
+  isLibraryArchiveDisplayRecord,
+  libraryItemToDisplayRecord,
 } from "../../../../src/renderer/lib/archiveDisplay";
 
 function createFile(overrides: Partial<FileRecord>): FileRecord {
@@ -100,4 +103,39 @@ test("formatArchiveFolderLabel removes archive implementation suffixes", () => {
     formatArchiveFolderLabel("/library/bundle.zip::entry::nested"),
     "nested",
   );
+});
+
+test("archive display record preserves the server key, complete count, and bounded samples", () => {
+  const archive: LibraryArchiveItem = {
+    kind: "archive",
+    key: "archive:/library/bundle.zip",
+    archivePath: "/library/bundle.zip",
+    name: "bundle.zip",
+    modelCount: 120,
+    vertexCount: 400,
+    faceCount: 240,
+    sizeBytes: 1800,
+    thumbnailSamples: [1, 2, 3, 4].map((id) => createFile({
+      id,
+      path: `/library/bundle.zip::entry::${id}.stl`,
+      archive_path: "/library/bundle.zip",
+    })),
+  };
+
+  const display = libraryItemToDisplayRecord(archive);
+  assert.equal(isLibraryArchiveDisplayRecord(display), true);
+  if (isLibraryArchiveDisplayRecord(display)) {
+    assert.equal(display.key, archive.key);
+    assert.equal(display.archivePath, archive.archivePath);
+    assert.equal(display.modelCount, 120);
+    assert.equal(display.thumbnailSamples.length, 4);
+    assert.equal("id" in display, false);
+  }
+});
+
+test("file display records retain the real file record and stable key", () => {
+  const fileRecord = createFile({ id: 12 });
+  const display = libraryItemToDisplayRecord({ kind: "file", key: "file:12", file: fileRecord });
+  assert.equal(display, fileRecord);
+  assert.equal(isArchiveSummaryRecord(display), false);
 });
