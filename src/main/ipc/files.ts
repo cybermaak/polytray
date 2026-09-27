@@ -12,15 +12,24 @@ import {
   IPC,
   SortOptions,
   LibraryStats,
+  LibraryQuery,
+  LibraryPageResult,
 } from "../../shared/types";
 import { isPathContained } from "../pathContainment";
 import { parseArchiveEntryPath } from "../../shared/archivePaths";
 import {
   parseFileMetadataUpdate,
+  parseLibraryQuery,
   parseFilePath,
   parseSortOptions,
 } from "./runtimeValidation";
 import { createFileIndexRepository } from "../fileIndexing";
+import { getLibraryFiles, getLibraryPage } from "../libraryQueries";
+
+export interface FileHandlerReadiness {
+  isScopeIndexReady(): boolean;
+  ensureScopeIndexReady(): Promise<void>;
+}
 
 
 async function readArchiveEntryBuffer(archivePath: string, entryPath: string) {
@@ -34,9 +43,11 @@ async function readArchiveEntryBuffer(archivePath: string, entryPath: string) {
   return entry.buffer();
 }
 
-export function registerFileHandlers() {
+export function registerFileHandlers(readiness: FileHandlerReadiness) {
   ipcMain.handle(IPC.GET_FILES, (event, opts: SortOptions = {}) => {
     const db = getDb();
+    const parsedOptions = parseSortOptions(opts);
+    if (readiness.isScopeIndexReady()) return getLibraryFiles(db, parsedOptions);
     const {
       sort = "name",
       order = "ASC",
@@ -44,7 +55,7 @@ export function registerFileHandlers() {
       search = "",
       limit = 200,
       offset = 0,
-    } = parseSortOptions(opts);
+    } = parsedOptions;
 
     const validSorts: Record<string, string> = {
       name: "name",
@@ -70,10 +81,10 @@ export function registerFileHandlers() {
 
     const whereClause = where.length > 0 ? "WHERE " + where.join(" AND ") : "";
 
-    if (opts.folder) {
+    if (parsedOptions.folder) {
       const query = `SELECT * FROM files ${whereClause}`;
       const filtered = (db.prepare(query).all(...params) as FileRecord[])
-        .filter((file) => isPathContained(opts.folder!, file.path));
+        .filter((file) => isPathContained(parsedOptions.folder!, file.path));
 
       filtered.sort((a, b) => {
         const left = a[sortCol as keyof FileRecord];
@@ -115,6 +126,12 @@ export function registerFileHandlers() {
       .all(...params, limit, offset) as FileRecord[];
 
     return { files, total: countRow.total };
+  });
+
+  ipcMain.handle(IPC.GET_LIBRARY_PAGE, async (event, rawQuery): Promise<LibraryPageResult> => {
+    const query: LibraryQuery = parseLibraryQuery(rawQuery);
+    await readiness.ensureScopeIndexReady();
+    return getLibraryPage(getDb(), query);
   });
 
   ipcMain.handle(IPC.GET_FILE_BY_ID, (event, id) => {

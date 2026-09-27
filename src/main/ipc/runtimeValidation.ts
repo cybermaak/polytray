@@ -1,5 +1,6 @@
 import path from "path";
 import {
+  LibraryQuery,
   PreviewMetricData,
   PreviewParseRequestData,
   RuntimeSettingsData,
@@ -176,6 +177,85 @@ export function parseSortOptions(value: unknown): SortOptions {
     limit,
     offset,
   };
+}
+
+export function parseLibraryQuery(value: unknown): LibraryQuery {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Invalid library query");
+  }
+  const raw = value as Record<string, unknown>;
+  const validSorts = ["name", "size", "date", "vertices", "faces"] as const;
+  const sort = raw.sort === undefined ? "name" : raw.sort;
+  const direction = raw.direction === undefined ? "ASC" : raw.direction;
+  if (typeof sort !== "string" || !validSorts.includes(sort as (typeof validSorts)[number])) {
+    throw new Error("Invalid library query");
+  }
+  if (direction !== "ASC" && direction !== "DESC") throw new Error("Invalid library query");
+
+  const extension = raw.extension === undefined || raw.extension === null
+    ? null
+    : typeof raw.extension === "string" && raw.extension.length > 0
+      ? raw.extension.toLowerCase()
+      : null;
+  if (raw.extension !== undefined && raw.extension !== null && extension === null) {
+    throw new Error("Invalid library query");
+  }
+  const folder = raw.folder === undefined || raw.folder === null
+    ? null
+    : typeof raw.folder === "string" && raw.folder.length > 0
+      ? parseFolderPath(raw.folder)
+      : null;
+  if (raw.folder !== undefined && raw.folder !== null && folder === null) {
+    throw new Error("Invalid library query");
+  }
+  const search = raw.search === undefined ? "" : raw.search;
+  if (typeof search !== "string") throw new Error("Invalid library query");
+
+  let collectionPaths: string[] | null;
+  if (raw.collectionPaths === undefined || raw.collectionPaths === null) {
+    collectionPaths = null;
+  } else if (Array.isArray(raw.collectionPaths)
+    && raw.collectionPaths.every((entry) => typeof entry === "string" && entry.length > 0)) {
+    collectionPaths = raw.collectionPaths as string[];
+  } else {
+    throw new Error("Invalid library query");
+  }
+
+  const limit = raw.limit === undefined ? 500 : raw.limit;
+  const offset = raw.offset === undefined ? 0 : raw.offset;
+  if (!Number.isSafeInteger(limit) || (limit as number) < 1 || (limit as number) > 2000) {
+    throw new Error("Invalid library query");
+  }
+  if (!Number.isSafeInteger(offset) || (offset as number) < 0) throw new Error("Invalid library query");
+
+  const expectedBrowseRevision = raw.expectedBrowseRevision;
+  if (expectedBrowseRevision !== undefined
+    && (!Number.isSafeInteger(expectedBrowseRevision) || (expectedBrowseRevision as number) < 0)) {
+    throw new Error("Invalid library query");
+  }
+
+  const archivePath = raw.archivePath === undefined || raw.archivePath === null
+    ? null
+    : typeof raw.archivePath === "string" && raw.archivePath.length > 0
+      ? parseFilePath(raw.archivePath)
+      : null;
+  if (raw.archivePath !== undefined && raw.archivePath !== null && archivePath === null) {
+    throw new Error("Invalid library query");
+  }
+
+  const query: LibraryQuery = {
+    sort: sort as LibraryQuery["sort"],
+    direction,
+    extension,
+    folder,
+    search,
+    collectionPaths,
+    limit: limit as number,
+    offset: offset as number,
+    archivePath,
+  };
+  if (expectedBrowseRevision !== undefined) query.expectedBrowseRevision = expectedBrowseRevision as number;
+  return query;
 }
 
 export function parseFileMetadataUpdate(value: unknown): UpdateFileMetadataData {

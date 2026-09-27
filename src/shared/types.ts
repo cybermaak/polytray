@@ -61,6 +61,7 @@ export const IPC = {
   SCAN_ALL_LIBRARY: "scan-all-library",
   CLEAR_THUMBNAILS: "clear-thumbnails",
   GET_FILES: "get-files",
+  GET_LIBRARY_PAGE: "get-library-page",
   GET_FILE_BY_ID: "get-file-by-id",
   READ_FILE_BUFFER: "read-file-buffer",
   READ_THUMBNAIL: "read-thumbnail",

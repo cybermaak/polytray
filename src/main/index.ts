@@ -233,7 +233,15 @@ function registerIpcHandlers() {
   });
   registerLibraryHandlers(getMainWindow);
   registerScanningHandlers(getMainWindow);
-  registerFileHandlers();
+  registerFileHandlers({
+    isScopeIndexReady: () => fileIndexRuntime?.canUseScopeReader() === true,
+    ensureScopeIndexReady: async () => {
+      const runtime = fileIndexRuntime;
+      if (!runtime) throw new Error("File index runtime is unavailable");
+      await runtime.startBackfill();
+      if (!runtime.canUseScopeReader()) throw new Error("Library scope index is not ready");
+    },
+  });
   registerThumbnailHandlers(getMainWindow);
   registerSystemHandlers(getMainWindow);
   initThumbnailService();
