@@ -99,20 +99,25 @@ async function waitForIsolatedScanRelease(
 ) {
   await fs.promises.mkdir(path.dirname(hold.reachedPath), { recursive: true });
   await fs.promises.writeFile(hold.reachedPath, 'held');
-  if (signal?.aborted || fs.existsSync(hold.releasePath)) return;
-  let watcher: ReturnType<typeof fs.promises.watch> | undefined;
-  try {
-    watcher = fs.promises.watch(path.dirname(hold.releasePath), { signal, persistent: false });
-    if (fs.existsSync(hold.releasePath)) {
-      await watcher.return?.();
-      return;
+  while (!signal?.aborted && !fs.existsSync(hold.releasePath)) {
+    if (!signal) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      continue;
     }
-    for await (const _event of watcher) {
-      if (signal?.aborted || fs.existsSync(hold.releasePath)) return;
-    }
-  } catch (error: unknown) {
-    if (signal?.aborted) return;
-    throw error;
+    if (signal.aborted) return;
+    await new Promise<void>((resolve) => {
+      let timer: NodeJS.Timeout;
+      const onAbort = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      };
+      timer = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, 10);
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
   }
 }
 
