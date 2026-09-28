@@ -72,7 +72,9 @@ test('extractMetadata reads geometry metadata from archive-backed virtual paths'
 
     assert.equal(metadata.vertexCount, 3);
     assert.equal(metadata.faceCount, 1);
-    assert.deepEqual(metadata.dimensions, { x: 2, y: 3, z: 0 });
+    assert.deepEqual(metadata.dimensions, {
+      version: 1, x: 2, y: 3, z: 0, unit: 'model-unit', basis: 'source-build', status: 'available',
+    });
   } finally {
     await cleanupArchiveFixture(tempDir);
   }
@@ -88,6 +90,8 @@ test('extractMetadata streams binary STL data from an archive entry', async () =
     const metadata = await extractMetadata(`${archivePath}${ARCHIVE_ENTRY_SEPARATOR}nested/model.stl`, 'stl');
     assert.equal(metadata.vertexCount, 36);
     assert.equal(metadata.faceCount, 12);
-    assert.deepEqual(metadata.dimensions, { x: 1, y: 1, z: 1 });
+    assert.deepEqual(metadata.dimensions, {
+      version: 1, x: 1, y: 1, z: 1, unit: 'model-unit', basis: 'source-build', status: 'available',
+    });
   } finally { await cleanupArchiveFixture(tempDir); }
 });
