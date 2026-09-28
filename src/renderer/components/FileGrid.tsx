@@ -343,8 +343,16 @@ export const FileGrid: React.FC<Props> = ({
 
   useEffect(() => {
     const onFocusIn = (event: FocusEvent) => {
-      gridHadFocusRef.current = event.target instanceof Element && Boolean(event.target.closest("#file-grid"));
-      if (!gridHadFocusRef.current) focusSequenceRef.current += 1;
+      const target = event.target instanceof Element ? event.target : null;
+      gridHadFocusRef.current = Boolean(target?.closest("#file-grid"));
+      if (
+        !gridHadFocusRef.current
+        && target
+        && target !== document.body
+        && target !== document.documentElement
+      ) {
+        focusSequenceRef.current += 1;
+      }
     };
     document.addEventListener("focusin", onFocusIn);
     return () => document.removeEventListener("focusin", onFocusIn);

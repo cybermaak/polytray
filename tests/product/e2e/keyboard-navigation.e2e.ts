@@ -122,6 +122,9 @@ test("keyboard-only browsing preserves virtual focus and closes only the top ove
     expect(movedBy - startingIndex).toBe(columns);
 
     await pressWithDeadline(page, "End", "move to the last loaded grid item");
+    const expectedLastLoadedKey = orderedKeys[orderedKeys.length - 1];
+    await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement).dataset.itemKey), { timeout: 5000 })
+      .toBe(expectedLastLoadedKey);
     const lastLoadedKey = await page.evaluate(() => (document.activeElement as HTMLElement).dataset.itemKey);
     const lastLoadedIndex = allKeys.indexOf(lastLoadedKey);
     const pageEdgeTargetKey = allKeys[Math.min(lastLoadedIndex + columns, allKeys.length - 1)];
@@ -284,19 +287,37 @@ test("ArrowDown across a loaded page edge preserves the focused column", async (
       collectionPaths: null, limit: 200, offset: 0,
     }), { sort: uiSort, direction: uiDirection });
     const keys = result.status === "ok" ? result.items.map((item) => item.key) : [];
+    const firstPage = await page.evaluate(({ sort, direction }) => window.polytray.getLibraryPage({
+      sort, direction, extension: null, folder: null, search: "",
+      collectionPaths: null, limit: 50, offset: 0,
+    }), { sort: uiSort, direction: uiDirection });
+    const firstPageKeys = firstPage.status === "ok" ? firstPage.items.map((item) => item.key) : [];
     const columns = await page.locator("#file-grid").evaluate((element) =>
       getComputedStyle(element).gridTemplateColumns.trim().split(/\s+(?![^()]*\))/).length,
     );
     const initialKey = await page.evaluate(() => (document.activeElement as HTMLElement).dataset.itemKey);
+    expect(initialKey).toMatch(/^archive:/);
     await pressWithDeadline(page, "End", "move to the last loaded grid item");
+    const expectedLastLoadedKey = firstPageKeys[firstPageKeys.length - 1];
     await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement).dataset.itemKey), { timeout: 5000 })
-      .not.toBe(initialKey);
+      .toBe(expectedLastLoadedKey);
+    await expect(page.locator("#file-grid .archive-summary")).toHaveCount(0);
     const lastLoadedKey = await page.evaluate(() => (document.activeElement as HTMLElement).dataset.itemKey);
     const lastLoadedIndex = keys.indexOf(lastLoadedKey);
     const expected = keys[Math.min(lastLoadedIndex + columns, keys.length - 1)];
     await pressWithDeadline(page, "ArrowDown", "cross the grid page edge");
     await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement).dataset.itemKey), { timeout: 5000 })
       .toBe(expected);
+
+    await pressWithDeadline(page, "End", "start a virtual focus move before leaving the grid");
+    await pressWithDeadline(page, "Shift+Tab", "leave the grid while the End target is mounting");
+    const focusStayedOutsideGrid = () => page.evaluate(() => {
+      const grid = document.querySelector("#file-grid");
+      return Boolean(grid && !grid.contains(document.activeElement));
+    });
+    await expect.poll(focusStayedOutsideGrid).toBe(true);
+    await page.waitForTimeout(100);
+    await expect.poll(focusStayedOutsideGrid).toBe(true);
   } finally {
     await isolated.close();
   }
