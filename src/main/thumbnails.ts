@@ -12,7 +12,9 @@ import { getThumbnailWindow } from "./index";
 import { getDb } from "./database";
 import { createFileIndexRepository } from "./fileIndexing";
 import { filterContainedPaths, isPathContained } from "./pathContainment";
-import { createThumbnailJobScheduler } from "./thumbnailJobScheduler";
+import { createThumbnailJobScheduler, ThumbnailJobCancelledError } from "./thumbnailJobScheduler";
+import type { BackgroundJob } from "../shared/backgroundJobs";
+import type { ThumbnailJobRequest as SharedThumbnailJobRequest, ThumbnailJobResult } from "../shared/backgroundJobs";
 import {
   createThumbnailCacheEpochStore,
   createThumbnailInvalidationQueue,
@@ -56,17 +58,22 @@ const thumbnailScheduler = createThumbnailJobScheduler({
     try {
       await waitForThumbnailCacheReady();
       const identity = createFileIndexRepository(getDb()).getFileIdentityByPath(job.filePath);
-      if (!identity) return null;
+      if (!identity) throw new ThumbnailJobCancelledError();
       const scheduledEpoch = job.dedupeKey ? readThumbnailRequestEpoch(job.dedupeKey) : null;
-      if (job.dedupeKey && scheduledEpoch === null) return null;
+      if (job.dedupeKey && scheduledEpoch === null) throw new ThumbnailJobCancelledError();
       const identityKey = createThumbnailIdentity(
         identity.path,
         identity.contentRevision,
         job.settings.thumbnailColor,
         Number(job.settings.thumbQuality ?? 256) as 128 | 256 | 512,
       ).key;
-      if (job.dedupeKey && job.dedupeKey !== thumbnailRequestKey(identityKey, scheduledEpoch!)) return null;
-      return await generateThumbnail(job.filePath, job.ext, job.settings, scheduledEpoch ?? undefined);
+      if (job.dedupeKey && job.dedupeKey !== thumbnailRequestKey(identityKey, scheduledEpoch!)) throw new ThumbnailJobCancelledError();
+      const thumbnailPath = await generateThumbnail(job.filePath, job.ext, job.settings, scheduledEpoch ?? undefined, job.controller.signal);
+      const current = createFileIndexRepository(getDb()).getFileIdentityByPath(job.filePath);
+      if (job.controller.signal.aborted || !thumbnailPath && (!current || current.id !== identity.id || current.contentRevision !== identity.contentRevision || getThumbnailCacheEpoch(identity.path) !== (scheduledEpoch ?? getThumbnailCacheEpoch(identity.path)))) {
+        throw new ThumbnailJobCancelledError();
+      }
+      return thumbnailPath;
     } finally {
       console.info("[ThumbnailQueue]", {
         filePath: job.filePath,
@@ -209,7 +216,9 @@ export async function generateThumbnail(
   ext: string,
   settings: RuntimeSettingsData,
   expectedCacheEpoch?: number,
+  signal?: AbortSignal,
 ): Promise<string | null> {
+  if (signal?.aborted) return null;
   await waitForThumbnailCacheReady();
   const db = getDb();
   const identityRow = db.prepare("SELECT id, path, content_revision, thumbnail FROM files WHERE path = ?").get(filePath) as { id: number; path: string; content_revision: number; thumbnail: string | null } | undefined;
@@ -255,12 +264,16 @@ export async function generateThumbnail(
         settled = true;
         clearTimeout(timeout);
         thumbWindow.removeListener("closed", onClosed);
+        signal?.removeEventListener("abort", onAbort);
         resolve(value);
       };
       const timeout = setTimeout(() => pendingRequests.settle(requestId, null), settings.thumbnail_timeout);
       const onClosed = () => pendingRequests.settle(requestId, null);
+      const onAbort = () => pendingRequests.settle(requestId, null);
       pendingRequests.register(attempt, settle);
       thumbWindow.once("closed", onClosed);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) { pendingRequests.settle(requestId, null); return; }
       try {
         thumbWindow.webContents.send(IPC.GENERATE_THUMBNAIL_REQUEST, {
           filePath: identityRow.path, ext, thumbPath, color: cacheKey.color,
@@ -283,83 +296,56 @@ export async function generateThumbnailsInBackground(
 ) {
   await waitForThumbnailCacheReady();
   const db = getDb();
-  const total = filesToThumbnail.length;
-  if (total === 0) return;
-
-  const yieldToEventLoop = () => new Promise<void>((r) => setImmediate(r));
-  const yieldForRenderer = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
+  const repository = createFileIndexRepository(db);
+  const targets = filesToThumbnail.flatMap((file) => {
+    const identity = repository.getFileIdentityByPath(file.path);
+    if (!identity) return [];
+    const expectedCacheEpoch = getThumbnailCacheEpoch(identity.path);
+    const { key } = createThumbnailIdentity(identity.path, identity.contentRevision, settings.thumbnailColor, Number(settings.thumbQuality ?? 256) as 128 | 256 | 512);
+    return [{ file, identity, expectedCacheEpoch, request: {
+      filePath: file.path, ext: file.ext, settings, source: "scan" as const, priority: 1, retries: 1,
+      dedupeKey: thumbnailRequestKey(key, expectedCacheEpoch),
+    } }];
+  });
+  const total = targets.length;
   const mainWindow = getMainWindow();
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send(IPC.THUMBNAIL_PROGRESS, {
-      current: 0,
-      total,
-      filename: "",
-      phase: "start",
-    });
+    mainWindow.webContents.send(IPC.THUMBNAIL_PROGRESS, { current: 0, total, filename: "", phase: "start" });
   }
-
-  for (let i = 0; i < total; i++) {
+  if (targets.length === 0) {
+    const finalWin = getMainWindow();
+    if (finalWin && !finalWin.isDestroyed()) finalWin.webContents.send(IPC.THUMBNAIL_PROGRESS, { current: total, total, filename: "", phase: "done" });
+    return;
+  }
+  const batch = thumbnailScheduler.enqueueBatch(targets.map((target) => target.request));
+  const stopProgress = thumbnailScheduler.onJobChanged((job) => {
+    if (job.jobId !== batch.jobId) return;
+    const current = targets.length - job.counts.thumbnailsPending;
+    const terminal = ["completed", "partial", "failed", "cancelled"].includes(job.state);
     const win = getMainWindow();
-    if (!win || win.isDestroyed()) return;
-
-    const file = filesToThumbnail[i];
-    const repository = createFileIndexRepository(db);
-    const currentIdentity = repository.getFileIdentityByPath(file.path);
-    if (!currentIdentity) continue;
-    const expectedCacheEpoch = getThumbnailCacheEpoch(currentIdentity.path);
-    await yieldToEventLoop();
-
-    const startTime = Date.now();
-
-    try {
-      const thumbnailPath = await thumbnailScheduler.enqueue({
-        filePath: file.path,
-        ext: file.ext,
-        settings,
-        source: "scan",
-        priority: 1,
-        retries: 1,
-        dedupeKey: thumbnailRequestKey(createThumbnailIdentity(currentIdentity.path, currentIdentity.contentRevision, settings.thumbnailColor, Number(settings.thumbQuality ?? 256) as 128 | 256 | 512).key, expectedCacheEpoch),
-      });
-      if (getThumbnailCacheEpoch(currentIdentity.path) !== expectedCacheEpoch) {
-        // An invalidation settled this old job; it must not restore a path or a failure flag.
-      } else if (thumbnailPath) {
-        const update = repository.updateThumbnailState({ fileId: currentIdentity.id, expectedContentRevision: currentIdentity.contentRevision, thumbnailPath, thumbnailFailed: 0 });
-        const currentWin = getMainWindow();
-        if (update.status === "updated" && currentWin && !currentWin.isDestroyed()) {
-          const { identity } = createThumbnailIdentity(currentIdentity.path, currentIdentity.contentRevision, settings.thumbnailColor, Number(settings.thumbQuality ?? 256) as 128 | 256 | 512);
-          currentWin.webContents.send(IPC.THUMBNAIL_READY, { fileId: currentIdentity.id, thumbnailPath, identity, contentRevision: currentIdentity.contentRevision });
-        }
-      } else {
-        repository.updateThumbnailState({ fileId: currentIdentity.id, expectedContentRevision: currentIdentity.contentRevision, thumbnailPath: null, thumbnailFailed: 1 });
-      }
-    } catch (e: unknown) {
-      console.warn(`[Thumbnails] Failed ${file.path}:`, (e as Error).message);
-    }
-
-    const progressWin = getMainWindow();
-    if (progressWin && !progressWin.isDestroyed()) {
-      progressWin.webContents.send(IPC.THUMBNAIL_PROGRESS, {
-        current: i + 1,
-        total,
-        filename: file.path,
-        phase: "progress",
-      });
-    }
-
-    const elapsed = Date.now() - startTime;
-    await yieldForRenderer(elapsed > 500 ? 100 : 30);
-  }
-
-  const finalWin = getMainWindow();
-  if (finalWin && !finalWin.isDestroyed()) {
-    finalWin.webContents.send(IPC.THUMBNAIL_PROGRESS, {
-      current: total,
-      total,
-      filename: "",
-      phase: "done",
+    if (win && !win.isDestroyed()) win.webContents.send(IPC.THUMBNAIL_PROGRESS, {
+      current, total, filename: "", phase: terminal ? "done" : "progress",
     });
+  });
+  try {
+    await Promise.all((await batch.results).map(async ({ request, thumbnailPath, error }) => {
+      const target = targets.find((candidate) => candidate.request.dedupeKey === request.dedupeKey);
+      if (!target || getThumbnailCacheEpoch(target.identity.path) !== target.expectedCacheEpoch) return;
+      if (thumbnailPath) {
+        const update = repository.updateThumbnailState({ fileId: target.identity.id, expectedContentRevision: target.identity.contentRevision, thumbnailPath, thumbnailFailed: 0 });
+        const win = getMainWindow();
+        if (update.status === "updated" && win && !win.isDestroyed()) {
+          const { identity } = createThumbnailIdentity(target.identity.path, target.identity.contentRevision, settings.thumbnailColor, Number(settings.thumbQuality ?? 256) as 128 | 256 | 512);
+          win.webContents.send(IPC.THUMBNAIL_READY, { fileId: target.identity.id, thumbnailPath, identity, contentRevision: target.identity.contentRevision });
+        }
+      } else if (error?.name !== "ThumbnailJobCancelledError" && error?.name !== "AbortError") {
+        repository.updateThumbnailState({ fileId: target.identity.id, expectedContentRevision: target.identity.contentRevision, thumbnailPath: null, thumbnailFailed: 1 });
+        if (error) console.warn(`[Thumbnails] Failed ${target.file.path}:`, error.message);
+      }
+    }));
+    await batch.done;
+  } finally {
+    stopProgress();
   }
 }
 
@@ -448,6 +434,59 @@ export function scheduleSingleThumbnailGeneration(
 export function getThumbnailSchedulerStats() {
   return thumbnailScheduler.getStats();
 }
+
+export async function getThumbnailBackgroundJobs(): Promise<BackgroundJob[]> {
+  return thumbnailScheduler.getJobs();
+}
+
+export function onThumbnailBackgroundJobChanged(callback: (job: BackgroundJob) => void): () => void {
+  return thumbnailScheduler.onJobChanged(callback);
+}
+
+/** Queues one identity-guarded request; its generated BackgroundJob ID remains separate from requestId. */
+export async function enqueueThumbnailJob(
+  request: SharedThumbnailJobRequest,
+  settings: RuntimeSettingsData,
+): Promise<ThumbnailJobResult> {
+  await waitForThumbnailCacheReady();
+  const db = getDb();
+  const identity = createFileIndexRepository(db).getFileIdentityByPath(request.path);
+  const staleIdentity: ThumbnailJobResult = {
+    status: "failed",
+    error: { path: request.path, phase: "thumbnail", code: "STALE_IDENTITY", message: "The indexed file identity changed before thumbnail generation.", retryable: false },
+  };
+  if (!identity || identity.id !== request.fileId || identity.contentRevision !== request.contentRevision) return staleIdentity;
+  const extension = db.prepare("SELECT extension FROM files WHERE id = ? AND path = ? AND content_revision = ?")
+    .get(identity.id, identity.path, identity.contentRevision) as { extension: string } | undefined;
+  if (!extension) return staleIdentity;
+  const normalizedSettings = parseRuntimeSettings(settings);
+  const { key } = createThumbnailIdentity(identity.path, identity.contentRevision, normalizedSettings.thumbnailColor, Number(normalizedSettings.thumbQuality ?? 256) as 128 | 256 | 512);
+  try {
+    const thumbnailPath = await thumbnailScheduler.enqueue({
+      filePath: identity.path,
+      ext: extension.extension,
+      settings: normalizedSettings,
+      source: request.priority === "manual" ? "manual" : request.priority === "watch" ? "watch" : "scan",
+      dedupeKey: thumbnailRequestKey(key, getThumbnailCacheEpoch(identity.path)),
+    });
+    if (!thumbnailPath) return {
+      status: "failed",
+      error: { path: identity.path, phase: "thumbnail", code: "THUMBNAIL_EMPTY", message: "Thumbnail generation returned no image.", retryable: true },
+    };
+    return { status: "completed", thumbnailPath };
+  } catch (error) {
+    if (error instanceof Error && error.name === "ThumbnailJobCancelledError") return { status: "cancelled" };
+    return {
+      status: "failed",
+      error: { path: identity.path, phase: "thumbnail", code: "THUMBNAIL_FAILED", message: error instanceof Error ? error.message : String(error), retryable: true },
+    };
+  }
+}
+
+export async function pauseThumbnailJob(jobId: string): Promise<void> { await thumbnailScheduler.pause(jobId); }
+export async function resumeThumbnailJob(jobId: string): Promise<void> { await thumbnailScheduler.resume(jobId); }
+export async function cancelThumbnailJob(jobId: string): Promise<void> { await thumbnailScheduler.cancel(jobId); }
+export async function retryThumbnailJobFailures(jobId: string): Promise<void> { await thumbnailScheduler.retryFailures(jobId); }
 
 export function cancelPendingThumbnailJobs(
   predicate?: (job: { filePath: string; ext: string; settings: RuntimeSettingsData; source: "scan" | "watch" | "manual" }) => boolean,
