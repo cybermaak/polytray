@@ -488,11 +488,7 @@ function ensurePartThumbnailRenderer(session: ViewerSession<ViewerState>) {
   });
   queue.replace(state.partThumbnailToken);
   state.partThumbnailQueue = queue;
-  session.addCleanup(() => {
-    if (state.partThumbnailRenderer === renderer) {
-      disposePartThumbnailResources(session.resources);
-    }
-  });
+  reportPartThumbnailResources(session.resources, true);
 }
 
 function disposePartThumbnailResources(resources: ViewerState = state) {
@@ -506,6 +502,17 @@ function disposePartThumbnailResources(resources: ViewerState = state) {
   resources.partThumbnailScene = null;
   resources.partThumbnailCamera = null;
   resources.partThumbnailParts = [];
+  reportPartThumbnailResources(resources, false);
+}
+
+function reportPartThumbnailResources(resources: ViewerState, active: boolean) {
+  const owner = activeSession?.resources === resources ? activeSession : null;
+  const probeWindow = window as Window & {
+    __POLYTRAY_RENDERER_PROBE?: {
+      markPartThumbnailLifecycle?: (rendererActive: boolean, cameraActive: boolean, cleanupCount: number) => void;
+    };
+  };
+  probeWindow.__POLYTRAY_RENDERER_PROBE?.markPartThumbnailLifecycle?.(active, active, owner?.cleanupCount ?? 0);
 }
 
 async function renderPartThumbnail(object: THREE.Object3D, signal: AbortSignal): Promise<string> {

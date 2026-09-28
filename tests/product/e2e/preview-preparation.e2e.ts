@@ -83,11 +83,20 @@ test('dense and transformed multipart previews report first-frame and render-sub
     await page.evaluate(() => {
       const contextWindow = window as Window & { __V05_WEBGL_CONTEXTS?: Array<WebGLRenderingContext | WebGL2RenderingContext> };
       const probeWindow = window as Window & {
-        __V05_PROBE?: { inactive: boolean; pendingBlobs: number; lateBlobs: number; latePublications: number };
+        __V05_PROBE?: {
+          inactive: boolean;
+          pendingBlobs: number;
+          lateBlobs: number;
+          latePublications: number;
+          lifecycle: Array<{ renderer: boolean; camera: boolean; cleanupCount: number }>;
+        };
       };
       contextWindow.__V05_WEBGL_CONTEXTS = [];
-      const probe = { inactive: false, pendingBlobs: 0, lateBlobs: 0, latePublications: 0 };
+      const probe = { inactive: false, pendingBlobs: 0, lateBlobs: 0, latePublications: 0, lifecycle: [] as Array<{ renderer: boolean; camera: boolean; cleanupCount: number }> };
       probeWindow.__V05_PROBE = probe;
+      (window as Window & { __POLYTRAY_RENDERER_PROBE?: { markPartThumbnailLifecycle?: (renderer: boolean, camera: boolean, cleanupCount: number) => void } }).__POLYTRAY_RENDERER_PROBE = {
+        markPartThumbnailLifecycle: (renderer, camera, cleanupCount) => probe.lifecycle.push({ renderer, camera, cleanupCount }),
+      };
       window.addEventListener('polytray-part-thumbnail', (event) => {
         const detail = (event as CustomEvent<{ url: string | null }>).detail;
         if (probe.inactive && detail.url) probe.latePublications++;
@@ -197,6 +206,10 @@ test('dense and transformed multipart previews report first-frame and render-sub
 
         const pendingBeforeReplacement = await page.evaluate(() => (window as Window & { __V05_PROBE?: { pendingBlobs: number } }).__V05_PROBE?.pendingBlobs ?? 0);
         expect(pendingBeforeReplacement).toBeGreaterThan(0);
+        const replacementBaseline = await page.evaluate(() => {
+          const probe = (window as Window & { __V05_PROBE?: { lateBlobs: number; latePublications: number } }).__V05_PROBE!;
+          return { callbacks: probe.lateBlobs, publications: probe.latePublications };
+        });
         await page.evaluate(() => { (window as Window & { __V05_PROBE?: { inactive: boolean } }).__V05_PROBE!.inactive = true; });
         const denseCard = page.locator('.file-card').filter({ has: page.locator('.card-name[title="dense"]') }).first();
         await denseCard.click();
@@ -207,19 +220,30 @@ test('dense and transformed multipart previews report first-frame and render-sub
         }, contextStart);
         expect(afterReplacementContexts.filter(Boolean).length).toBeGreaterThan(0);
         expect(afterReplacementContexts.some((lost) => !lost)).toBe(true);
-        await expect.poll(() => page.evaluate(() => (window as Window & { __V05_PROBE?: { lateBlobs: number } }).__V05_PROBE?.lateBlobs ?? 0), { timeout: 5000 }).toBeGreaterThan(0);
-        expect(await page.evaluate(() => (window as Window & { __V05_PROBE?: { latePublications: number } }).__V05_PROBE?.latePublications ?? 0)).toBe(0);
+        await expect.poll(() => page.evaluate(() => (window as Window & { __V05_PROBE?: { lateBlobs: number } }).__V05_PROBE?.lateBlobs ?? 0), { timeout: 5000 }).toBeGreaterThan(replacementBaseline.callbacks);
+        expect(await page.evaluate(() => (window as Window & { __V05_PROBE?: { latePublications: number } }).__V05_PROBE?.latePublications ?? 0)).toBe(replacementBaseline.publications);
+        const replacementState = await page.evaluate(() => (window as Window & { __V05_PROBE?: { lifecycle: Array<{ renderer: boolean; camera: boolean; cleanupCount: number }> } }).__V05_PROBE!.lifecycle.at(-1));
+        expect(replacementState).toMatchObject({ renderer: false, camera: false });
 
         await page.evaluate(() => { (window as Window & { __V05_PROBE?: { inactive: boolean } }).__V05_PROBE!.inactive = false; });
         const reopenMultipart = page.locator('.file-card').filter({ has: page.locator('.card-name[title="multipart"]') }).first();
         await reopenMultipart.click();
         await expect(page.locator('#viewer-loading')).toHaveClass(/hidden/, { timeout: 30000 });
         await expect.poll(() => page.evaluate(() => (window as Window & { __V05_PROBE?: { pendingBlobs: number } }).__V05_PROBE?.pendingBlobs ?? 0)).toBeGreaterThan(0);
+        const closeBaseline = await page.evaluate(() => {
+          const probe = (window as Window & { __V05_PROBE?: { lateBlobs: number; latePublications: number } }).__V05_PROBE!;
+          return { callbacks: probe.lateBlobs, publications: probe.latePublications };
+        });
         await page.evaluate(() => { (window as Window & { __V05_PROBE?: { inactive: boolean } }).__V05_PROBE!.inactive = true; });
         await page.locator('#btn-close-viewer').click();
         await expect(page.locator('#viewer-container canvas')).toHaveCount(0);
-        await expect.poll(() => page.evaluate(() => (window as Window & { __V05_PROBE?: { lateBlobs: number } }).__V05_PROBE?.lateBlobs ?? 0), { timeout: 5000 }).toBeGreaterThan(1);
-        expect(await page.evaluate(() => (window as Window & { __V05_PROBE?: { latePublications: number } }).__V05_PROBE?.latePublications ?? 0)).toBe(0);
+        await expect.poll(() => page.evaluate(() => (window as Window & { __V05_PROBE?: { lateBlobs: number } }).__V05_PROBE?.lateBlobs ?? 0), { timeout: 5000 }).toBeGreaterThan(closeBaseline.callbacks);
+        expect(await page.evaluate(() => (window as Window & { __V05_PROBE?: { latePublications: number } }).__V05_PROBE?.latePublications ?? 0)).toBe(closeBaseline.publications);
+        const lifecycle = await page.evaluate(() => (window as Window & { __V05_PROBE?: { lifecycle: Array<{ renderer: boolean; camera: boolean; cleanupCount: number }> } }).__V05_PROBE!.lifecycle);
+        const activeRendererCleanupCounts = lifecycle.filter((entry) => entry.renderer).map((entry) => entry.cleanupCount);
+        expect(activeRendererCleanupCounts.length).toBeGreaterThanOrEqual(2);
+        expect(new Set(activeRendererCleanupCounts).size).toBe(1);
+        expect(lifecycle.at(-1)).toMatchObject({ renderer: false, camera: false });
       }
       if (model === 'dense') {
         await page.locator('#btn-close-viewer').click();

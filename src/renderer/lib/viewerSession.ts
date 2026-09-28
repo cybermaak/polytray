@@ -65,6 +65,10 @@ export class ViewerSession<TResources> {
     return this.frameId !== null;
   }
 
+  get cleanupCount() {
+    return this.cleanups.size;
+  }
+
   beginLoad() {
     if (this.disposed) return this.loadToken;
     return ++this.loadToken;
