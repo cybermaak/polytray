@@ -11,6 +11,7 @@ export interface LibraryPagesState {
   totalItems: number;
   totalModels: number;
   nextOffset: number | null;
+  retryOffset: number | null;
   ready: boolean;
   loading: boolean;
   loadingNext: boolean;
@@ -29,6 +30,7 @@ export function createInitialLibraryPagesState(): LibraryPagesState {
     totalItems: 0,
     totalModels: 0,
     nextOffset: null,
+    retryOffset: null,
     ready: false,
     loading: false,
     loadingNext: false,
@@ -36,6 +38,24 @@ export function createInitialLibraryPagesState(): LibraryPagesState {
     error: null,
     refreshRequired: false,
   };
+}
+
+export function shouldRetryNextPage(state: LibraryPagesState) {
+  return state.ready
+    && state.retryOffset !== null
+    && state.nextOffset === state.retryOffset
+    && state.revision !== null
+    && !state.loading
+    && !state.loadingNext
+    && !state.refreshing
+    && !state.refreshRequired
+    && state.error === null;
+}
+
+export function removeDeletedFileIds<T extends Pick<FileRecord, "id">>(records: T[], ids: number[]): T[] {
+  if (ids.length === 0) return records;
+  const removed = new Set(ids);
+  return records.filter((record) => !removed.has(record.id));
 }
 
 export type LibraryPagesAction =
@@ -103,6 +123,7 @@ export function libraryPagesReducer(
           loadingNext: false,
           refreshing: false,
           refreshRequired: true,
+          retryOffset: action.offset > 0 ? action.offset : null,
           staleRevision: action.page.revision,
         };
       }
@@ -115,6 +136,7 @@ export function libraryPagesReducer(
           totalItems: action.page.totalItems,
           totalModels: action.page.totalModels,
           nextOffset: action.page.nextOffset,
+          retryOffset: null,
           ready: true,
           loading: false,
           loadingNext: false,
@@ -130,6 +152,7 @@ export function libraryPagesReducer(
           loadingNext: false,
           refreshRequired: true,
           staleRevision: action.page.revision,
+          retryOffset: action.offset,
         };
       }
       return {
@@ -138,6 +161,7 @@ export function libraryPagesReducer(
         totalItems: action.page.totalItems,
         totalModels: action.page.totalModels,
         nextOffset: action.page.nextOffset,
+        retryOffset: null,
         loading: false,
         loadingNext: false,
         error: null,
@@ -150,6 +174,7 @@ export function libraryPagesReducer(
         loadingNext: false,
         refreshing: false,
         refreshRequired: false,
+        retryOffset: null,
         error: { offset: action.offset, message: action.error },
       };
     case "refresh-completed":
@@ -161,6 +186,7 @@ export function libraryPagesReducer(
         totalItems: action.totalItems,
         totalModels: action.totalModels,
         nextOffset: action.nextOffset,
+        retryOffset: state.nextOffset === action.nextOffset ? state.retryOffset : null,
         ready: true,
         refreshing: false,
         refreshRequired: false,
@@ -509,6 +535,10 @@ export function useLibraryPages(query: LibraryQuery, enabled = true): UseLibrary
     pendingNextRef.current = { generation, offset, promise };
     return promise;
   }, [enabled, fetchPage]);
+
+  useEffect(() => {
+    if (shouldRetryNextPage(state)) void loadNext();
+  }, [loadNext, state]);
 
   const retry = useCallback((): Promise<void> => {
     const failedOffset = stateRef.current.error?.offset;

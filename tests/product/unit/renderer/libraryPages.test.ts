@@ -6,6 +6,8 @@ import {
   createInitialLibraryPagesState,
   fetchConsistentPageRange,
   libraryPagesReducer,
+  removeDeletedFileIds,
+  shouldRetryNextPage,
 } from '../../../../src/renderer/hooks/useLibraryPages';
 
 function file(id: number): LibraryItem {
@@ -79,6 +81,30 @@ test('a page from another browse revision is rejected and requests a same-scope 
   assert.deepEqual(state.items.map((item) => item.key), ['file:1']);
   assert.equal(state.revision, 10);
   assert.equal(state.refreshRequired, true);
+});
+
+test('a stale next page retries its interrupted offset after the loaded range refreshes', () => {
+  let state = createInitialLibraryPagesState();
+  state = libraryPagesReducer(state, { type: 'query-started', generation: 1, queryKey: 'all' });
+  state = libraryPagesReducer(state, { type: 'page-loaded', generation: 1, offset: 0, page: okPage(10, [file(1)], 500) });
+  state = libraryPagesReducer(state, {
+    type: 'page-loaded', generation: 1, offset: 500,
+    page: { status: 'stale', revision: 11 },
+  });
+  assert.equal(state.retryOffset, 500);
+  assert.equal(shouldRetryNextPage(state), false);
+
+  state = libraryPagesReducer(state, { type: 'refresh-started', generation: 2 });
+  state = libraryPagesReducer(state, {
+    type: 'refresh-completed', generation: 2,
+    items: [file(1)], revision: 11, totalItems: 600, totalModels: 600, nextOffset: 500,
+  });
+  assert.equal(state.nextOffset, 500);
+  assert.equal(shouldRetryNextPage(state), true);
+
+  state = libraryPagesReducer(state, { type: 'page-loaded', generation: 2, offset: 500, page: okPage(11, [file(2)], null) });
+  assert.equal(state.retryOffset, null);
+  assert.equal(shouldRetryNextPage(state), false);
 });
 
 test('same-scope refresh atomically replaces loaded items at the new revision', () => {
@@ -199,4 +225,10 @@ test('confirmed deletion removes a loaded file and its archive thumbnail sample'
   assert.deepEqual(state.items.map((item) => item.key), [archive.key]);
   assert.equal(state.items[0].kind, 'archive');
   if (state.items[0].kind === 'archive') assert.deepEqual(state.items[0].thumbnailSamples, []);
+});
+
+test('confirmed deletion prunes matching real file records from comparison state', () => {
+  const records = [file(1).file, file(2).file, file(3).file];
+  assert.deepEqual(removeDeletedFileIds(records, [2]), [records[0], records[2]]);
+  assert.equal(removeDeletedFileIds(records, []).length, 3);
 });

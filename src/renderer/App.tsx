@@ -18,7 +18,11 @@ import { ScanProgress } from "./components/ScanProgress";
 import { createRefreshDebouncer } from "./lib/refreshDebouncer";
 import { getScanProgressPresentation } from "./lib/scanProgress";
 import { calculatePanelLayout } from "./lib/panelLayout";
-import { libraryQueryScopeKey, useLibraryPages } from "./hooks/useLibraryPages";
+import {
+  libraryQueryScopeKey,
+  removeDeletedFileIds,
+  useLibraryPages,
+} from "./hooks/useLibraryPages";
 import {
   type DisplayFileRecord,
   formatArchiveFolderLabel,
@@ -295,6 +299,7 @@ export const App: React.FC = () => {
     for (const id of ids) next.delete(id);
     selectedFilesRef.current = next;
     setSelectedFilesById(next);
+    setComparisonFiles((current) => removeDeletedFileIds(current, ids));
     libraryPages.removeFiles(ids);
   }, [libraryPages.removeFiles]);
 
