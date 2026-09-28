@@ -499,11 +499,17 @@ test("archive sidebar nodes filter to archive contents and show zip provenance",
 test("clicking a file card opens the 3D preview panel", async () => {
   await ensureFixtureFilesLoaded();
   await resetUiState();
+  const fixtureFolderNode = window.locator(".library-folder-item", {
+    has: window.locator(".library-folder-name", { hasText: "fixtures" }),
+  }).first();
+  await fixtureFolderNode.click({ force: true });
+  await expect(window.locator("#toolbar-context")).toContainText("Folder: fixtures");
   // The preview panel should start hidden
   const previewPanel = window.locator("#preview-panel");
   await expect(previewPanel).toHaveClass(/hidden/);
 
-  // Click the first file card
+  // Search to a stable fixture card before opening its preview.
+  await window.locator("#search-input").fill("test_model_a");
   const firstCard = window.locator(".file-card").filter({
     has: window.locator('.card-name[title="test_model_a"]'),
   }).first();
