@@ -69,9 +69,9 @@ Immediate continuation: reconcile/commit only the coordinator-owned U04 evidence
 
 ## Sequential queue (completed entries are skipped using the tracker)
 
-First stabilize the **already interleaved U02/T04 candidate as one recovery checkpoint**, with one designated integration worker. This is a one-time preservation measure, not permission to start two new implementation tasks. Inventory the current main diff, separate task-owned edits from user edits, complete the reviewed thumbnail-only API boundary, and classify the reproducible library-pages failure before deciding the bounded repair. Do not discard either worker's completed work. Both IDs remain open until their own acceptance cases and the combined gate pass.
+The **U02/T04 recovery checkpoint is now complete** according to the tracker; do not repeat it. The following describes that historical one-time recovery: stabilize the already interleaved candidate with one designated integration worker. This is a one-time preservation measure, not permission to start two new implementation tasks. Inventory the current main diff, separate task-owned edits from user edits, complete the reviewed thumbnail-only API boundary, and classify the reproducible library-pages failure before deciding the bounded repair. Do not discard either worker's completed work. Both IDs remain open until their own acceptance cases and the combined gate pass.
 
-After that checkpoint, execute in this order, one task at a time:
+Execute the remaining entries in this order, one task at a time, skipping every task already DONE in the tracker:
 
 | Order | Task | Dependency/ownership reason |
 | --- | --- | --- |
