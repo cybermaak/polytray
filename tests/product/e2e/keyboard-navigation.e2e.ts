@@ -91,19 +91,23 @@ test("keyboard-only browsing preserves virtual focus and closes only the top ove
     const columns = await page.locator("#file-grid").evaluate((element) =>
       getComputedStyle(element).gridTemplateColumns.trim().split(/\s+(?![^()]*\))/).length,
     );
-    const firstPage = await page.evaluate(() => window.polytray.getLibraryPage({
-      sort: "name", direction: "ASC", extension: null, folder: null, search: "",
+    const uiSort = await page.locator("#sort-select").inputValue();
+    const uiDirection = await page.locator("#sort-order").evaluate((element) =>
+      element.classList.contains("desc") ? "DESC" : "ASC",
+    );
+    const firstPage = await page.evaluate(({ sort, direction }) => window.polytray.getLibraryPage({
+      sort, direction, extension: null, folder: null, search: "",
       collectionPaths: null, limit: 50, offset: 0,
-    }));
+    }), { sort: uiSort, direction: uiDirection });
     const orderedKeys = firstPage.status === "ok" ? firstPage.items.map((item) => item.key) : [];
     if (orderedKeys[0]?.startsWith("archive:")) {
       await expect(initialFocus).toHaveClass(/archive-summary/);
       await expect(initialFocus.locator(".file-select-toggle")).toHaveCount(0);
     }
-    const fullLibrary = await page.evaluate(() => window.polytray.getLibraryPage({
-      sort: "name", direction: "ASC", extension: null, folder: null, search: "",
+    const fullLibrary = await page.evaluate(({ sort, direction }) => window.polytray.getLibraryPage({
+      sort, direction, extension: null, folder: null, search: "",
       collectionPaths: null, limit: 200, offset: 0,
-    }));
+    }), { sort: uiSort, direction: uiDirection });
     const allKeys = fullLibrary.status === "ok" ? fullLibrary.items.map((item) => item.key) : [];
     const startingKey = await initialFocus.getAttribute("data-item-key");
     const startingIndex = allKeys.indexOf(startingKey);
@@ -211,16 +215,21 @@ test("keyboard-only browsing preserves virtual focus and closes only the top ove
     await expect(page.locator("#preview-panel")).toBeHidden();
 
     await tabTo(page, "#library-folders [role='treeitem'][tabindex='0']");
-    const focusedFolderPath = await page.locator("#library-folders [role='treeitem']:focus").getAttribute("data-folder-path");
+    const focusedFolderPath = await page.evaluate(() => (document.activeElement as HTMLElement).dataset.folderPath);
+    expect(focusedFolderPath).toBeTruthy();
     const focusedFolder = page.locator(`#library-folders [role='treeitem'][data-folder-path=${JSON.stringify(focusedFolderPath)}]`);
     await pressWithDeadline(page, "ArrowRight", "expand focused folder");
     await expect(focusedFolder).toHaveAttribute("aria-expanded", "true");
+    await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement)?.dataset.folderPath), { timeout: 5000 })
+      .toBe(focusedFolderPath);
+    await expect(focusedFolder).toBeFocused();
     const childGroup = focusedFolder.locator(":scope > [role='group']");
     await expect(childGroup).toBeVisible();
     const childFolder = childGroup.getByRole("treeitem").first();
     await expect(childFolder).toBeVisible();
     await pressWithDeadline(page, "ArrowDown", "focus child folder");
     await expect(childFolder).toBeFocused();
+    await expect(childFolder).toHaveAttribute("tabindex", "0");
     await pressWithDeadline(page, "Enter", "select child folder");
     await expect(childFolder).toHaveAttribute("aria-selected", "true");
     await expect(childFolder).toBeFocused();
@@ -277,7 +286,10 @@ test("ArrowDown across a loaded page edge preserves the focused column", async (
     const columns = await page.locator("#file-grid").evaluate((element) =>
       getComputedStyle(element).gridTemplateColumns.trim().split(/\s+(?![^()]*\))/).length,
     );
+    const initialKey = await page.evaluate(() => (document.activeElement as HTMLElement).dataset.itemKey);
     await pressWithDeadline(page, "End", "move to the last loaded grid item");
+    await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement).dataset.itemKey), { timeout: 5000 })
+      .not.toBe(initialKey);
     const lastLoadedKey = await page.evaluate(() => (document.activeElement as HTMLElement).dataset.itemKey);
     const lastLoadedIndex = keys.indexOf(lastLoadedKey);
     const expected = keys[Math.min(lastLoadedIndex + columns, keys.length - 1)];

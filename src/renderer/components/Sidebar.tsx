@@ -294,7 +294,9 @@ const FolderTreeNode: React.FC<{
       aria-keyshortcuts={node.isLibraryRoot ? "Delete" : undefined}
       aria-describedby={node.isLibraryRoot ? "library-folder-delete-hint" : undefined}
       tabIndex={focusedPath === node.path ? 0 : -1}
-      onFocus={() => onFocusPath(node.path)}
+      onFocus={(event) => {
+        if (event.target === event.currentTarget) onFocusPath(node.path);
+      }}
       onKeyDown={handleKeyDown}
     >
       <div
@@ -452,10 +454,16 @@ export const Sidebar: React.FC<Props> = ({
   const [focusedFolderPath, setFocusedFolderPath] = React.useState<string | null>(
     () => activeFolder ?? tree[0]?.path ?? null,
   );
+  const previousActiveFolderRef = React.useRef(activeFolder);
   React.useEffect(() => {
-    if (activeFolder && folderPaths.includes(activeFolder)) setFocusedFolderPath(activeFolder);
-    else if (!focusedFolderPath || !folderPaths.includes(focusedFolderPath)) {
-      setFocusedFolderPath(tree[0]?.path ?? null);
+    const previousActiveFolder = previousActiveFolderRef.current;
+    previousActiveFolderRef.current = activeFolder;
+    if (activeFolder !== previousActiveFolder && activeFolder && folderPaths.includes(activeFolder)) {
+      setFocusedFolderPath(activeFolder);
+      return;
+    }
+    if (!focusedFolderPath || !folderPaths.includes(focusedFolderPath)) {
+      setFocusedFolderPath(activeFolder && folderPaths.includes(activeFolder) ? activeFolder : tree[0]?.path ?? null);
     }
   }, [activeFolder, focusedFolderPath, folderPaths, tree]);
   const filters = [
