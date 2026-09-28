@@ -103,18 +103,23 @@ function deferred<T>() {
 }
 
 test('refresh snapshots its query and stops before requesting another page after a scope change', async () => {
+  const firstPage = deferred<LibraryPageResult>();
   const secondPage = deferred<LibraryPageResult>();
   const calls: Array<{ search: string; offset: number; expectedBrowseRevision?: number }> = [];
   let current = true;
+  const query = {
+    sort: 'name' as const, direction: 'ASC' as const, extension: null, folder: null, search: 'old scope',
+    collectionPaths: null, limit: 1, offset: 0,
+  };
   const request = fetchConsistentPageRange(async (query) => {
     calls.push({ search: query.search, offset: query.offset, expectedBrowseRevision: query.expectedBrowseRevision });
-    if (calls.length === 1) return okPage(12, [file(1)], 1);
+    if (calls.length === 1) return firstPage.promise;
     return secondPage.promise;
-  }, {
-    sort: 'name', direction: 'ASC', extension: null, folder: null, search: 'old scope',
-    collectionPaths: null, limit: 1, offset: 0,
-  }, 2, () => current);
+  }, query, 2, () => current);
 
+  while (calls.length < 1) await new Promise((resolve) => setImmediate(resolve));
+  query.search = 'new scope';
+  firstPage.resolve(okPage(12, [file(1)], 1));
   while (calls.length < 2) await new Promise((resolve) => setImmediate(resolve));
   current = false;
   secondPage.resolve(okPage(12, [file(2)], null));
@@ -160,4 +165,38 @@ test('refresh stops after unmount instead of continuing the loaded-range request
   firstPage.resolve(okPage(12, [file(1)], 1));
   assert.equal((await request).status, 'cancelled');
   assert.equal(reads, 1);
+});
+
+test('thumbnail patches update loaded records without resetting pages or revision', () => {
+  let state = createInitialLibraryPagesState();
+  const original = { ...file(1).file, thumbnail: '/cache/old.png' };
+  state = libraryPagesReducer(state, { type: 'query-started', generation: 1, queryKey: 'all' });
+  state = libraryPagesReducer(state, {
+    type: 'page-loaded', generation: 1, offset: 0,
+    page: okPage(21, [{ kind: 'file', key: 'file:1', file: original }], 500),
+  });
+  state = libraryPagesReducer(state, { type: 'files-patched', files: [{ ...original, thumbnail: null }] });
+  assert.equal(state.items[0].kind, 'file');
+  if (state.items[0].kind !== 'file') return;
+  assert.equal(state.items[0].file.thumbnail, null);
+  assert.equal(state.revision, 21);
+  assert.equal(state.totalItems, 600);
+  assert.equal(state.totalModels, 600);
+  assert.equal(state.nextOffset, 500);
+});
+
+test('confirmed deletion removes a loaded file and its archive thumbnail sample', () => {
+  let state = createInitialLibraryPagesState();
+  const sample = file(4).file;
+  const archive: LibraryItem = {
+    kind: 'archive', key: 'archive:/library/bundle.zip', archivePath: '/library/bundle.zip',
+    name: 'bundle.zip', modelCount: 80, vertexCount: 30, faceCount: 10, sizeBytes: 400,
+    thumbnailSamples: [sample],
+  };
+  state = libraryPagesReducer(state, { type: 'query-started', generation: 1, queryKey: 'all' });
+  state = libraryPagesReducer(state, { type: 'page-loaded', generation: 1, offset: 0, page: okPage(2, [file(4), archive], 500) });
+  state = libraryPagesReducer(state, { type: 'files-removed', ids: [4] });
+  assert.deepEqual(state.items.map((item) => item.key), [archive.key]);
+  assert.equal(state.items[0].kind, 'archive');
+  if (state.items[0].kind === 'archive') assert.deepEqual(state.items[0].thumbnailSamples, []);
 });

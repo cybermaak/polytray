@@ -84,7 +84,31 @@ test("library pages expose every matching model, complete archive counts, and st
       const scroller = document.querySelector("[data-virtuoso-scroller]");
       scroller?.scrollTo({ top: scroller.scrollHeight, behavior: "instant" });
     });
+    const lastRecordCard = page.locator(`.file-card[data-file-id="${fixtureInfo.thumbnailTestFileId}"]`);
     await expect(page.locator(`.card-name[title="${fixtureInfo.lastRecordName}"]`)).toBeVisible({ timeout: 30000 });
+    const loadedThumbnail = lastRecordCard.locator("img[data-thumbnail-state]");
+    await expect(loadedThumbnail).toHaveAttribute("data-thumbnail-state", "placeholder");
+    await page.evaluate((folder) => window.polytray.scanFolder(folder, {
+      thumbnail_timeout: 20000,
+      scanning_batch_size: 50,
+      watcher_stability: 1000,
+      page_size: 500,
+      thumbnailColor: "#8888aa",
+    }), fixtureInfo.thumbnailTestFolder);
+    await expect(loadedThumbnail).toHaveAttribute("data-thumbnail-state", "ready", { timeout: 30000 });
+    const scrollBeforeThumbnailClear = await page.locator("[data-virtuoso-scroller]").evaluate((element) => element.scrollTop);
+    await page.evaluate(() => window.polytray.clearThumbnails({
+      thumbnail_timeout: 20000,
+      scanning_batch_size: 50,
+      watcher_stability: 1000,
+      page_size: 500,
+      thumbnailColor: "#8888aa",
+    }));
+    await expect(loadedThumbnail).toHaveAttribute("data-thumbnail-state", "placeholder", { timeout: 30000 });
+    await expect.poll(() => page.locator("[data-virtuoso-scroller]").evaluate((element) => element.scrollTop))
+      .toBe(scrollBeforeThumbnailClear);
+    await expect(page.locator("#batch-selection-count")).toHaveText("1 selected");
+    await expect(page.locator("#library-result-total")).toContainText("600 models");
     await expect(page.locator("#batch-selection-count")).toHaveText("1 selected");
     await page.locator("#batch-tags-input").fill("page-one-retained");
     await page.locator("#apply-batch-tags").click();

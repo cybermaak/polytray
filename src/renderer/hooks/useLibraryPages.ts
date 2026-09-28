@@ -54,6 +54,7 @@ export type LibraryPagesAction =
       nextOffset: number | null;
     }
   | { type: "file-patched"; file: FileRecord }
+  | { type: "files-patched"; files: FileRecord[] }
   | { type: "files-removed"; ids: number[] };
 
 export function libraryPagesReducer(
@@ -83,7 +84,7 @@ export function libraryPagesReducer(
     };
   }
 
-  if (action.type !== "file-patched" && action.type !== "files-removed"
+  if (action.type !== "file-patched" && action.type !== "files-patched" && action.type !== "files-removed"
     && action.generation !== state.generation) return state;
 
   switch (action.type) {
@@ -170,10 +171,26 @@ export function libraryPagesReducer(
         ...state,
         items: state.items.map((item) => patchItemFile(item, action.file)),
       };
+    case "files-patched": {
+      const filesById = new Map(action.files.map((file) => [file.id, file]));
+      return {
+        ...state,
+        items: state.items.map((item) => patchItemFiles(item, filesById)),
+      };
+    }
     case "files-removed": {
       const removedIds = new Set(action.ids);
-      const items = state.items.filter((item) => item.kind === "archive"
-        || !removedIds.has(item.file.id));
+      const items: LibraryItem[] = [];
+      for (const item of state.items) {
+        if (item.kind === "file") {
+          if (!removedIds.has(item.file.id)) items.push(item);
+          continue;
+        }
+        const thumbnailSamples = item.thumbnailSamples.filter((sample) => !removedIds.has(sample.id));
+        items.push(thumbnailSamples.length === item.thumbnailSamples.length
+          ? item
+          : { ...item, thumbnailSamples });
+      }
       return { ...state, items };
     }
   }
@@ -193,6 +210,21 @@ function patchItemFile(item: LibraryItem, file: FileRecord): LibraryItem {
     ...item,
     thumbnailSamples: item.thumbnailSamples.map((sample) => sample.id === file.id ? file : sample),
   };
+}
+
+function patchItemFiles(item: LibraryItem, filesById: ReadonlyMap<number, FileRecord>): LibraryItem {
+  if (item.kind === "file") {
+    const file = filesById.get(item.file.id);
+    return file ? { ...item, file } : item;
+  }
+  let changed = false;
+  const thumbnailSamples = item.thumbnailSamples.map((sample) => {
+    const file = filesById.get(sample.id);
+    if (!file) return sample;
+    changed = true;
+    return file;
+  });
+  return changed ? { ...item, thumbnailSamples } : item;
 }
 
 function getQueryKey(query: LibraryQuery) {
@@ -302,6 +334,7 @@ export interface UseLibraryPagesResult extends LibraryPagesState {
   loadNext: () => Promise<void>;
   retry: () => Promise<void>;
   patchFile: (file: FileRecord) => void;
+  patchFiles: (files: FileRecord[]) => void;
   removeFiles: (ids: number[]) => void;
 }
 
@@ -318,23 +351,35 @@ export function useLibraryPages(query: LibraryQuery, enabled = true): UseLibrary
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
   const pendingNextRef = useRef<PendingNextPage | null>(null);
+  const completedNextRef = useRef<{ generation: number; offset: number } | null>(null);
   const pendingRefreshRef = useRef<PendingRefresh | null>(null);
 
   const fetchPage = useCallback(async (
     generation: number,
     offset: number,
     expectedBrowseRevision?: number,
-  ) => {
+    requestQuery: LibraryQuery = queryRef.current,
+    scopeEpoch = scopeEpochRef.current,
+  ): Promise<LibraryPageResult | null> => {
+    const requestQueryKey = getQueryKey(requestQuery);
+    const isCurrentRequest = () => enabledRef.current
+      && generationRef.current === generation
+      && scopeEpochRef.current === scopeEpoch
+      && getQueryKey(queryRef.current) === requestQueryKey;
+    if (!isCurrentRequest()) return null;
     dispatch({ type: "request-started", generation, offset });
     try {
       const page = await window.polytray.getLibraryPage({
-        ...queryRef.current,
+        ...requestQuery,
         offset,
         ...(expectedBrowseRevision === undefined ? {} : { expectedBrowseRevision }),
       });
+      if (!isCurrentRequest()) return null;
       dispatch({ type: "page-loaded", generation, offset, page });
+      return page;
     } catch (error) {
-      dispatch({ type: "page-failed", generation, offset, error: errorMessage(error) });
+      if (isCurrentRequest()) dispatch({ type: "page-failed", generation, offset, error: errorMessage(error) });
+      return null;
     }
   }, []);
 
@@ -343,14 +388,19 @@ export function useLibraryPages(query: LibraryQuery, enabled = true): UseLibrary
     if (enabled) {
       const generation = ++generationRef.current;
       pendingNextRef.current = null;
+      completedNextRef.current = null;
       pendingRefreshRef.current = null;
       dispatch({ type: "query-started", generation, queryKey });
-      void fetchPage(generation, 0);
+      const requestQuery = { ...queryRef.current, collectionPaths: queryRef.current.collectionPaths === null
+        ? null
+        : [...queryRef.current.collectionPaths] };
+      void fetchPage(generation, 0, undefined, requestQuery, scopeEpoch);
     }
     return () => {
       if (scopeEpochRef.current === scopeEpoch) scopeEpochRef.current += 1;
       generationRef.current += 1;
       pendingNextRef.current = null;
+      completedNextRef.current = null;
       pendingRefreshRef.current = null;
     };
   }, [enabled, fetchPage, queryKey]);
@@ -369,13 +419,16 @@ export function useLibraryPages(query: LibraryQuery, enabled = true): UseLibrary
         ? null
         : [...queryRef.current.collectionPaths],
     };
+    const requestQueryKey = getQueryKey(querySnapshot);
     const targetCount = Math.max(snapshot.items.length, querySnapshot.limit);
     pendingNextRef.current = null;
+    completedNextRef.current = null;
     dispatch({ type: "refresh-started", generation });
 
     const isCurrentRequest = () => enabledRef.current
       && generationRef.current === generation
-      && scopeEpochRef.current === scopeEpoch;
+      && scopeEpochRef.current === scopeEpoch
+      && getQueryKey(queryRef.current) === requestQueryKey;
     const promise = (async () => {
       const result = await fetchConsistentPageRange(
         (request) => window.polytray.getLibraryPage(request),
@@ -424,8 +477,10 @@ export function useLibraryPages(query: LibraryQuery, enabled = true): UseLibrary
   }, [enabled, refresh, state.refreshRequired, state.refreshing]);
 
   const loadNext = useCallback((): Promise<void> => {
-    const current = stateRef.current;
-    if (!enabled || current.refreshing || current.nextOffset === null || current.revision === null) {
+      const current = stateRef.current;
+    if (!enabled || current.generation !== generationRef.current
+      || current.queryKey !== getQueryKey(queryRef.current)
+      || current.refreshing || current.nextOffset === null || current.revision === null) {
       return Promise.resolve();
     }
     const existing = pendingNextRef.current;
@@ -434,7 +489,19 @@ export function useLibraryPages(query: LibraryQuery, enabled = true): UseLibrary
     }
     const generation = current.generation;
     const offset = current.nextOffset;
-    const promise = fetchPage(generation, offset, current.revision).finally(() => {
+    if (completedNextRef.current?.generation === generation && completedNextRef.current.offset === offset) {
+      return Promise.resolve();
+    }
+    const querySnapshot = { ...queryRef.current, collectionPaths: queryRef.current.collectionPaths === null
+      ? null
+      : [...queryRef.current.collectionPaths] };
+    const scopeEpoch = scopeEpochRef.current;
+    const promise = fetchPage(generation, offset, current.revision, querySnapshot, scopeEpoch).then((page) => {
+      if (page && enabledRef.current && generationRef.current === generation
+        && scopeEpochRef.current === scopeEpoch) {
+        completedNextRef.current = { generation, offset };
+      }
+    }).finally(() => {
       if (pendingNextRef.current?.generation === generation && pendingNextRef.current.offset === offset) {
         pendingNextRef.current = null;
       }
@@ -452,9 +519,13 @@ export function useLibraryPages(query: LibraryQuery, enabled = true): UseLibrary
     dispatch({ type: "file-patched", file });
   }, []);
 
+  const patchFiles = useCallback((files: FileRecord[]) => {
+    if (files.length > 0) dispatch({ type: "files-patched", files });
+  }, []);
+
   const removeFiles = useCallback((ids: number[]) => {
     if (ids.length > 0) dispatch({ type: "files-removed", ids });
   }, []);
 
-  return { ...state, queryKey, refresh, loadNext, retry, patchFile, removeFiles };
+  return { ...state, queryKey, refresh, loadNext, retry, patchFile, patchFiles, removeFiles };
 }
