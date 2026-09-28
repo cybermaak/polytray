@@ -9,9 +9,10 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { VIEWER_CONFIG } from "./viewerConfig";
 import { setModelColor, createMaterial } from "./modelParsers";
 import { computeCameraFit } from "./cameraUtils";
+import { PartThumbnailQueue } from "./partThumbnailQueue";
 import type { SerializedMesh } from "../../shared/types";
 import { loadPreviewMeshes } from "./previewStrategies";
-import { assembleSerializedMeshes, disposeAssemblyGroup, yieldToFrameOrAbort } from "./meshAssembly";
+import { assembleSerializedMeshes, disposeAssemblyGroup } from "./meshAssembly";
 import {
   createMainWindowVisibilityGate,
   disposeOwnedViewerResources,
@@ -36,6 +37,12 @@ interface ViewerState {
   activeSubModelIndex: number;
   container: HTMLElement | null;
   multiModelContainer: HTMLElement | null;
+  partThumbnailRenderer: THREE.WebGLRenderer | null;
+  partThumbnailScene: THREE.Scene | null;
+  partThumbnailCamera: THREE.PerspectiveCamera | null;
+  partThumbnailQueue: PartThumbnailQueue<THREE.Object3D> | null;
+  partThumbnailParts: Array<{ id: string; label: string; object: THREE.Object3D }>;
+  partThumbnailToken: number;
 }
 
 function createInitialState(): ViewerState {
@@ -52,6 +59,12 @@ function createInitialState(): ViewerState {
     activeSubModelIndex: -1,
     container: null,
     multiModelContainer: null,
+    partThumbnailRenderer: null,
+    partThumbnailScene: null,
+    partThumbnailCamera: null,
+    partThumbnailQueue: null,
+    partThumbnailParts: [],
+    partThumbnailToken: -1,
   };
 }
 
@@ -65,6 +78,8 @@ let pendingFirstRenderMetric: {
   owner: ViewerSession<ViewerState>;
   loadToken: number;
 } | null = null;
+let lastRenderedLoad: { owner: ViewerSession<ViewerState>; loadToken: number } | null = null;
+let firstFrameWaiter: { owner: ViewerSession<ViewerState>; loadToken: number; finish: (rendered: boolean) => void } | null = null;
 const PREVIEW_COLOR_PATTERN = /^#[\da-f]{6}$/i;
 
 function seedViewerModelColor(containerEl: HTMLElement) {
@@ -142,7 +157,7 @@ export function initViewer(containerEl: HTMLElement) {
   state.renderer = new THREE.WebGLRenderer({
     antialias: true,
     alpha: true,
-    preserveDrawingBuffer: true, // Needed for capturing sub-model thumbnails
+    preserveDrawingBuffer: false,
   });
   state.renderer.setSize(width, height);
   state.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -183,6 +198,7 @@ export function initViewer(containerEl: HTMLElement) {
       const renderStartedAt = performance.now();
       renderer.render(scene, camera);
       if (firstRender) {
+        lastRenderedLoad = { owner: firstRender.owner, loadToken: firstRender.loadToken };
         pendingFirstRenderMetric = null;
         const renderedAt = performance.now();
         performance.measure("polytray-preview-first-render", {
@@ -202,6 +218,9 @@ export function initViewer(containerEl: HTMLElement) {
           meshCount: firstRender.meshCount,
           renderSubmitMs: renderedAt - renderStartedAt,
         });
+        if (firstFrameWaiter?.owner === firstRender.owner && firstFrameWaiter.loadToken === firstRender.loadToken) {
+          firstFrameWaiter.finish(true);
+        }
       }
       const probeWindow = window as Window & {
         __POLYTRAY_RENDERER_PROBE?: {
@@ -313,7 +332,10 @@ export async function loadModelWithWorker(
 ) {
   const session = activeSession;
   if (!session) throw new Error("Viewer is not initialized");
+  firstFrameWaiter?.finish(false);
   const loadToken = session.beginLoad();
+  lastRenderedLoad = null;
+  resetPartThumbnailWork(loadToken);
   pendingFirstRenderMetric = null;
   const backgroundStartedAt = performance.now();
   const prepared = await loadPreviewMeshes({
@@ -353,6 +375,8 @@ export async function loadModelWithWorker(
     startedAt: backgroundStartedAt,
   });
   if (!session.isCurrent(loadToken) || signal.aborted) return;
+  if (!(await waitForUsableFrame(session, loadToken, signal))) return;
+  if (!session.isCurrent(loadToken) || signal.aborted) return;
   const buildDurationMs = performance.now() - buildStartedAt;
 
   window.polytray.emitPreviewMetric({
@@ -373,6 +397,26 @@ export async function loadModelWithWorker(
   });
 }
 
+function waitForUsableFrame(session: ViewerSession<ViewerState>, loadToken: number, signal: AbortSignal) {
+  if (signal.aborted || !session.isCurrent(loadToken)) return Promise.resolve(false);
+  if (lastRenderedLoad?.owner === session && lastRenderedLoad.loadToken === loadToken) return Promise.resolve(true);
+  return new Promise<boolean>((resolve) => {
+    let removeSessionCleanup = () => {};
+    const finish = (rendered: boolean) => {
+      if (firstFrameWaiter?.finish !== finish) return;
+      firstFrameWaiter = null;
+      signal.removeEventListener("abort", onAbort);
+      removeSessionCleanup();
+      resolve(rendered);
+    };
+    const onAbort = () => finish(false);
+    removeSessionCleanup = session.addCleanup(() => finish(false));
+    firstFrameWaiter = { owner: session, loadToken, finish };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+}
+
 // ── Multi-Model Thumbnail Strip ───────────────────────────────────
 
 async function updateMultiModelThumbnailStrip(
@@ -382,13 +426,10 @@ async function updateMultiModelThumbnailStrip(
   signal: AbortSignal,
 ) {
   if (signal.aborted || !session.isCurrent(loadToken)) return;
-  const multiModelContainer = getMultiModelContainer();
-  if (!multiModelContainer) return;
-
   state.multiModelMeshes = [];
   state.activeSubModelIndex = -1;
-  multiModelContainer.innerHTML = "";
-  multiModelContainer.classList.add("hidden");
+  state.partThumbnailParts = [];
+  window.dispatchEvent(new CustomEvent("polytray-multipart-clear"));
 
   // Only extract sub-meshes if it's actually complicated (like 3MF splits)
   // We collect direct Mesh children or Group children that contain Meshes
@@ -406,68 +447,105 @@ async function updateMultiModelThumbnailStrip(
   // If there's only 1 thing, no need for a carousel
   if (state.multiModelMeshes.length < 2) return;
 
-  // We have multiple distinct models! Let's build a thumbnail strip.
-  multiModelContainer.classList.remove("hidden");
-
-  // Wait a frame so the UI flexbox can settle before generating thumbs
-  if (!(await yieldToFrameOrAbort(signal, () => new Promise((resolve) => setTimeout(resolve, 10))))) return;
-  if (signal.aborted || !session.isCurrent(loadToken)) return;
-
-  for (let i = 0; i < state.multiModelMeshes.length; i++) {
-    if (i > 0 && i % 2 === 0) {
-      if (!(await yieldToFrameOrAbort(signal, () => session.yieldToFrame(signal)))) return;
-      if (signal.aborted || !session.isCurrent(loadToken)) return;
-    }
-
-    const sub = state.multiModelMeshes[i];
-
-    // Hide everything else temporarily to take a picture
-    state.multiModelMeshes.forEach((m, idx) => {
-      m.visible = idx === i;
-    });
-
-    // Render snapshot
-    fitCameraToObject(sub); // zoom camera tight on this specific sub-model
-    state.renderer!.render(state.scene!, state.camera!);
-
-    const thumbDiv = document.createElement("div");
-    thumbDiv.className = "multi-model-thumb";
-
-    // We can just grab the data-url right out of our main WebGL canvas since it was preserved!
-    const img = document.createElement("img");
-    img.src = state.renderer!.domElement.toDataURL("image/png");
-
-    thumbDiv.appendChild(img);
-    thumbDiv.onclick = () => selectSubModel(i, thumbDiv);
-    multiModelContainer.appendChild(thumbDiv);
-  }
-
-  // Add a "Show All" button at the start
-  const showAllDiv = document.createElement("div");
-  showAllDiv.className = "multi-model-thumb active";
-  showAllDiv.style.flexDirection = "column";
-  showAllDiv.style.fontSize = "10px";
-  showAllDiv.style.fontWeight = "bold";
-  showAllDiv.style.color = "var(--text-secondary)";
-  showAllDiv.innerHTML = "Show<br/>All";
-  showAllDiv.onclick = () => selectSubModel(-1, showAllDiv);
-  multiModelContainer.insertBefore(showAllDiv, multiModelContainer.firstChild);
-
-  // Restore visibility to ALL objects to start
-  state.multiModelMeshes.forEach((m) => (m.visible = true));
-  fitCameraToObject(group); // Refit the main camera back to the whole group
-  session.invalidate();
+  state.partThumbnailToken = loadToken;
+  state.partThumbnailParts = state.multiModelMeshes.map((object, index) => ({
+    id: `part-${loadToken}-${index}`,
+    label: object.name || `Part ${index + 1}`,
+    object,
+  }));
+  window.dispatchEvent(new CustomEvent("polytray-multipart-parts", {
+    detail: state.partThumbnailParts.map(({ id, label }) => ({ id, label })),
+  }));
 }
 
-function selectSubModel(index: number, htmlElement: HTMLElement) {
-  // Update UI active state
-  const mc = getMultiModelContainer();
-  if (mc) {
-    const thumbs = mc.querySelectorAll(".multi-model-thumb");
-    thumbs.forEach((el) => el.classList.remove("active"));
-  }
-  htmlElement.classList.add("active");
+function resetPartThumbnailWork(loadToken: number) {
+  disposePartThumbnailResources();
+  state.partThumbnailToken = loadToken;
+  state.partThumbnailParts = [];
+  window.dispatchEvent(new CustomEvent("polytray-multipart-clear"));
+}
 
+function ensurePartThumbnailRenderer(session: ViewerSession<ViewerState>) {
+  if (state.partThumbnailQueue && state.partThumbnailRenderer && state.partThumbnailScene && state.partThumbnailCamera) return;
+  const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: false, preserveDrawingBuffer: true });
+  renderer.setSize(128, 128);
+  renderer.setPixelRatio(1);
+  const scene = new THREE.Scene();
+  scene.background = null;
+  scene.add(new THREE.AmbientLight(0xffffff, 2));
+  const light = new THREE.DirectionalLight(0xffffff, 2);
+  light.position.set(3, 5, 4);
+  scene.add(light);
+  const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 1000);
+  state.partThumbnailRenderer = renderer;
+  state.partThumbnailScene = scene;
+  state.partThumbnailCamera = camera;
+  const queue = new PartThumbnailQueue<THREE.Object3D>({
+    maxCache: 64,
+    render: (object, signal) => renderPartThumbnail(object, signal),
+    yieldControl: () => session.yieldToFrame(),
+    release: (url) => URL.revokeObjectURL(url),
+  });
+  queue.replace(state.partThumbnailToken);
+  state.partThumbnailQueue = queue;
+  session.addCleanup(() => {
+    if (state.partThumbnailRenderer === renderer) {
+      disposePartThumbnailResources(session.resources);
+    }
+  });
+}
+
+function disposePartThumbnailResources(resources: ViewerState = state) {
+  resources.partThumbnailQueue?.dispose();
+  resources.partThumbnailQueue = null;
+  if (resources.partThumbnailRenderer) {
+    resources.partThumbnailRenderer.dispose();
+    resources.partThumbnailRenderer.forceContextLoss();
+  }
+  resources.partThumbnailRenderer = null;
+  resources.partThumbnailScene = null;
+  resources.partThumbnailCamera = null;
+  resources.partThumbnailParts = [];
+}
+
+async function renderPartThumbnail(object: THREE.Object3D, signal: AbortSignal): Promise<string> {
+  const renderer = state.partThumbnailRenderer;
+  const scene = state.partThumbnailScene;
+  const camera = state.partThumbnailCamera;
+  if (!renderer || !scene || !camera || signal.aborted) throw new Error("Thumbnail renderer unavailable");
+  const clone = object.clone(true);
+  scene.add(clone);
+  try {
+    const { center, maxDim } = computeCameraFit(clone, camera);
+    camera.position.multiplyScalar(1.15);
+    camera.lookAt(center);
+    camera.near = Math.max(0.001, maxDim / 1000);
+    camera.far = Math.max(100, maxDim * 20);
+    camera.updateProjectionMatrix();
+    renderer.render(scene, camera);
+    if (signal.aborted) throw new Error("Thumbnail cancelled");
+    const blob = await new Promise<Blob>((resolve, reject) => renderer.domElement.toBlob(
+      (result) => result ? resolve(result) : reject(new Error("Thumbnail image encoding failed")), "image/png"));
+    if (signal.aborted) throw new Error("Thumbnail cancelled");
+    return URL.createObjectURL(blob);
+  } finally {
+    scene.remove(clone);
+  }
+}
+
+export function requestPartThumbnail(id: string) {
+  const session = activeSession;
+  const token = state.partThumbnailToken;
+  const part = state.partThumbnailParts.find((item) => item.id === id);
+  if (!session || !part || !session.isCurrent(token)) return;
+  ensurePartThumbnailRenderer(session);
+  state.partThumbnailQueue?.request(token, [{ key: id, value: part.object }],
+    () => activeSession === session && session.isCurrent(token),
+    (key, url) => window.dispatchEvent(new CustomEvent("polytray-part-thumbnail", { detail: { id: key, url } })));
+}
+
+export function selectViewerPart(index: number) {
+  if (!state.currentModel || (index >= state.multiModelMeshes.length)) return;
   state.activeSubModelIndex = index;
 
   if (index === -1) {
@@ -481,6 +559,7 @@ function selectSubModel(index: number, htmlElement: HTMLElement) {
     });
     fitCameraToObject(state.multiModelMeshes[index]);
   }
+  window.dispatchEvent(new CustomEvent("polytray-part-selection", { detail: index }));
   activeSession?.invalidate();
 }
 
@@ -643,6 +722,7 @@ function publishCurrentModelDiagnostic(resources: ViewerState) {
 }
 
 function disposeViewerResources(resources: ViewerState, ownsCurrentUi: boolean) {
+  disposePartThumbnailResources(resources);
   if (resources.currentModel) {
     resources.scene?.remove(resources.currentModel);
     clearCurrentModelDiagnostic(resources);
@@ -663,6 +743,7 @@ function disposeViewerResources(resources: ViewerState, ownsCurrentUi: boolean) 
   }
 
   if (ownsCurrentUi) {
+    window.dispatchEvent(new CustomEvent("polytray-multipart-clear"));
     const multiModelContainer = resources.multiModelContainer ?? document.getElementById("viewer-multi-model");
     multiModelContainer?.replaceChildren();
     multiModelContainer?.classList.add("hidden");
@@ -672,6 +753,7 @@ function disposeViewerResources(resources: ViewerState, ownsCurrentUi: boolean) 
   resources.controls = null;
   if (resources.renderer) {
     resources.renderer.dispose();
+    resources.renderer.forceContextLoss();
     resources.renderer.domElement.parentNode?.removeChild(resources.renderer.domElement);
     resources.renderer = null;
   }

@@ -15,6 +15,7 @@ import {
 } from "../lib/archiveDisplay";
 import { AppIcon } from "./AppIcon";
 import { ThumbnailImage } from "./ThumbnailImage";
+import { PreviewParts } from "./PreviewParts";
 import { useOverlayFocus } from "../hooks/useOverlayFocus";
 import { createPreviewGeometryIdentity, previewStateReducer } from "../lib/previewState";
 import { createArchivePreviewPages, type ArchivePreviewPage } from "../lib/archivePreviewPages";
@@ -710,7 +711,7 @@ export const PreviewPanel: React.FC<Props> = ({
         )}
       </div>
 
-      <div className="viewer-multi-model hidden" id="viewer-multi-model" />
+      <PreviewParts />
 
       <div className="viewer-stage">
         <div
