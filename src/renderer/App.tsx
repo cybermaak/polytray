@@ -20,6 +20,7 @@ import { getScanProgressPresentation } from "./lib/scanProgress";
 import { calculatePanelLayout } from "./lib/panelLayout";
 import {
   libraryQueryScopeKey,
+  getAffectedTrackedFiles,
   removeDeletedFileIds,
   useLibraryPages,
 } from "./hooks/useLibraryPages";
@@ -195,6 +196,8 @@ export const App: React.FC = () => {
   collectionsStateRef.current = collectionsState;
   const selectedFilesRef = useRef(selectedFilesById);
   selectedFilesRef.current = selectedFilesById;
+  const comparisonFilesRef = useRef(comparisonFiles);
+  comparisonFilesRef.current = comparisonFiles;
   const libraryPagesRef = useRef(libraryPages);
   libraryPagesRef.current = libraryPages;
   const fileRefreshDebouncerRef = useRef<ReturnType<
@@ -515,9 +518,12 @@ export const App: React.FC = () => {
     cleanups.push(
       window.polytray.onLibraryChanged(async (mutation) => {
         if (mutation.rowsChanged || mutation.annotationsChanged) {
-          const affected = new Set(mutation.affectedPaths);
-          const selected = [...selectedFilesRef.current.values()].filter((file) => affected.has(file.path));
-          const results = await Promise.all(selected.map(async (file) => ({
+          const tracked = getAffectedTrackedFiles(
+            [...selectedFilesRef.current.values()],
+            comparisonFilesRef.current,
+            mutation.affectedPaths,
+          );
+          const results = await Promise.all(tracked.map(async (file) => ({
             id: file.id,
             latest: await window.polytray.getFileById(file.id),
           })));
@@ -529,6 +535,9 @@ export const App: React.FC = () => {
             }
           }
           removeSelectedFiles(deletedIds);
+          const latestById = new Map(results.flatMap((result) => result.latest ? [[result.id, result.latest] as const] : []));
+          setComparisonFiles((current) => removeDeletedFileIds(current, deletedIds)
+            .map((file) => latestById.get(file.id) ?? file));
           fileRefreshDebouncerRef.current?.trigger();
         }
       }),

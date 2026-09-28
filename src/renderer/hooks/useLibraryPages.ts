@@ -58,6 +58,19 @@ export function removeDeletedFileIds<T extends Pick<FileRecord, "id">>(records: 
   return records.filter((record) => !removed.has(record.id));
 }
 
+export function getAffectedTrackedFiles(
+  selectedFiles: FileRecord[],
+  comparisonFiles: FileRecord[],
+  affectedPaths: string[],
+): FileRecord[] {
+  const affected = new Set(affectedPaths);
+  const recordsById = new Map<number, FileRecord>();
+  for (const file of [...selectedFiles, ...comparisonFiles]) {
+    if (affected.has(file.path)) recordsById.set(file.id, file);
+  }
+  return [...recordsById.values()];
+}
+
 export type LibraryPagesAction =
   | { type: "query-started"; generation: number; queryKey: string }
   | { type: "request-started"; generation: number; offset: number }

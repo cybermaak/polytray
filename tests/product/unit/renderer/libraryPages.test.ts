@@ -5,6 +5,7 @@ import type { LibraryItem, LibraryPageResult } from '../../../../src/shared/libr
 import {
   createInitialLibraryPagesState,
   fetchConsistentPageRange,
+  getAffectedTrackedFiles,
   libraryPagesReducer,
   removeDeletedFileIds,
   shouldRetryNextPage,
@@ -231,4 +232,12 @@ test('confirmed deletion prunes matching real file records from comparison state
   const records = [file(1).file, file(2).file, file(3).file];
   assert.deepEqual(removeDeletedFileIds(records, [2]), [records[0], records[2]]);
   assert.equal(removeDeletedFileIds(records, []).length, 3);
+});
+
+test('a deleted comparison file is checked even when it was never batch-selected', () => {
+  const selected = [file(1).file];
+  const compared = [file(2).file, file(3).file];
+  const affected = getAffectedTrackedFiles(selected, compared, [compared[0].path]);
+  assert.deepEqual(affected.map((record) => record.id), [2]);
+  assert.deepEqual(removeDeletedFileIds(compared, affected.map((record) => record.id)), [compared[1]]);
 });
