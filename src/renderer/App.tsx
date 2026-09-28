@@ -5,7 +5,7 @@
  * vanilla index.html + app.js, ensuring CSS and E2E tests work unchanged.
  */
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { Toolbar } from "./components/Toolbar";
 import { PreviewPanel } from "./components/PreviewPanel";
@@ -108,6 +108,15 @@ export const App: React.FC = () => {
   const [resultCountAnnouncement, setResultCountAnnouncement] = useState("");
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
   const previewFocusReturnRef = useRef<HTMLElement | null>(null);
+  const previewScrollReturnRef = useRef<number | null>(null);
+  const pendingPreviewScrollRestoreRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (previewTarget !== null || pendingPreviewScrollRestoreRef.current === null) return;
+    const scrollTop = pendingPreviewScrollRestoreRef.current;
+    pendingPreviewScrollRestoreRef.current = null;
+    const scroller = document.querySelector<HTMLElement>("[data-virtuoso-scroller]");
+    if (scroller) scroller.scrollTop = scrollTop;
+  }, [previewTarget]);
   const compareFocusReturnRef = useRef<HTMLElement | null>(null);
   const [comparisonFiles, setComparisonFiles] = useState<FileRecord[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -949,6 +958,7 @@ export const App: React.FC = () => {
   }, [batchCollectionId, handleAddFilesToCollection, selectedFiles]);
 
   const handleSelectLibraryItem = useCallback((item: DisplayFileRecord) => {
+    previewScrollReturnRef.current = document.querySelector<HTMLElement>("[data-virtuoso-scroller]")?.scrollTop ?? null;
     if (document.activeElement instanceof HTMLElement) previewFocusReturnRef.current = document.activeElement;
     setComparisonFiles([]);
     if (isLibraryArchiveDisplayRecord(item)) {
@@ -973,6 +983,7 @@ export const App: React.FC = () => {
   }, [selectedFiles]);
 
   const handleOpenComparedFile = useCallback((file: FileRecord) => {
+    previewScrollReturnRef.current = document.querySelector<HTMLElement>("[data-virtuoso-scroller]")?.scrollTop ?? null;
     if (document.activeElement instanceof HTMLElement) previewFocusReturnRef.current = document.activeElement;
     setComparisonFiles([]);
     setPreviewTarget({ kind: "file", file });
@@ -992,15 +1003,19 @@ export const App: React.FC = () => {
   }, []);
 
   const handleClosePreview = useCallback(() => {
+    const restoreOverlayScroll = Boolean(document.querySelector("#preview-panel.overlay"));
+    const scrollTop = previewScrollReturnRef.current;
+    previewScrollReturnRef.current = null;
+    pendingPreviewScrollRestoreRef.current = restoreOverlayScroll ? scrollTop : null;
     setPreviewTarget(null);
     const returnFocus = previewFocusReturnRef.current;
     previewFocusReturnRef.current = null;
     requestAnimationFrame(() => {
       if (returnFocus?.isConnected) {
-        returnFocus.focus();
-        return;
+        returnFocus.focus({ preventScroll: true });
+      } else {
+        document.querySelector<HTMLElement>("#file-grid [data-item-key][tabindex='0']")?.focus({ preventScroll: true });
       }
-      document.querySelector<HTMLElement>("#file-grid [data-item-key][tabindex='0']")?.focus();
     });
   }, []);
   const handleLoadNextPage = useCallback(() => { void libraryPages.loadNext(); }, [libraryPages.loadNext]);

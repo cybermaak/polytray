@@ -220,6 +220,7 @@ test("keyboard-only browsing preserves virtual focus and closes only the top ove
     const focusedFolder = page.locator(`#library-folders [role='treeitem'][data-folder-path=${JSON.stringify(focusedFolderPath)}]`);
     await pressWithDeadline(page, "ArrowRight", "expand focused folder");
     await expect(focusedFolder).toHaveAttribute("aria-expanded", "true");
+    await expect(focusedFolder).toHaveAttribute("tabindex", "0");
     await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement)?.dataset.folderPath), { timeout: 5000 })
       .toBe(focusedFolderPath);
     await expect(focusedFolder).toBeFocused();

@@ -265,7 +265,10 @@ test("responsive panels preserve browsing space across supported window sizes", 
           }
           await mainWindow.locator("#btn-close-viewer").click();
           await expect(mainWindow.locator("#preview-panel")).toHaveClass(/hidden/);
-          if (measurements.previewMode === "overlay") await expect(lastModelName).toBeVisible();
+          if (measurements.previewMode === "overlay") {
+            await expect(lastModelName).toBeVisible();
+            await expect(lastModelCard).toBeFocused();
+          }
           await expect(mainWindow.locator("#batch-actions")).toContainText("1 selected");
           const scrollTopAfterClose = await mainWindow.evaluate(() =>
             document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,

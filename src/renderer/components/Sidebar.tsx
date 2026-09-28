@@ -239,8 +239,15 @@ const FolderTreeNode: React.FC<{
   onFocusPath: (path: string) => void;
 }> = ({ node, level, activeFolder, onSelect, onRemove, onRescan, onRefreshThumbnails, focusedPath, onFocusPath }) => {
   const [expanded, setExpanded] = React.useState(false);
+  const treeItemRef = React.useRef<HTMLDivElement>(null);
+  const refocusAfterExpandRef = React.useRef(false);
   const hasChildren = node.children.length > 0;
   const isActive = activeFolder === node.path;
+  React.useLayoutEffect(() => {
+    if (!expanded || !refocusAfterExpandRef.current) return;
+    refocusAfterExpandRef.current = false;
+    treeItemRef.current?.focus({ preventScroll: true });
+  }, [expanded]);
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget) return;
     const tree = event.currentTarget.closest<HTMLElement>("[role='tree']");
@@ -272,7 +279,10 @@ const FolderTreeNode: React.FC<{
       else focusItem(event.currentTarget.parentElement?.closest<HTMLElement>("[role='treeitem']"));
     } else if (event.key === "ArrowRight") {
       event.preventDefault();
-      if (hasChildren && !expanded) setExpanded(true);
+      if (hasChildren && !expanded) {
+        refocusAfterExpandRef.current = true;
+        setExpanded(true);
+      }
       else focusItem(event.currentTarget.querySelector<HTMLElement>(".folder-children [role='treeitem']") ?? undefined);
     } else if (event.key === "Delete" && node.isLibraryRoot) {
       event.preventDefault();
@@ -285,6 +295,7 @@ const FolderTreeNode: React.FC<{
 
   return (
     <div
+      ref={treeItemRef}
       className="folder-tree-node"
       data-folder-path={node.path}
       role="treeitem"
