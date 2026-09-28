@@ -82,7 +82,27 @@ test('dense and transformed multipart previews report first-frame and render-sub
     await expect(page.locator('#library-result-total')).toContainText('3 models', { timeout: 30000 });
     await page.evaluate(() => {
       const contextWindow = window as Window & { __V05_WEBGL_CONTEXTS?: Array<WebGLRenderingContext | WebGL2RenderingContext> };
+      const probeWindow = window as Window & {
+        __V05_PROBE?: { inactive: boolean; pendingBlobs: number; lateBlobs: number; latePublications: number };
+      };
       contextWindow.__V05_WEBGL_CONTEXTS = [];
+      const probe = { inactive: false, pendingBlobs: 0, lateBlobs: 0, latePublications: 0 };
+      probeWindow.__V05_PROBE = probe;
+      window.addEventListener('polytray-part-thumbnail', (event) => {
+        const detail = (event as CustomEvent<{ url: string | null }>).detail;
+        if (probe.inactive && detail.url) probe.latePublications++;
+      });
+      const originalToBlob = HTMLCanvasElement.prototype.toBlob;
+      HTMLCanvasElement.prototype.toBlob = function(callback, type, quality) {
+        probe.pendingBlobs++;
+        setTimeout(() => {
+          originalToBlob.call(this, (blob) => {
+            probe.pendingBlobs--;
+            if (probe.inactive) probe.lateBlobs++;
+            callback(blob);
+          }, type, quality);
+        }, 1200);
+      };
       const original = HTMLCanvasElement.prototype.getContext;
       HTMLCanvasElement.prototype.getContext = function(type: string, ...args: unknown[]) {
         const context = original.call(this, type, ...args) as RenderingContext | null;
@@ -120,6 +140,7 @@ test('dense and transformed multipart previews report first-frame and render-sub
       });
       const card = page.locator('.file-card').filter({ has: page.locator(`.card-name[title="${model}"]`) }).first();
       await expect(card).toBeVisible();
+      const contextStart = await page.evaluate(() => (window as Window & { __V05_WEBGL_CONTEXTS?: WebGLRenderingContext[] }).__V05_WEBGL_CONTEXTS?.length ?? 0);
       await card.click();
       await expect(page.locator('#viewer-loading')).toHaveClass(/hidden/, { timeout: 30000 });
       expect(await page.evaluate(() => performance.getEntriesByName('polytray-preview-first-render').length)).toBeGreaterThan(0);
@@ -142,22 +163,13 @@ test('dense and transformed multipart previews report first-frame and render-sub
       expect(result.renderSubmitMs).not.toBeNull();
       if (model === 'multipart') {
         const progressive = await page.evaluate(async () => {
-          const original = HTMLCanvasElement.prototype.toBlob;
-          let inFlight = 0;
-          HTMLCanvasElement.prototype.toBlob = function(callback, type, quality) {
-            inFlight++;
-            setTimeout(() => original.call(this, (blob) => {
-              inFlight--;
-              callback(blob);
-            }, type, quality), 400);
-          };
           return new Promise<{ ready: boolean; placeholders: number; inFlight: number }>((resolve) => {
             const check = () => {
+              const probe = (window as Window & { __V05_PROBE?: { pendingBlobs: number } }).__V05_PROBE;
               const buttons = [...document.querySelectorAll('#viewer-multi-model .multi-model-thumb')];
               const placeholders = buttons.filter((button) => button.querySelector('[data-part-thumbnail="placeholder"]')).length;
-              if (document.querySelector('#viewer-loading')?.classList.contains('hidden') && placeholders > 0 && inFlight > 0) {
-                resolve({ ready: true, placeholders, inFlight });
-                HTMLCanvasElement.prototype.toBlob = original;
+              if (document.querySelector('#viewer-loading')?.classList.contains('hidden') && placeholders > 0 && (probe?.pendingBlobs ?? 0) > 0) {
+                resolve({ ready: true, placeholders, inFlight: probe!.pendingBlobs });
                 return;
               }
               requestAnimationFrame(check);
@@ -182,9 +194,37 @@ test('dense and transformed multipart previews report first-frame and render-sub
         });
         expect(frameAfterThumbnail.equals(frameBeforeThumbnail)).toBe(true);
         expect(visibilityAfterThumbnail).toEqual(visibilityBeforeThumbnail);
+
+        const pendingBeforeReplacement = await page.evaluate(() => (window as Window & { __V05_PROBE?: { pendingBlobs: number } }).__V05_PROBE?.pendingBlobs ?? 0);
+        expect(pendingBeforeReplacement).toBeGreaterThan(0);
+        await page.evaluate(() => { (window as Window & { __V05_PROBE?: { inactive: boolean } }).__V05_PROBE!.inactive = true; });
+        const denseCard = page.locator('.file-card').filter({ has: page.locator('.card-name[title="dense"]') }).first();
+        await denseCard.click();
+        await expect(page.locator('#viewer-loading')).toHaveClass(/hidden/, { timeout: 30000 });
+        const afterReplacementContexts = await page.evaluate((start) => {
+          const contexts = (window as Window & { __V05_WEBGL_CONTEXTS?: WebGLRenderingContext[] }).__V05_WEBGL_CONTEXTS ?? [];
+          return contexts.slice(start).map((context) => context.isContextLost());
+        }, contextStart);
+        expect(afterReplacementContexts.filter(Boolean).length).toBeGreaterThan(0);
+        expect(afterReplacementContexts.some((lost) => !lost)).toBe(true);
+        await expect.poll(() => page.evaluate(() => (window as Window & { __V05_PROBE?: { lateBlobs: number } }).__V05_PROBE?.lateBlobs ?? 0), { timeout: 5000 }).toBeGreaterThan(0);
+        expect(await page.evaluate(() => (window as Window & { __V05_PROBE?: { latePublications: number } }).__V05_PROBE?.latePublications ?? 0)).toBe(0);
+
+        await page.evaluate(() => { (window as Window & { __V05_PROBE?: { inactive: boolean } }).__V05_PROBE!.inactive = false; });
+        const reopenMultipart = page.locator('.file-card').filter({ has: page.locator('.card-name[title="multipart"]') }).first();
+        await reopenMultipart.click();
+        await expect(page.locator('#viewer-loading')).toHaveClass(/hidden/, { timeout: 30000 });
+        await expect.poll(() => page.evaluate(() => (window as Window & { __V05_PROBE?: { pendingBlobs: number } }).__V05_PROBE?.pendingBlobs ?? 0)).toBeGreaterThan(0);
+        await page.evaluate(() => { (window as Window & { __V05_PROBE?: { inactive: boolean } }).__V05_PROBE!.inactive = true; });
+        await page.locator('#btn-close-viewer').click();
+        await expect(page.locator('#viewer-container canvas')).toHaveCount(0);
+        await expect.poll(() => page.evaluate(() => (window as Window & { __V05_PROBE?: { lateBlobs: number } }).__V05_PROBE?.lateBlobs ?? 0), { timeout: 5000 }).toBeGreaterThan(1);
+        expect(await page.evaluate(() => (window as Window & { __V05_PROBE?: { latePublications: number } }).__V05_PROBE?.latePublications ?? 0)).toBe(0);
       }
-      await page.locator('#btn-close-viewer').click();
-      await expect(page.locator('#viewer-container canvas')).toHaveCount(0);
+      if (model === 'dense') {
+        await page.locator('#btn-close-viewer').click();
+        await expect(page.locator('#viewer-container canvas')).toHaveCount(0);
+      }
       const contextLoss = await page.evaluate(() => {
         const contextWindow = window as Window & { __V05_WEBGL_CONTEXTS?: Array<WebGLRenderingContext | WebGL2RenderingContext> };
         return contextWindow.__V05_WEBGL_CONTEXTS?.map((context) => context.isContextLost()) ?? [];

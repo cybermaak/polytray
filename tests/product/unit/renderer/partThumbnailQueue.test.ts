@@ -10,7 +10,7 @@ test("cancelled model work does not publish a thumbnail after replacement", asyn
     yieldControl: async () => {},
   });
   queue.replace(1);
-  queue.request(1, [{ key: "part-a", value: "a" }], () => true, (_key, value) => published.push(value));
+  queue.request(1, [{ key: "part-a", value: "a" }], () => true, (_key, value) => { if (value) published.push(value); });
   await new Promise((resolve) => setImmediate(resolve));
   queue.replace(2);
   finish("blob:old-model");
@@ -32,10 +32,14 @@ test("thumbnail cache stays within 64 entries and releases evicted URLs", async 
   });
   queue.replace(1);
   const published: string[] = [];
-  queue.request(1, [{ key: "part-0", value: 0 }], () => true, (_key, url) => published.push(url));
+  const publish = (_key: string, url: string | null, acknowledge?: () => void) => {
+    if (url) published.push(url);
+    else acknowledge?.();
+  };
+  queue.request(1, [{ key: "part-0", value: 0 }], () => true, publish);
   await new Promise((resolve) => setImmediate(resolve));
   queue.request(1, Array.from({ length: 64 }, (_, index) => ({ key: `part-${index + 1}`, value: index + 1 })), () => true,
-    (_key, url) => published.push(url));
+    publish);
   finishFirst("blob:0");
   await queue.whenIdle();
   assert.equal(queue.cacheSize, 64);

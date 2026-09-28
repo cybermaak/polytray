@@ -1,26 +1,36 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { requestPartThumbnail, selectViewerPart } from "../lib/viewer";
+import { PartThumbnailImage, reducePartThumbnailImages } from "./PreviewPartImage";
 
 interface PartEntry { id: string; label: string; }
-interface PartThumbnailState { id: string; url: string; }
+interface PartThumbnailState {
+  id: string;
+  url: string | null;
+  acknowledgeRelease?: () => void;
+  releasedUrl?: string;
+}
 
 export const PreviewParts: React.FC = () => {
   const [parts, setParts] = useState<PartEntry[]>([]);
-  const [images, setImages] = useState<Record<string, string>>({});
+  const [images, dispatchImage] = useReducer(reducePartThumbnailImages, new Map<string, string>());
   const [selected, setSelected] = useState(-1);
   const stripRef = useRef<HTMLDivElement>(null);
+  const pendingReleases = useRef(new Map<string, { url: string; acknowledge: () => void }>());
 
   useEffect(() => {
     const onParts = (event: Event) => {
       const detail = (event as CustomEvent<PartEntry[]>).detail;
       setParts(detail);
-      setImages({});
+      dispatchImage({ clear: true });
       setSelected(-1);
     };
-    const onClear = () => { setParts([]); setImages({}); setSelected(-1); };
+    const onClear = () => { setParts([]); dispatchImage({ clear: true }); setSelected(-1); };
     const onThumbnail = (event: Event) => {
-      const { id, url } = (event as CustomEvent<PartThumbnailState>).detail;
-      setImages((current) => ({ ...current, [id]: url }));
+      const { id, url, acknowledgeRelease, releasedUrl } = (event as CustomEvent<PartThumbnailState>).detail;
+      if (url === null && acknowledgeRelease && releasedUrl) {
+        pendingReleases.current.set(releasedUrl, { url: releasedUrl, acknowledge: acknowledgeRelease });
+      }
+      dispatchImage({ id, url });
     };
     const onSelection = (event: Event) => setSelected((event as CustomEvent<number>).detail);
     window.addEventListener("polytray-multipart-parts", onParts);
@@ -33,6 +43,20 @@ export const PreviewParts: React.FC = () => {
       window.removeEventListener("polytray-part-thumbnail", onThumbnail);
       window.removeEventListener("polytray-part-selection", onSelection);
     };
+  }, []);
+
+  useLayoutEffect(() => {
+    for (const [url, pending] of pendingReleases.current) {
+      const stillRendered = parts.some((part) => images.get(part.id) === url);
+      if (stillRendered) continue;
+      pendingReleases.current.delete(url);
+      pending.acknowledge();
+    }
+  }, [images, parts]);
+
+  useEffect(() => () => {
+    for (const pending of pendingReleases.current.values()) pending.acknowledge();
+    pendingReleases.current.clear();
   }, []);
 
   useEffect(() => {
@@ -61,9 +85,7 @@ export const PreviewParts: React.FC = () => {
           className={`multi-model-thumb${selected === index ? " active" : ""}`}
           aria-label={`Show ${part.label}`} title={part.label}
           onClick={() => { selectViewerPart(index); setSelected(index); }}>
-          {images[part.id]
-            ? <img src={images[part.id]} alt="" data-part-thumbnail="ready" />
-            : <span className="archive-thumb-fallback" data-part-thumbnail="placeholder">{index + 1}</span>}
+          <PartThumbnailImage url={images.get(part.id)} index={index} />
         </button>
       ))}
     </div>

@@ -15,14 +15,20 @@ interface Pending<T> {
   token: number;
   request: PartThumbnailRequest<T>;
   isCurrent: () => boolean;
-  publish: (key: string, url: string) => void;
+  publish: (key: string, url: string | null, acknowledgeRelease?: () => void, releasedUrl?: string) => void;
+}
+
+interface CachedPartThumbnail {
+  url: string;
+  publish: Pending<unknown>["publish"];
 }
 
 /** One-at-a-time thumbnail work with token cancellation and a bounded LRU URL cache. */
 export class PartThumbnailQueue<T> {
   private readonly maxCache: number;
   private readonly maxPending: number;
-  private readonly cache = new Map<string, string>();
+  private readonly cache = new Map<string, CachedPartThumbnail>();
+  private readonly pendingReleases = new Map<string, { key: string; url: string }>();
   private pending: Pending<T>[] = [];
   private controller: AbortController | null = null;
   private activeToken: number | null = null;
@@ -50,7 +56,7 @@ export class PartThumbnailQueue<T> {
     token: number,
     requests: PartThumbnailRequest<T>[],
     isCurrent: () => boolean,
-    publish: (key: string, url: string) => void,
+    publish: (key: string, url: string | null, acknowledgeRelease?: () => void, releasedUrl?: string) => void,
   ) {
     if (this.disposed || token !== this.currentToken || !isCurrent()) return;
     for (const request of requests) {
@@ -58,7 +64,7 @@ export class PartThumbnailQueue<T> {
       if (cached) {
         this.cache.delete(request.key);
         this.cache.set(request.key, cached);
-        publish(request.key, cached);
+        publish(request.key, cached.url);
       } else if (!this.pending.some((item) => item.token === token && item.request.key === request.key)
         && !(this.activeToken === token && this.activeKey === request.key)) {
         if (this.pending.length >= this.maxPending) this.pending.shift();
@@ -96,8 +102,18 @@ export class PartThumbnailQueue<T> {
   }
 
   private clearCache() {
-    for (const url of this.cache.values()) this.options.release?.(url);
+    for (const [key, entry] of this.cache) {
+      this.releaseAfterRemoval(key, entry);
+    }
     this.cache.clear();
+  }
+
+  private releaseAfterRemoval(key: string, entry: CachedPartThumbnail) {
+    this.pendingReleases.set(entry.url, { key, url: entry.url });
+    entry.publish(key, null, () => {
+      if (!this.pendingReleases.delete(entry.url)) return;
+      this.options.release?.(entry.url);
+    }, entry.url);
   }
 
   private startPump() {
@@ -120,13 +136,13 @@ export class PartThumbnailQueue<T> {
           if (controller.signal.aborted || this.disposed || job.token !== this.currentToken || !job.isCurrent()) {
             this.options.release?.(url);
           } else {
-            this.cache.set(job.request.key, url);
+            this.cache.set(job.request.key, { url, publish: job.publish });
             while (this.cache.size > this.maxCache) {
               const oldest = this.cache.keys().next().value as string | undefined;
               if (oldest === undefined) break;
               const evicted = this.cache.get(oldest);
               this.cache.delete(oldest);
-              if (evicted) this.options.release?.(evicted);
+              if (evicted) this.releaseAfterRemoval(oldest, evicted);
             }
             job.publish(job.request.key, url);
           }

@@ -509,11 +509,11 @@ function disposePartThumbnailResources(resources: ViewerState = state) {
 }
 
 async function renderPartThumbnail(object: THREE.Object3D, signal: AbortSignal): Promise<string> {
-  const renderer = state.partThumbnailRenderer;
-  const scene = state.partThumbnailScene;
-  const camera = state.partThumbnailCamera;
+  let renderer = state.partThumbnailRenderer;
+  let scene = state.partThumbnailScene;
+  let camera = state.partThumbnailCamera;
   if (!renderer || !scene || !camera || signal.aborted) throw new Error("Thumbnail renderer unavailable");
-  const clone = object.clone(true);
+  let clone: THREE.Object3D | null = object.clone(true);
   scene.add(clone);
   try {
     const { center, maxDim } = computeCameraFit(clone, camera);
@@ -524,12 +524,18 @@ async function renderPartThumbnail(object: THREE.Object3D, signal: AbortSignal):
     camera.updateProjectionMatrix();
     renderer.render(scene, camera);
     if (signal.aborted) throw new Error("Thumbnail cancelled");
-    const blob = await new Promise<Blob>((resolve, reject) => renderer.domElement.toBlob(
+    const canvas = renderer.domElement;
+    scene.remove(clone);
+    clone = null;
+    renderer = null;
+    scene = null;
+    camera = null;
+    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
       (result) => result ? resolve(result) : reject(new Error("Thumbnail image encoding failed")), "image/png"));
     if (signal.aborted) throw new Error("Thumbnail cancelled");
     return URL.createObjectURL(blob);
   } finally {
-    scene.remove(clone);
+    if (clone && scene) scene.remove(clone);
   }
 }
 
@@ -541,7 +547,9 @@ export function requestPartThumbnail(id: string) {
   ensurePartThumbnailRenderer(session);
   state.partThumbnailQueue?.request(token, [{ key: id, value: part.object }],
     () => activeSession === session && session.isCurrent(token),
-    (key, url) => window.dispatchEvent(new CustomEvent("polytray-part-thumbnail", { detail: { id: key, url } })));
+    (key, url, acknowledgeRelease, releasedUrl) => window.dispatchEvent(new CustomEvent("polytray-part-thumbnail", {
+      detail: { id: key, url, acknowledgeRelease, releasedUrl },
+    })));
 }
 
 export function selectViewerPart(index: number) {
