@@ -68,3 +68,13 @@ test('createRefreshDebouncer cancel discards pending refresh targets', async () 
 
   assert.deepEqual(calls, []);
 });
+
+test('createRefreshDebouncer preserves page-only refresh targets', async () => {
+  const calls: Array<{ pages: boolean; stats: boolean; topology: boolean }> = [];
+  const debouncer = createRefreshDebouncer((targets) => calls.push(targets), 20);
+
+  debouncer.trigger({ pages: true, stats: false, topology: false });
+  await new Promise((resolve) => setTimeout(resolve, 45));
+
+  assert.deepEqual(calls, [{ pages: true, stats: false, topology: false }]);
+});
