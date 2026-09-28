@@ -8,10 +8,12 @@ import { streamDiscoverFolder } from '../../../../src/main/scanner';
 
 test('isolated scanner hold blocks a configured second subtree until its release marker appears', { timeout: 5_000 }, async () => {
   const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-test-hold-'));
-  const firstDirectory = path.join(rootPath, 'a-first');
-  const delayedDirectory = path.join(rootPath, 'z-delayed');
-  fs.mkdirSync(firstDirectory);
-  fs.mkdirSync(delayedDirectory);
+  fs.mkdirSync(path.join(rootPath, 'first-subtree'));
+  fs.mkdirSync(path.join(rootPath, 'second-subtree'));
+  const subtreeNames = fs.readdirSync(rootPath);
+  assert.equal(subtreeNames.length, 2);
+  const firstDirectory = path.join(rootPath, subtreeNames[0]!);
+  const delayedDirectory = path.join(rootPath, subtreeNames[1]!);
   fs.writeFileSync(path.join(firstDirectory, 'first.stl'), 'solid first\nendsolid first\n');
   fs.writeFileSync(path.join(delayedDirectory, 'later.stl'), 'solid later\nendsolid later\n');
   const releasePath = path.join(rootPath, 'release');
