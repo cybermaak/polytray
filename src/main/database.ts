@@ -115,6 +115,41 @@ export const MIGRATIONS: Migration[] = [
       SET content_sequence = MAX(1, COALESCE((SELECT MAX(content_revision) FROM files), 0));
     `,
   },
+  {
+    version: 6,
+    description: "Add durable pending annotations and metadata restore transactions",
+    sql: `
+      CREATE TABLE pending_annotations (
+        canonical_path TEXT PRIMARY KEY,
+        path TEXT NOT NULL,
+        tags TEXT NOT NULL,
+        notes TEXT,
+        print_status TEXT,
+        provenance TEXT NOT NULL DEFAULT '[]',
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE metadata_import_transactions (
+        transaction_id TEXT PRIMARY KEY,
+        state TEXT NOT NULL CHECK (state IN ('database-applied', 'renderer-applied', 'complete')),
+        renderer_revision INTEGER NOT NULL,
+        browse_revision INTEGER NOT NULL,
+        renderer_state TEXT NOT NULL,
+        conflicts TEXT NOT NULL,
+        recovery_backup_path TEXT NOT NULL,
+        result TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE metadata_restore_conflicts (
+        canonical_path TEXT PRIMARY KEY,
+        path TEXT NOT NULL,
+        conflicts TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `,
+  },
 ];
 
 export const LATEST_DB_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

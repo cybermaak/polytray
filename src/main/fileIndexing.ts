@@ -1,6 +1,7 @@
 import type { Database } from 'better-sqlite3';
 import type { FileRecord } from '../shared/types';
 import type { StoredMeasurement } from '../shared/model/measurement';
+import type { MetadataImportPlan, StagedMetadataRestore } from '../shared/backupContracts';
 import type {
   IndexBatch,
   IndexBatchResult,
@@ -13,7 +14,10 @@ import type {
   WatchUpdate,
 } from '../shared/libraryQuery';
 import { parseArchiveEntryPath } from '../shared/archivePaths';
-import { serializeFileTags } from '../shared/fileTags';
+import { ARCHIVE_ENTRY_SEPARATOR } from '../shared/archivePaths';
+import type { MetadataBackupAnnotation } from '../shared/metadataBackup';
+import { canonicalizeBackupPath } from '../shared/metadataBackup';
+import { normalizeFileTags, serializeFileTags } from '../shared/fileTags';
 import { isPathContained } from './pathContainment';
 import { enumerateFileScopes } from './fileScopes';
 import { advanceLibraryRevisions, allocateContentRevision, getBrowseRevision } from './libraryRevisions';
@@ -186,8 +190,44 @@ export interface FileIndexRepository {
   getBrowseRevision(): number;
   getFileContentRevision(fileId: number): number | null;
   getFileIdentityByPath(filePath: string): FileIndexIdentity | null;
+  getPendingAnnotations(): MetadataBackupAnnotation[];
+  applyMetadataRestoreTransaction(input: MetadataRestoreTransactionInput): number;
+  getMetadataImportTransaction(transactionId: string): MetadataImportTransactionRow | null;
+  listIncompleteMetadataImportTransactions(): MetadataImportTransactionRow[];
+  updateMetadataImportTransactionState(transactionId: string, state: 'renderer-applied' | 'complete', updatedAt: string): void;
+  publishMetadataAnnotationMutation(paths: string[], browseRevision: number): void;
   applyLegacyScan(file: ScannedFileRecord): void;
   applyLegacyWatch(file: WatchedFileRecord): void;
+}
+
+export interface MetadataRestoreTransactionInput {
+  plan: MetadataImportPlan;
+  rendererState: StagedMetadataRestore;
+  recoveryBackupPath: string;
+  createdAt: string;
+  result: unknown;
+}
+
+export interface MetadataImportTransactionRow {
+  transaction_id: string;
+  state: 'database-applied' | 'renderer-applied' | 'complete';
+  renderer_state: string;
+  conflicts: string;
+  recovery_backup_path: string;
+  result: string;
+  created_at: string;
+  updated_at: string;
+}
+
+function metadataIdentityKey(value: string) {
+  const canonical = canonicalizeBackupPath(value);
+  const separator = canonical.indexOf(ARCHIVE_ENTRY_SEPARATOR);
+  const physical = separator < 0 ? canonical : canonical.slice(0, separator);
+  const windows = /^[A-Za-z]:[\\/]/.test(physical) || /^(?:\\\\|\/\/)[^\\/]+[\\/][^\\/]+/.test(physical);
+  if (!windows) return value;
+  const key = physical.toLowerCase().replace(/[\\/]+$/, '');
+  const rooted = /^[a-z]:$/.test(key) ? `${key}\\` : key;
+  return separator < 0 ? rooted : `${rooted}${ARCHIVE_ENTRY_SEPARATOR}${canonical.slice(separator + ARCHIVE_ENTRY_SEPARATOR.length)}`;
 }
 
 export interface FileIndexIdentity {
@@ -299,6 +339,7 @@ function createPreparedFileIndexRepository(
           const affectedPaths = [...new Set(mutations.flatMap((mutation) => mutation.affectedPaths))];
           onMutation?.({
             affectedPaths,
+            addedPaths: [...new Set(mutations.flatMap((mutation) => mutation.addedPaths ?? []))],
             rowsChanged: mutations.some((mutation) => mutation.rowsChanged),
             annotationsChanged: mutations.some((mutation) => mutation.annotationsChanged),
             statsChanged: mutations.some((mutation) => mutation.statsChanged),
@@ -311,7 +352,7 @@ function createPreparedFileIndexRepository(
     }
   }
 
-  function makeMutation(paths: string[], flags: { rows?: boolean; annotations?: boolean; stats?: boolean; topology?: boolean; thumbnailOnly?: boolean }): IndexMutationResult {
+  function makeMutation(paths: string[], flags: { rows?: boolean; annotations?: boolean; stats?: boolean; topology?: boolean; thumbnailOnly?: boolean; addedPaths?: string[] }): IndexMutationResult {
     const revisions = advanceLibraryRevisions(db, {
       browse: Boolean(flags.rows || flags.annotations),
       stats: Boolean(flags.stats),
@@ -319,6 +360,7 @@ function createPreparedFileIndexRepository(
     });
     return {
       affectedPaths: [...new Set(paths)],
+      addedPaths: [...new Set(flags.addedPaths ?? [])],
       rowsChanged: Boolean(flags.rows),
       annotationsChanged: Boolean(flags.annotations),
       statsChanged: Boolean(flags.stats),
@@ -350,7 +392,7 @@ function createPreparedFileIndexRepository(
             id, input.path, contentRevision);
           writeThumbnailState.run(enrichment.thumbnailPath, enrichment.thumbnailFailed, id, contentRevision);
         }
-        return makeMutation([input.path], { rows: true, stats: true, topology: true });
+        return makeMutation([input.path], { rows: true, stats: true, topology: true, addedPaths: [input.path] });
       }
 
       if (input.expectedContentRevision !== undefined && input.expectedContentRevision !== existing.content_revision) {
@@ -399,6 +441,7 @@ function createPreparedFileIndexRepository(
     let unchanged = 0;
     const committed: IndexBatchResult['committed'] = [];
     const changedPaths: string[] = [];
+    const addedPaths: string[] = [];
     let statsChanged = false;
     let topologyChanged = false;
     let browseRevision = getBrowseRevision(db);
@@ -407,6 +450,7 @@ function createPreparedFileIndexRepository(
       if (changedPaths.length === 0) return;
       const mutation: IndexMutationResult = {
         affectedPaths: [...new Set(changedPaths)], rowsChanged: true,
+        addedPaths: [...new Set(addedPaths)],
         annotationsChanged: false, statsChanged,
         topologyChanged, thumbnailOnly: false, browseRevision,
       };
@@ -421,6 +465,7 @@ function createPreparedFileIndexRepository(
         let chunkUnchanged = 0;
         const chunkCommitted: IndexBatchResult['committed'] = [];
         const chunkChangedPaths: string[] = [];
+        const chunkAddedPaths: string[] = [];
         let batchRowsChanged = false;
         let batchStatsChanged = false;
         let batchTopologyChanged = false;
@@ -450,6 +495,7 @@ function createPreparedFileIndexRepository(
             batchStatsChanged = true;
             batchTopologyChanged = true;
             chunkChangedPaths.push(record.path);
+            chunkAddedPaths.push(record.path);
             continue;
           }
           if (record.expectedContentRevision !== undefined && record.expectedContentRevision !== existing.content_revision) {
@@ -506,6 +552,7 @@ function createPreparedFileIndexRepository(
         return {
           inserted: chunkInserted, updated: chunkUpdated, unchanged: chunkUnchanged,
           committed: chunkCommitted, changedPaths: chunkChangedPaths,
+          addedPaths: chunkAddedPaths,
           statsChanged: batchStatsChanged, topologyChanged: batchTopologyChanged,
           browseRevision: chunkBrowseRevision,
         };
@@ -522,6 +569,7 @@ function createPreparedFileIndexRepository(
       unchanged += chunkResult.unchanged;
       committed.push(...chunkResult.committed);
       changedPaths.push(...chunkResult.changedPaths);
+      addedPaths.push(...chunkResult.addedPaths);
       statsChanged ||= chunkResult.statsChanged;
       topologyChanged ||= chunkResult.topologyChanged;
       browseRevision = chunkResult.browseRevision;
@@ -780,6 +828,121 @@ function createPreparedFileIndexRepository(
     } : null;
   }
 
+  function getPendingAnnotations(): MetadataBackupAnnotation[] {
+    const rows = db.prepare('SELECT path, tags, notes, print_status FROM pending_annotations ORDER BY canonical_path').all() as Array<{
+      path: string; tags: string; notes: string | null; print_status: string | null;
+    }>;
+    return rows.map(row => {
+      const tags: unknown = JSON.parse(row.tags);
+      if (!Array.isArray(tags) || tags.some(tag => typeof tag !== 'string')) throw new Error('Stored pending annotation tags are corrupt');
+      return { path: row.path, tags: normalizeFileTags(tags as string[]), notes: row.notes,
+        ...(row.print_status !== null ? { printStatus: row.print_status } : {}) };
+    });
+  }
+
+  function applyMetadataRestoreTransaction(input: MetadataRestoreTransactionInput): number {
+    const apply = db.transaction(() => {
+      const rows = db.prepare('SELECT id, path, content_revision, tags, notes, print_status FROM files ORDER BY id').all() as Array<{ id: number; path: string; content_revision: number; tags: string | null; notes: string | null; print_status: string | null }>;
+      const byIdentity = new Map(rows.map(row => [metadataIdentityKey(row.path), row]));
+      const expectedIdentities = new Map(input.plan.indexedIdentityExpectations.map(identity => [metadataIdentityKey(identity.path), identity]));
+      const updateIndexed = db.prepare('UPDATE files SET tags = ?, notes = ?, print_status = ? WHERE id = ? AND path = ?');
+      let indexedChanged = false;
+      for (const update of input.plan.annotationUpdates) {
+        if (!update.changed) continue;
+        const row = byIdentity.get(metadataIdentityKey(update.path));
+        if (!row || metadataIdentityKey(row.path) !== metadataIdentityKey(update.path)) throw new Error(`Indexed file identity changed before restore: ${update.path}`);
+        const expectedIdentity = expectedIdentities.get(metadataIdentityKey(update.path));
+        if (!expectedIdentity || row.id !== expectedIdentity.id || row.path !== expectedIdentity.path || row.content_revision !== expectedIdentity.contentRevision) {
+          throw new Error(`Indexed file identity or content revision changed after the restore preview: ${update.path}`);
+        }
+        const rawTags: unknown = row.tags ? JSON.parse(row.tags) : [];
+        if (!Array.isArray(rawTags) || rawTags.some(tag => typeof tag !== 'string')) throw new Error(`Indexed annotations are corrupt: ${row.path}`);
+        const current = { path: row.path, tags: normalizeFileTags(rawTags as string[]),
+          notes: row.notes === null || row.notes.trim() === '' ? null : row.notes,
+          ...(row.print_status !== null ? { printStatus: row.print_status } : {}) };
+        const expected = update.before;
+        if (!expected || metadataIdentityKey(expected.path) !== metadataIdentityKey(row.path) ||
+          JSON.stringify({ ...expected, path: row.path }) !== JSON.stringify(current)) {
+          throw new Error(`Indexed annotations changed after the restore preview: ${update.path}`);
+        }
+        const result = updateIndexed.run(serializeFileTags(update.after.tags), update.after.notes, update.after.printStatus ?? null, row.id, row.path);
+        if (result.changes !== 1) throw new Error(`Indexed file changed during restore: ${update.path}`);
+        indexedChanged = true;
+      }
+      const upsertPending = db.prepare(`INSERT INTO pending_annotations (canonical_path, path, tags, notes, print_status, provenance, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(canonical_path) DO UPDATE SET path = excluded.path, tags = excluded.tags,
+          notes = excluded.notes, print_status = excluded.print_status,
+          provenance = excluded.provenance, updated_at = excluded.updated_at`);
+      let pendingChanged = false;
+      const findPending = db.prepare('SELECT path, tags, notes, print_status FROM pending_annotations WHERE canonical_path = ?');
+      for (const update of input.plan.pendingAnnotationUpdates) {
+        if (!update.changed) continue;
+        const current = findPending.get(metadataIdentityKey(update.path)) as { path: string; tags: string; notes: string | null; print_status: string | null } | undefined;
+        const expected = update.before;
+        if (expected === null && current) throw new Error(`Pending annotation changed after the restore preview: ${update.path}`);
+        if (expected !== null) {
+          if (!current) throw new Error(`Pending annotation disappeared after the restore preview: ${update.path}`);
+          const rawTags: unknown = JSON.parse(current.tags);
+          if (!Array.isArray(rawTags) || rawTags.some(tag => typeof tag !== 'string')) throw new Error(`Pending annotations are corrupt: ${current.path}`);
+          const currentValue = { path: current.path, tags: normalizeFileTags(rawTags as string[]),
+            notes: current.notes === null || current.notes.trim() === '' ? null : current.notes,
+            ...(current.print_status !== null ? { printStatus: current.print_status } : {}) };
+          if (metadataIdentityKey(expected.path) !== metadataIdentityKey(current.path) ||
+            JSON.stringify({ ...expected, path: current.path }) !== JSON.stringify(currentValue)) {
+            throw new Error(`Pending annotation changed after the restore preview: ${update.path}`);
+          }
+        }
+        upsertPending.run(metadataIdentityKey(update.path), update.path, serializeFileTags(update.after.tags), update.after.notes,
+          update.after.printStatus ?? null, JSON.stringify(update.sources), Date.now());
+        pendingChanged = true;
+      }
+      const revision = indexedChanged || pendingChanged
+        ? advanceLibraryRevisions(db, { browse: true }).browseRevision
+        : getBrowseRevision(db);
+      db.prepare(`INSERT INTO metadata_import_transactions (
+        transaction_id, state, renderer_revision, browse_revision, renderer_state, conflicts,
+        recovery_backup_path, result, created_at, updated_at
+      ) VALUES (?, 'database-applied', ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(input.plan.transactionId, input.rendererState.rendererRevision, revision, JSON.stringify(input.rendererState),
+          JSON.stringify(input.plan.annotationConflicts), input.recoveryBackupPath, JSON.stringify(input.result), input.createdAt, input.createdAt);
+      return { revision, changedPaths: [
+        ...input.plan.annotationUpdates.filter(update => update.changed).map(update => update.path),
+        ...input.plan.pendingAnnotationUpdates.filter(update => update.changed).map(update => update.path),
+      ], changed: indexedChanged || pendingChanged };
+    });
+    const result = apply.immediate();
+    if (result.changed) publishMetadataAnnotationMutation(result.changedPaths, result.revision);
+    return result.revision;
+  }
+
+  function getMetadataImportTransaction(transactionId: string): MetadataImportTransactionRow | null {
+    return db.prepare('SELECT * FROM metadata_import_transactions WHERE transaction_id = ?').get(transactionId) as MetadataImportTransactionRow | undefined ?? null;
+  }
+
+  function listIncompleteMetadataImportTransactions(): MetadataImportTransactionRow[] {
+    return db.prepare("SELECT * FROM metadata_import_transactions WHERE state <> 'complete' ORDER BY created_at").all() as MetadataImportTransactionRow[];
+  }
+
+  function updateMetadataImportTransactionState(transactionId: string, state: 'renderer-applied' | 'complete', updatedAt: string) {
+    const update = db.transaction(() => {
+      if (state === 'renderer-applied') {
+        db.prepare(`UPDATE metadata_import_transactions SET state = 'renderer-applied', updated_at = ?
+          WHERE transaction_id = ? AND state = 'database-applied'`).run(updatedAt, transactionId);
+      } else {
+        db.prepare(`UPDATE metadata_import_transactions SET state = 'complete', updated_at = ?
+          WHERE transaction_id = ? AND state IN ('database-applied', 'renderer-applied')`).run(updatedAt, transactionId);
+      }
+    });
+    update.immediate();
+  }
+
+  function publishMetadataAnnotationMutation(paths: string[], browseRevision: number) {
+    const affectedPaths = [...new Set(paths)];
+    if (affectedPaths.length === 0) return;
+    notify({ affectedPaths, addedPaths: [], rowsChanged: false, annotationsChanged: true,
+      statsChanged: false, topologyChanged: false, thumbnailOnly: false, browseRevision }, affectedPaths);
+  }
+
   return {
     applyIndexBatch,
     applyWatchUpdate,
@@ -791,6 +954,12 @@ function createPreparedFileIndexRepository(
     getBrowseRevision: () => getBrowseRevision(db),
     getFileContentRevision,
     getFileIdentityByPath,
+    getPendingAnnotations,
+    applyMetadataRestoreTransaction,
+    getMetadataImportTransaction,
+    listIncompleteMetadataImportTransactions,
+    updateMetadataImportTransactionState,
+    publishMetadataAnnotationMutation,
     applyLegacyScan,
     applyLegacyWatch,
   };

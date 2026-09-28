@@ -135,6 +135,8 @@ export type RevisionGuardedMetadataResult =
 
 export interface IndexMutationResult {
   affectedPaths: string[];
+  /** Subset of affectedPaths that were newly inserted by this commit. */
+  addedPaths?: string[];
   rowsChanged: boolean;
   annotationsChanged: boolean;
   statsChanged: boolean;

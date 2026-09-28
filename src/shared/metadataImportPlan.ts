@@ -17,6 +17,8 @@ export interface ImportCurrentState {
   /** Must include every indexed file row, including rows with no annotation values. */
   annotations: MetadataBackupAnnotation[];
   pendingAnnotations: MetadataBackupAnnotation[];
+  /** Main-process row IDs and content revisions captured with the indexed snapshot. */
+  indexedIdentities?: Array<{ id: number; path: string; contentRevision: number }>;
   rendererState: ImportRendererState;
 }
 export interface MetadataImportPlanInput {
@@ -142,6 +144,17 @@ export function createMetadataImportPlan(input: MetadataImportPlanInput): Metada
   const pendingAnnotationUpdates = allUpdates.filter(update => update.destination === 'pending');
   const changedAnnotationUpdates = allUpdates.filter(update => update.changed);
   const unchangedAnnotationUpdates = allUpdates.filter(update => !update.changed);
+  const indexedUpdateKeys = new Set(annotationUpdates.map(update => canonicalIdentityKey(update.path)));
+  const identityByKey = new Map<string, NonNullable<ImportCurrentState['indexedIdentities']>[number]>();
+  for (const identity of current.indexedIdentities ?? []) {
+    const key = canonicalIdentityKey(identity.path);
+    if (identityByKey.has(key)) throw new Error(`Ambiguous indexed file identity in restore snapshot: ${identity.path}`);
+    identityByKey.set(key, identity);
+  }
+  const indexedIdentityExpectations = [...indexedUpdateKeys].map(key => identityByKey.get(key)).filter((value): value is NonNullable<typeof value> => value !== undefined);
+  if (current.indexedIdentities && indexedIdentityExpectations.length !== indexedUpdateKeys.size) {
+    throw new Error('Indexed identity snapshot is missing a planned restore target');
+  }
 
   const collectionsBefore = current.rendererState.collections.map(copyCurrentCollection);
   const collectionsAfter = collectionsBefore.map(collection => ({ ...collection, paths: [...collection.paths] }));
@@ -239,6 +252,7 @@ export function createMetadataImportPlan(input: MetadataImportPlanInput): Metada
     conflictCount: conflicts.length,
     unmatchedPaths: pendingAnnotationUpdates.map(update => update.path),
     annotationUpdates,
+    indexedIdentityExpectations,
     pendingAnnotationUpdates,
     changedAnnotationUpdates,
     unchangedAnnotationUpdates,

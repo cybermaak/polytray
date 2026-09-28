@@ -55,6 +55,12 @@ export interface MetadataImportAnnotationUpdate {
   changed: boolean;
 }
 
+export interface MetadataImportIndexedIdentityExpectation {
+  id: number;
+  path: string;
+  contentRevision: number;
+}
+
 /** Single canonical update plan shared by preview, P04, and U06. Pending rows are upserts only. */
 export interface MetadataImportPlan {
   transactionId: string;
@@ -67,6 +73,8 @@ export interface MetadataImportPlan {
   conflictCount: number;
   unmatchedPaths: string[];
   annotationUpdates: MetadataImportAnnotationUpdate[];
+  /** Exact indexed row identities observed when the preview was created. */
+  indexedIdentityExpectations: MetadataImportIndexedIdentityExpectation[];
   pendingAnnotationUpdates: MetadataImportAnnotationUpdate[];
   changedAnnotationUpdates: MetadataImportAnnotationUpdate[];
   unchangedAnnotationUpdates: MetadataImportAnnotationUpdate[];
@@ -85,10 +93,13 @@ export interface MetadataImportPlan {
 export interface StagedMetadataRestore {
   transactionId: string;
   rendererRevision: number;
-  settings: MetadataBackupV1["preferences"];
+  /** Complete current renderer settings, including machine-local fields to preserve. */
+  settings: Record<string, unknown>;
   libraryRoots: string[];
   collections: MetadataBackupV1["collections"];
   pendingAnnotations: MetadataBackupV1["annotations"];
+  annotationConflicts: MetadataImportPlan["annotationConflicts"];
+  recoveryBackupPath: string;
 }
 
 export type MetadataImportCommitResult =
@@ -109,6 +120,27 @@ export interface MetadataBackupService {
   acknowledgeImport(transactionId: string, rendererRevision: number): Promise<void>;
   reconcileImport(transactionId?: string): Promise<MetadataImportRecoveryResult>;
   cancelImport(transactionId: string): Promise<void>;
+}
+
+/** Main-process restore adapter consumed by coordinator IPC/startup wiring and U06. */
+export interface MetadataRestoreService {
+  getCurrentSnapshot(): MetadataBackupSnapshot & { preferences: Record<string, unknown> };
+  previewImport(input: unknown, currentSnapshot: MetadataBackupSnapshot, options?: { replaceSettings?: boolean; replaceRoots?: boolean }): MetadataImportPlan;
+  commitImport(transactionId: string): Promise<MetadataImportCommitResult>;
+  acknowledgeImport(transactionId: string, rendererRevision: number): Promise<void>;
+  reconcileImport(): Promise<MetadataImportRecoveryResult>;
+  cancelImport(transactionId: string): Promise<void>;
+  getStatus(): Promise<MetadataRestoreStatus>;
+  retryPendingAnnotations(): { appliedCount: number; conflictCount: number };
+  dispose(): void;
+}
+
+export interface MetadataRestoreStatus {
+  unresolved: boolean;
+  error: string | null;
+  pendingAnnotationCount: number;
+  conflicts: Array<{ path: string; conflicts: MetadataImportPlan['annotationConflicts'] }>;
+  transactions: Array<{ transactionId: string; state: string; recoveryBackupPath: string }>;
 }
 
 export type { ModelMeasurement };

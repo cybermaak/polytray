@@ -25,6 +25,17 @@ test('plan uses the single real browse revision and shared public plan contract'
   assert.equal(isMetadataImportPlanCurrent(plan, { browseRevision:7, rendererRevision:5 }), false);
 });
 
+test('plan carries actual indexed row identity expectations for restore commit', () => {
+  const plan = createMetadataImportPlan({
+    backup: backup([{ path: '/models/a.stl', tags: ['restored'], notes: null }]),
+    current: { ...current([{ path: '/models/a.stl', tags: [], notes: null }]), indexedIdentities: [
+      { id: 42, path: '/models/a.stl', contentRevision: 9 },
+      { id: 43, path: '/models/untouched.stl', contentRevision: 2 },
+    ] },
+  });
+  assert.deepEqual(plan.indexedIdentityExpectations, [{ id: 42, path: '/models/a.stl', contentRevision: 9 }]);
+});
+
 test('fingerprint and default transaction ID include normalized replacement intent', () => {
   const source={backup:backup(),current:current()};
   const omitted=createMetadataImportPlan(source);

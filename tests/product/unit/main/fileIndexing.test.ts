@@ -350,6 +350,21 @@ test('repository publishes one typed mutation only after the indexed row commits
   }
 });
 
+test('committed-path mutation events distinguish newly inserted files from changed files', () => {
+  const db = createRepositoryDatabase();
+  try {
+    const events: CommittedFileMutation[] = [];
+    const repository = createFileIndexRepository(db, mutation => events.push(mutation));
+    repository.applyIndexBatch({ scanGeneration: 1, records: [{
+      path: '/models/new.stl', name: 'new', extension: 'stl', directory: '/models', sizeBytes: 10, modifiedAt: 10, scanGeneration: 1,
+    }] });
+    repository.applyIndexBatch({ scanGeneration: 2, records: [{
+      path: '/models/new.stl', name: 'renamed', extension: 'stl', directory: '/models', sizeBytes: 10, modifiedAt: 10, scanGeneration: 2,
+    }] });
+    assert.deepEqual(events.map(event => event.addedPaths), [['/models/new.stl'], []]);
+  } finally { db.close(); }
+});
+
 test('repository sends no post-commit notification when its transaction rolls back', () => {
   const db = createRepositoryDatabase();
   try {

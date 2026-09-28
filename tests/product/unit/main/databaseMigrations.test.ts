@@ -46,6 +46,9 @@ for (const version of [0, 1, 2, 3, 4, 5]) {
 
         assert.equal(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'file_scopes'").get() !== undefined, true);
         assert.equal(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'library_revisions'").get() !== undefined, true);
+        assert.equal(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'pending_annotations'").get() !== undefined, true);
+        assert.equal(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'metadata_import_transactions'").get() !== undefined, true);
+        assert.equal(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'metadata_restore_conflicts'").get() !== undefined, true);
       } finally {
         database.close();
       }
