@@ -34,7 +34,11 @@ function writeTinyStl(filePath: string, name: string) {
 async function writeArchive(filePath: string) {
   const zip = new JSZip();
   for (let index = 0; index < 30; index++) {
-    zip.file(`models/model-${String(index).padStart(2, '0')}.stl`, `solid model-${index}\nendsolid model-${index}\n`);
+    const name = `model-${String(index).padStart(2, '0')}`;
+    const stl = index === 0
+      ? `solid ${name}\nfacet nonsense\nendsolid ${name}\n`
+      : `solid ${name}\nfacet normal 0 0 1\n outer loop\n vertex 0 0 0\n vertex 1 0 0\n vertex 0 1 0\n endloop\nendfacet\nendsolid ${name}\n`;
+    zip.file(`models/${name}.stl`, stl);
   }
   fs.writeFileSync(filePath, await zip.generateAsync({ type: 'nodebuffer' }));
 }
@@ -74,6 +78,15 @@ test('preview metadata, thumbnail arrival, retry, and archive paging preserve vi
   try {
     const page = await findMainWindow(isolated.app);
     await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('#empty-state')).toBeVisible({ timeout: 15000 });
+    await page.evaluate(({ folder, settings }) => window.polytray.scanFolder(folder, settings), {
+      folder: libraryRoot,
+      settings: SETTINGS,
+    });
+    await expect(page.locator('#library-result-total')).toHaveText('5 items / 34 models', { timeout: 30000 });
+    await page.reload();
+    await page.locator('#search-input').waitFor();
+    await expect(page.locator('#library-result-total')).toHaveText('5 items / 34 models', { timeout: 30000 });
     await page.evaluate(() => {
       const probe = {
         lastViewerFrameAt: Number.NEGATIVE_INFINITY,
@@ -81,10 +94,6 @@ test('preview metadata, thumbnail arrival, retry, and archive paging preserve vi
         markViewerDrawCalls() {},
       };
       window.__POLYTRAY_RENDERER_PROBE = probe;
-    });
-    await page.evaluate(({ folder, settings }) => window.polytray.scanFolder(folder, settings), {
-      folder: libraryRoot,
-      settings: SETTINGS,
     });
     const records = await page.evaluate((folder) => window.polytray.getFiles({ folder, sort: 'name', order: 'ASC', limit: 100, offset: 0 }), libraryRoot);
     const a = records.files.find((record) => record.name === 'a');
@@ -95,7 +104,13 @@ test('preview metadata, thumbnail arrival, retry, and archive paging preserve vi
     fs.rmSync(missingPath);
 
     const card = (name: string) => page.locator('.file-card').filter({ has: page.locator(`.card-name[title="${name}"]`) }).first();
-    await card('a').click();
+    const clickCard = async (name: string) => {
+      const target = card(name);
+      await page.locator('#search-input').fill(name);
+      await expect(target).toBeVisible({ timeout: 30000 });
+      await target.click();
+    };
+    await clickCard('a');
     const canvas = page.locator('#viewer-container canvas');
     await expect(canvas).toHaveCount(1, { timeout: 15000 });
     await expect.poll(() => page.evaluate(() => Boolean(window.__POLYTRAY_CURRENT_MODEL)), { timeout: 30000 }).toBe(true);
@@ -129,6 +144,9 @@ test('preview metadata, thumbnail arrival, retry, and archive paging preserve vi
       sameModel: window.__V02_MODEL === window.__POLYTRAY_CURRENT_MODEL,
       samePixels: window.__V02_PIXELS === (document.querySelector('#viewer-container canvas') as HTMLCanvasElement | null)?.toDataURL(),
     }))).toEqual({ sameCanvas: true, sameModel: true, samePixels: true });
+    await page.evaluate((fileId) => window.polytray.updateFileMetadata({ id: fileId, tags: [], notes: '' }), a!.id);
+    await page.locator('.context-chip-dismiss[title="Remove collection filter"]').click();
+    await expect(page.locator('#toolbar-context')).toContainText('All Models');
 
     await page.evaluate((settings) => window.polytray.clearThumbnails(settings), SETTINGS);
     await page.evaluate(({ filePath, extension, settings }) =>
@@ -152,9 +170,9 @@ test('preview metadata, thumbnail arrival, retry, and archive paging preserve vi
         });
       }) as typeof fetch;
     }, slow!.path);
-    await card('slow').click();
+    await clickCard('slow');
     await expect.poll(() => page.evaluate(() => Boolean(window.__releaseSlowPreviewFetch)), { timeout: 10000 }).toBe(true);
-    await card('b').click();
+    await clickCard('b');
     await expect(page.locator('#viewer-filename')).toHaveText('b.stl');
     await expect(page.locator('#viewer-loading')).toHaveClass(/hidden/, { timeout: 15000 });
     await page.evaluate(() => {
@@ -166,7 +184,7 @@ test('preview metadata, thumbnail arrival, retry, and archive paging preserve vi
     expect(await page.evaluate(() => window.__V02_LATEST_MODEL === window.__POLYTRAY_CURRENT_MODEL)).toBe(true);
     await page.evaluate(() => { if (window.__originalFetch) window.fetch = window.__originalFetch; });
 
-    await card('retry').click();
+    await clickCard('retry');
     await expect(page.locator('#viewer-error')).toBeVisible({ timeout: 15000 });
     await expect(page.locator('#viewer-loading')).toHaveClass(/hidden/);
     writeTinyStl(missingPath, 'retry-restored');
@@ -176,11 +194,16 @@ test('preview metadata, thumbnail arrival, retry, and archive paging preserve vi
     await expect(page.locator('#viewer-filename')).toHaveText('retry.stl');
 
     await page.locator('#btn-close-viewer').click();
+    await page.locator('#search-input').fill('');
     const archiveCard = page.locator('.file-card.archive-summary').filter({ has: page.locator('.card-name[title="library.zip"]') });
     await archiveCard.click();
     await expect(page.locator('#archive-preview-count')).toHaveText('1 of 30 models', { timeout: 30000 });
     const archiveModelButtons = page.locator('#archive-preview-models .multi-model-thumb[title$=".stl"]');
     await expect(archiveModelButtons).toHaveCount(24);
+    await expect(page.locator('#viewer-error')).toBeVisible({ timeout: 15000 });
+    await archiveModelButtons.nth(1).click();
+    await expect(page.locator('#viewer-error')).toHaveCount(0, { timeout: 15000 });
+    await expect(page.locator('#viewer-meta')).toContainText('Viewing: model-01.stl');
     await archiveModelButtons.nth(23).click();
     await page.locator('#archive-preview-next').click();
     await expect(page.locator('#archive-preview-count')).toHaveText('25 of 30 models', { timeout: 15000 });
@@ -188,8 +211,9 @@ test('preview metadata, thumbnail arrival, retry, and archive paging preserve vi
     await archiveModelButtons.nth(5).click();
     await expect(page.locator('#archive-preview-count')).toHaveText('30 of 30 models');
     await expect(page.locator('#archive-preview-next')).toBeDisabled();
-    await page.locator('#archive-preview-previous').click();
+    for (let step = 0; step < 6; step += 1) await page.locator('#archive-preview-previous').click();
     await expect(page.locator('#archive-preview-count')).toHaveText('24 of 30 models', { timeout: 15000 });
+    await expect(archiveModelButtons).toHaveCount(24, { timeout: 15000 });
   } finally {
     await isolated.close();
   }

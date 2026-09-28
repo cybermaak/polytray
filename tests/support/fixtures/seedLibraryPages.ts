@@ -35,7 +35,7 @@ const mutate = db.transaction(() => {
   }
 });
 mutate();
-updateThumbnailFixture.run(thumbnailTestPath, thumbnailTestFolder, thumbnailTestStat.size,
+updateThumbnailFixture.run(thumbnailTestPath, path.basename(thumbnailTestPath, '.stl'), thumbnailTestFolder, thumbnailTestStat.size,
   Math.floor(thumbnailTestStat.mtimeMs), rows[599].id);
 const updatedRows = db.prepare('SELECT id, path, name FROM files ORDER BY id').all() as Array<{ id: number; path: string; name: string }>;
 const collectionPaths = updatedRows.map((row) => row.path);

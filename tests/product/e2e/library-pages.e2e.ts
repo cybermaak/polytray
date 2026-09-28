@@ -80,11 +80,13 @@ test("library pages expose every matching model, complete archive counts, and st
 
     const firstFile = firstPage.items[0].file;
     await page.locator(`.file-card[data-file-id="${firstFile.id}"] .file-select-toggle`).click();
-    await page.evaluate(() => {
-      const scroller = document.querySelector("[data-virtuoso-scroller]");
-      scroller?.scrollTo({ top: scroller.scrollHeight, behavior: "instant" });
-    });
     const lastRecordCard = page.locator(`.file-card[data-file-id="${fixtureInfo.thumbnailTestFileId}"]`);
+    for (let attempt = 0; attempt < 4 && !(await lastRecordCard.isVisible()); attempt += 1) {
+      await page.locator("[data-virtuoso-scroller]").evaluate((element) => {
+        element.scrollTo({ top: element.scrollHeight, behavior: "instant" });
+      });
+      await page.waitForTimeout(150);
+    }
     await expect(page.locator(`.card-name[title="${fixtureInfo.lastRecordName}"]`)).toBeVisible({ timeout: 30000 });
     const loadedThumbnail = lastRecordCard.locator("img[data-thumbnail-state]");
     await expect(loadedThumbnail).toHaveAttribute("data-thumbnail-state", "placeholder");

@@ -451,7 +451,7 @@ test("archive summary card previews on click and opens contents on double click"
   await archiveCard.click();
   await expect(window.locator("#preview-panel")).not.toHaveClass(/hidden/);
   await expect(window.locator("#viewer-filename")).toContainText("test_bundle.zip");
-  await expect(window.locator("#archive-preview-models .multi-model-thumb")).toHaveCount(2);
+  await expect(window.locator('#archive-preview-models .multi-model-thumb[title$=".stl"], #archive-preview-models .multi-model-thumb[title$=".obj"]')).toHaveCount(2);
   await expect(window.locator("#viewer-meta")).toContainText("2 models");
   await window.locator("#btn-close-viewer").click();
   await expect(window.locator("#preview-panel")).toHaveClass(/hidden/);
@@ -504,7 +504,9 @@ test("clicking a file card opens the 3D preview panel", async () => {
   await expect(previewPanel).toHaveClass(/hidden/);
 
   // Click the first file card
-  const firstCard = window.locator(".file-card").first();
+  const firstCard = window.locator(".file-card").filter({
+    has: window.locator('.card-name[title="test_model_a"]'),
+  }).first();
   await expect(firstCard).toBeVisible();
   await expect(firstCard).toHaveAttribute("title", /.+/);
   await firstCard.click();
@@ -1204,7 +1206,9 @@ test("files can be tagged from preview and found via tag search", async () => {
   await ensureFixtureFilesLoaded();
   await resetUiState();
 
-  const firstCard = window.locator(".file-card").first();
+  const firstCard = window.locator(".file-card").filter({
+    has: window.locator('.card-name[title="test_model_a"]'),
+  }).first();
   await firstCard.click();
   await expect(window.locator("#preview-panel")).not.toHaveClass(/hidden/);
 

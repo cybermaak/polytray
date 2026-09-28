@@ -1422,6 +1422,17 @@ body {
   );
 }
 
+.viewer-stage {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.viewer-stage .viewer-container {
+  min-height: 0;
+}
+
 .viewer-container canvas {
   display: block;
 }

@@ -697,28 +697,29 @@ export const PreviewPanel: React.FC<Props> = ({
 
       <div className="viewer-multi-model hidden" id="viewer-multi-model" />
 
-      <div
-        ref={containerRef}
-        id="viewer-container"
-        className="viewer-container"
-      />
-
-      {modelLoadError && (
+      <div className="viewer-stage">
         <div
-          id="viewer-error"
-          role="alert"
-          style={{
-            position: 'absolute', inset: 'var(--toolbar-height) 0 0', zIndex: 11,
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            gap: 12, padding: 24, textAlign: 'center',
-            background: 'color-mix(in srgb, var(--bg-base) 94%, black 6%)',
-            color: 'var(--text-primary)',
-          }}
-        >
-          <span>{modelLoadError}</span>
-          <button id="btn-retry-preview" className="btn-copy-path" onClick={handleRetryPreview}>Retry</button>
-        </div>
-      )}
+          ref={containerRef}
+          id="viewer-container"
+          className="viewer-container"
+        />
+        {modelLoadError && (
+          <div
+            id="viewer-error"
+            role="alert"
+            style={{
+              position: 'absolute', inset: 0, zIndex: 11,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              gap: 12, padding: 24, textAlign: 'center',
+              background: 'color-mix(in srgb, var(--bg-base) 94%, black 6%)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <span>{modelLoadError}</span>
+            <button id="btn-retry-preview" className="btn-copy-path" onClick={handleRetryPreview}>Retry</button>
+          </div>
+        )}
+      </div>
 
       <div
         id="viewer-loading"
