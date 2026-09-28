@@ -212,6 +212,38 @@ test('thumbnail patches update loaded records without resetting pages or revisio
   assert.equal(state.nextOffset, 500);
 });
 
+test('older row patches cannot regress a newer file content revision', () => {
+  let state = createInitialLibraryPagesState();
+  const original = file(1).file;
+  const newer = { ...original, content_revision: original.content_revision + 2, notes: 'newer' };
+  const older = { ...original, content_revision: original.content_revision + 1, notes: 'older' };
+  const sample = file(2).file;
+  const newerSample = { ...sample, content_revision: sample.content_revision + 2, notes: 'newer sample' };
+  const olderSample = { ...sample, content_revision: sample.content_revision + 1, notes: 'older sample' };
+  const archive: LibraryItem = {
+    kind: 'archive', key: 'archive:/library/bundle.zip', archivePath: '/library/bundle.zip',
+    name: 'bundle.zip', modelCount: 1, vertexCount: 30, faceCount: 10, sizeBytes: 400,
+    thumbnailSamples: [sample],
+  };
+  state = libraryPagesReducer(state, { type: 'query-started', generation: 1, queryKey: 'all' });
+  state = libraryPagesReducer(state, {
+    type: 'page-loaded', generation: 1, offset: 0,
+    page: okPage(21, [{ kind: 'file', key: 'file:1', file: original }, archive], 500),
+  });
+  state = libraryPagesReducer(state, { type: 'file-patched', file: newer });
+  state = libraryPagesReducer(state, { type: 'files-patched', files: [newerSample] });
+  state = libraryPagesReducer(state, { type: 'file-patched', file: older });
+  state = libraryPagesReducer(state, { type: 'files-patched', files: [olderSample] });
+  assert.equal(state.items[0].kind, 'file');
+  if (state.items[0].kind !== 'file') return;
+  assert.equal(state.items[0].file.content_revision, newer.content_revision);
+  assert.equal(state.items[0].file.notes, 'newer');
+  assert.equal(state.items[1].kind, 'archive');
+  if (state.items[1].kind !== 'archive') return;
+  assert.equal(state.items[1].thumbnailSamples[0].content_revision, newerSample.content_revision);
+  assert.equal(state.items[1].thumbnailSamples[0].notes, 'newer sample');
+});
+
 test('confirmed deletion removes a loaded file and its archive thumbnail sample', () => {
   let state = createInitialLibraryPagesState();
   const sample = file(4).file;

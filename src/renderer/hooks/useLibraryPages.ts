@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type { FileRecord } from "../../shared/types";
 import type { LibraryItem, LibraryPageResult, LibraryQuery } from "../../shared/libraryQuery";
+import { preferCurrentFileRevision } from "../lib/fileRevision";
 
 export interface LibraryPagesState {
   generation: number;
@@ -243,27 +244,32 @@ function dedupeItems(items: LibraryItem[]): LibraryItem[] {
 
 function patchItemFile(item: LibraryItem, file: FileRecord): LibraryItem {
   if (item.kind === "file") {
-    return item.file.id === file.id ? { ...item, file } : item;
+    const latest = preferCurrentFileRevision(item.file, file);
+    return latest === item.file ? item : { ...item, file: latest };
   }
+  let changed = false;
+  const thumbnailSamples = item.thumbnailSamples.map((sample) => {
+    const latest = preferCurrentFileRevision(sample, file);
+    if (latest === sample) return sample;
+    changed = true;
+    return latest;
+  });
+  if (!changed) return item;
   return {
     ...item,
-    thumbnailSamples: item.thumbnailSamples.map((sample) => sample.id === file.id ? file : sample),
+    thumbnailSamples,
   };
 }
 
 function patchItemFiles(item: LibraryItem, filesById: ReadonlyMap<number, FileRecord>): LibraryItem {
   if (item.kind === "file") {
     const file = filesById.get(item.file.id);
-    return file ? { ...item, file } : item;
+    return file ? patchItemFile(item, file) : item;
   }
-  let changed = false;
-  const thumbnailSamples = item.thumbnailSamples.map((sample) => {
+  return item.thumbnailSamples.reduce<LibraryItem>((patched, sample) => {
     const file = filesById.get(sample.id);
-    if (!file) return sample;
-    changed = true;
-    return file;
-  });
-  return changed ? { ...item, thumbnailSamples } : item;
+    return file ? patchItemFile(patched, file) : patched;
+  }, item);
 }
 
 function getQueryKey(query: LibraryQuery) {

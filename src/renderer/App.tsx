@@ -68,6 +68,7 @@ import {
   applyThumbnailReadyToRecord,
   invalidateThumbnailImages,
 } from "./lib/thumbnailInvalidation";
+import { patchPreviewTargetFile, preferCurrentFileRevision } from "./lib/fileRevision";
 
 interface LibraryStats {
   total: number;
@@ -288,9 +289,12 @@ export const App: React.FC = () => {
 
   const updateSelectedFile = useCallback((file: FileRecord) => {
     const current = selectedFilesRef.current;
-    if (!current.has(file.id)) return;
+    const currentFile = current.get(file.id);
+    if (!currentFile) return;
+    const latest = preferCurrentFileRevision(currentFile, file);
+    if (latest === currentFile) return;
     const next = new Map(current);
-    next.set(file.id, file);
+    next.set(file.id, latest);
     selectedFilesRef.current = next;
     setSelectedFilesById(next);
   }, []);
@@ -826,11 +830,13 @@ export const App: React.FC = () => {
   const handleFileRecordUpdate = useCallback((updatedFile: FileRecord) => {
     libraryPages.patchFile(updatedFile);
     updateSelectedFile(updatedFile);
-    setLegacyFiles((current) => current.map((file) => file.id === updatedFile.id ? updatedFile : file));
-    setComparisonFiles((current) => current.map((file) => file.id === updatedFile.id ? updatedFile : file));
-    setPreviewTarget((current) => current?.kind === "file" && current.file.id === updatedFile.id
-      ? { kind: "file", file: updatedFile }
-      : current);
+    setLegacyFiles((current) => current.map((file) => file.id === updatedFile.id
+      ? preferCurrentFileRevision(file, updatedFile)
+      : file));
+    setComparisonFiles((current) => current.map((file) => file.id === updatedFile.id
+      ? preferCurrentFileRevision(file, updatedFile)
+      : file));
+    setPreviewTarget((current) => patchPreviewTargetFile(current, updatedFile));
   }, [libraryPages.patchFile, updateSelectedFile]);
 
   const handleToggleFileSelection = useCallback((file: FileRecord) => {
