@@ -299,6 +299,7 @@ const FolderTreeNode: React.FC<{
     >
       <div
         className={`library-folder-item ${isActive ? 'active' : ''}`}
+        data-folder-path={node.path}
         style={{ paddingLeft: `${level * 12 + 8}px`, cursor: 'pointer' }}
         onClick={(e) => {
           if ((e.target as HTMLElement).classList.contains('folder-toggle')) return;

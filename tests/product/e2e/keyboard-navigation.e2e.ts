@@ -215,11 +215,12 @@ test("keyboard-only browsing preserves virtual focus and closes only the top ove
     const focusedFolder = page.locator(`#library-folders [role='treeitem'][data-folder-path=${JSON.stringify(focusedFolderPath)}]`);
     await pressWithDeadline(page, "ArrowRight", "expand focused folder");
     await expect(focusedFolder).toHaveAttribute("aria-expanded", "true");
-    await pressWithDeadline(page, "ArrowDown", "focus child folder");
-    const childFolder = page.locator("#library-folders [role='treeitem']:focus");
     const childGroup = focusedFolder.locator(":scope > [role='group']");
     await expect(childGroup).toBeVisible();
-    await expect(childGroup.getByRole("treeitem").first()).toBeVisible();
+    const childFolder = childGroup.getByRole("treeitem").first();
+    await expect(childFolder).toBeVisible();
+    await pressWithDeadline(page, "ArrowDown", "focus child folder");
+    await expect(childFolder).toBeFocused();
     await pressWithDeadline(page, "Enter", "select child folder");
     await expect(childFolder).toHaveAttribute("aria-selected", "true");
     await expect(childFolder).toBeFocused();
@@ -264,10 +265,14 @@ test("ArrowDown across a loaded page edge preserves the focused column", async (
     await page.setViewportSize({ width: 900, height: 700 });
     await applyKeyboardFixtureState(page, fixtureInfo);
     await tabTo(page, "#file-grid [data-item-key][tabindex='0']");
-    const result = await page.evaluate(() => window.polytray.getLibraryPage({
-      sort: "name", direction: "ASC", extension: null, folder: null, search: "",
+    const uiSort = await page.locator("#sort-select").inputValue();
+    const uiDirection = await page.locator("#sort-order").evaluate((element) =>
+      element.classList.contains("desc") ? "DESC" : "ASC",
+    );
+    const result = await page.evaluate(({ sort, direction }) => window.polytray.getLibraryPage({
+      sort, direction, extension: null, folder: null, search: "",
       collectionPaths: null, limit: 200, offset: 0,
-    }));
+    }), { sort: uiSort, direction: uiDirection });
     const keys = result.status === "ok" ? result.items.map((item) => item.key) : [];
     const columns = await page.locator("#file-grid").evaluate((element) =>
       getComputedStyle(element).gridTemplateColumns.trim().split(/\s+(?![^()]*\))/).length,

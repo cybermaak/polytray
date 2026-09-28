@@ -4,6 +4,7 @@ import {
   getGridMoveIndex,
   getGridColumnCount,
   getGridActivationAction,
+  isGridAppend,
   getGridMoveDelta,
   getGridPageEdgeTarget,
   getGridTabStopKey,
@@ -49,6 +50,13 @@ test("metadata-only refreshes with the same stable keys do not invalidate grid f
   assert.equal(sameGridKeys(["a", "b"], ["a", "b"]), true);
   assert.equal(sameGridKeys(["a", "b"], ["b", "a"]), false);
   assert.equal(sameGridKeys(["a"], []), false);
+});
+
+test("append-only pages preserve scroll instead of forcing the old roving item back into view", () => {
+  assert.equal(isGridAppend(["a", "b"], ["a", "b", "c"]), true);
+  assert.equal(isGridAppend(["a", "b"], ["a", "c", "b"]), false);
+  assert.equal(isGridAppend(["a", "b"], ["a"]), false);
+  assert.equal(isGridAppend(["a", "b"], ["a", "b"]), false);
 });
 
 test("a virtualized roving key falls back to a rendered tab stop without replacing logical focus", () => {

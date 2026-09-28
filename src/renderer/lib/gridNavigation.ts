@@ -31,6 +31,10 @@ export function sameGridKeys(previousKeys: readonly string[], nextKeys: readonly
   return previousKeys.length === nextKeys.length && previousKeys.every((key, index) => key === nextKeys[index]);
 }
 
+export function isGridAppend(previousKeys: readonly string[], nextKeys: readonly string[]): boolean {
+  return nextKeys.length > previousKeys.length && previousKeys.every((key, index) => key === nextKeys[index]);
+}
+
 export function getGridTabStopKey(rovingKey: string | null, renderedKeys: readonly string[]): string | null {
   if (!renderedKeys.length) return null;
   return rovingKey && renderedKeys.includes(rovingKey) ? rovingKey : renderedKeys[0];

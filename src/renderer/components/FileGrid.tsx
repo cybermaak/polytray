@@ -4,7 +4,7 @@ import { formatSize, formatTimestamp, formatVertices } from "../lib/formatters";
 import type { FileRecord } from "../../shared/types";
 import { isArchiveEntryPath } from "../../shared/archivePaths";
 import { ThumbnailImage } from "./ThumbnailImage";
-import { getGridActivationAction, getGridColumnCount, getGridMoveIndex, getGridPageEdgeTarget, getGridTabStopKey, reconcileGridFocus, sameGridKeys } from "../lib/gridNavigation";
+import { getGridActivationAction, getGridColumnCount, getGridMoveIndex, getGridPageEdgeTarget, getGridTabStopKey, isGridAppend, reconcileGridFocus, sameGridKeys } from "../lib/gridNavigation";
 import {
   type DisplayFileRecord,
   isLibraryArchiveDisplayRecord,
@@ -238,7 +238,6 @@ interface GridContext {
   onRetry: () => void;
   resultCount: number;
   rovingKey: string | null;
-  tabStopKey: string | null;
 }
 
 const GridFooter: React.FC<{ context?: GridContext }> = ({ context }) => {
@@ -271,7 +270,6 @@ const GridList = React.forwardRef<
       aria-describedby="library-result-total grid-keyboard-hint"
       aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home End PageUp PageDown Enter Space Shift+Enter"
       data-roving-key={context?.rovingKey ?? ""}
-      data-tab-stop-key={context?.tabStopKey ?? ""}
       style={{
         ...style,
         display: "grid",
@@ -315,9 +313,9 @@ export const FileGrid: React.FC<Props> = ({
   const gridHadFocusRef = useRef(false);
   const focusSequenceRef = useRef(0);
   const [rovingKey, setRovingKey] = useState<string | null>(null);
-  const [renderedKeys, setRenderedKeys] = useState<string[]>([]);
+  const rovingKeyRef = useRef(rovingKey);
+  rovingKeyRef.current = rovingKey;
   const keys = useMemo(() => files.map(displayItemKey), [files]);
-  const tabStopKey = getGridTabStopKey(rovingKey, renderedKeys);
   const markFocusedKey = useCallback((key: string) => {
     gridHadFocusRef.current = true;
     setRovingKey(key);
@@ -353,19 +351,21 @@ export const FileGrid: React.FC<Props> = ({
 
   useEffect(() => {
     const grid = document.querySelector("#file-grid");
-    if (!grid) {
-      setRenderedKeys([]);
-      return;
-    }
-    const updateRenderedKeys = () => {
-      const nextKeys = Array.from(grid.querySelectorAll<HTMLElement>("[data-item-key]"))
+    if (!grid) return;
+    const updateRenderedTabStop = () => {
+      const cards = Array.from(grid.querySelectorAll<HTMLElement>("[data-item-key]"));
+      const renderedKeys = cards
         .map((element) => element.dataset.itemKey)
         .filter((key): key is string => Boolean(key));
-      setRenderedKeys((previous) => sameGridKeys(previous, nextKeys) ? previous : nextKeys);
+      const tabStopKey = getGridTabStopKey(rovingKeyRef.current, renderedKeys);
+      grid.setAttribute("data-tab-stop-key", tabStopKey ?? "");
+      for (const card of cards) {
+        card.tabIndex = card.dataset.itemKey === tabStopKey ? 0 : -1;
+      }
     };
-    const observer = new MutationObserver(updateRenderedKeys);
+    const observer = new MutationObserver(updateRenderedTabStop);
     observer.observe(grid, { childList: true, subtree: true });
-    updateRenderedKeys();
+    updateRenderedTabStop();
     return () => observer.disconnect();
   }, [files.length > 0]);
 
@@ -384,7 +384,7 @@ export const FileGrid: React.FC<Props> = ({
     } else if (hadPriorItems && !sameGridKeys(priorKeys, keys)) {
       const reconciled = reconcileGridFocus(priorKeys, keys, rovingKey);
       if (reconciled.key !== rovingKey) setRovingKey(reconciled.key);
-      if (gridHadFocusRef.current && reconciled.key) {
+      if (gridHadFocusRef.current && reconciled.key && !isGridAppend(priorKeys, keys)) {
         focusItem(reconciled.index);
       }
     }
@@ -447,8 +447,7 @@ export const FileGrid: React.FC<Props> = ({
     onRetry,
     resultCount,
     rovingKey,
-    tabStopKey,
-  }), [gridSize, pageRefreshing, pageLoadingNext, pageError, hasMore, onRetry, resultCount, rovingKey, tabStopKey]);
+  }), [gridSize, pageRefreshing, pageLoadingNext, pageError, hasMore, onRetry, resultCount, rovingKey]);
   const computeItemKey = useCallback((_index: number, item: DisplayFileRecord) => displayItemKey(item), []);
   const itemContent = useCallback((_index: number, file: DisplayFileRecord) => (
       <FileCardMemo
@@ -459,11 +458,11 @@ export const FileGrid: React.FC<Props> = ({
       onClick={onSelectFile}
         onDoubleClick={onOpenArchive}
         focusKey={displayItemKey(file)}
-        tabIndex={tabStopKey === displayItemKey(file) ? 0 : -1}
+        tabIndex={rovingKey === displayItemKey(file) ? 0 : -1}
         onFocus={markFocusedKey}
         onKeyDown={handleCardKeyDown}
     />
-  ), [activeItemKey, comparisonItemKeys, handleCardKeyDown, markFocusedKey, onOpenArchive, onSelectFile, onToggleFileSelection, selectedFileIds, tabStopKey]);
+  ), [activeItemKey, comparisonItemKeys, handleCardKeyDown, markFocusedKey, onOpenArchive, onSelectFile, onToggleFileSelection, rovingKey, selectedFileIds]);
 
   if (files.length === 0) {
     if (pageError) {
