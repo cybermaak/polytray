@@ -1134,6 +1134,9 @@ export const App: React.FC = () => {
           <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
             {resultCountAnnouncement}
           </div>
+          <div id="grid-keyboard-hint" className="sr-only">
+            Press Shift+Enter to toggle selection of the focused file and start batch selection. After one file is selected, Space toggles the focused file; Enter previews it.
+          </div>
           <BatchActionsBar
             selectedCount={selectedFiles.length}
             batchTagsInput={batchTagsInput}

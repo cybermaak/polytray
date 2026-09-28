@@ -75,9 +75,17 @@ test("keyboard-only browsing preserves virtual focus and closes only the top ove
     await page.setViewportSize({ width: 900, height: 700 });
     await applyKeyboardFixtureState(page, fixtureInfo);
 
+    await tabTo(page, "#btn-select-folder");
+    await expect(page.locator("#btn-select-folder")).toBeFocused();
+    await tabTo(page, "#btn-theme-toggle");
+    await expect(page.locator("#btn-theme-toggle")).toBeFocused();
+    await tabTo(page, "#btn-settings");
+    await expect(page.locator("#btn-settings")).toBeFocused();
     await tabTo(page, "#file-grid [data-item-key][tabindex='0']");
     const initialFocus = page.locator("#file-grid [data-item-key][tabindex='0']");
     await expect(initialFocus).toBeFocused();
+    await expect(page.locator("#file-grid .file-select-toggle:not([tabindex='-1'])")).toHaveCount(0);
+    await expect(page.locator("#grid-keyboard-hint")).toContainText("Shift+Enter");
     await expect.poll(() => initialFocus.evaluate((element) => getComputedStyle(element).outlineWidth)).toBe("2px");
 
     const columns = await page.locator("#file-grid").evaluate((element) =>
@@ -128,14 +136,11 @@ test("keyboard-only browsing preserves virtual focus and closes only the top ove
     await expect(preview).toBeHidden();
     await expect(page.locator(`[data-item-key=${JSON.stringify(previewKey)}]`)).toBeFocused();
 
-    // Tab into the focused card's selection control, then use Space on cards in multi-select mode.
-    await pressWithDeadline(page, "Tab", "focus file selection control");
-    const firstSelect = page.locator("#file-grid .file-select-toggle:focus");
-    await expect(firstSelect).toBeFocused();
-    await pressWithDeadline(page, "Enter", "select the first file");
-    await expect(page.locator("#batch-selection-count")).toHaveText("1 selected");
-    await pressWithDeadline(page, "Shift+Tab", "return to the first grid card");
+    // Shift+Enter starts batch selection from the single roving grid stop.
     const firstSelectedKey = await page.evaluate(() => (document.activeElement as HTMLElement).dataset.itemKey);
+    await pressWithDeadline(page, "Shift+Enter", "add the focused file to batch selection");
+    await expect(page.locator("#batch-selection-count")).toHaveText("1 selected");
+    await expect(page.locator("#file-grid [data-item-key]:focus")).toHaveAttribute("tabindex", "0");
     const currentIndex = allKeys.indexOf(firstSelectedKey);
     const previousPageRowKey = allKeys[Math.max(0, currentIndex - columns)];
     await pressWithDeadline(page, "ArrowUp", "move to a second file");
@@ -188,9 +193,8 @@ test("keyboard-only browsing preserves virtual focus and closes only the top ove
     expect(allKeys).toContain(logicalRovingKey);
     expect(allKeys).toContain(renderedTabStopKey);
     await expect(page.locator("#file-grid [data-item-key][tabindex='0']")).toHaveCount(1);
-    await tabTo(page, "#file-grid .file-select-toggle:focus");
-    await pressWithDeadline(page, "Shift+Tab", "move from the selection control to its roving card");
-    await expect(page.locator("#file-grid [data-item-key]:focus")).toHaveAttribute("tabindex", "0");
+    await expect(page.locator("#file-grid .file-select-toggle:not([tabindex='-1'])")).toHaveCount(0);
+    await tabTo(page, "#file-grid [data-item-key][tabindex='0']");
     await pressWithDeadline(page, "Enter", "open preview before docking");
     await expect(page.locator("#preview-panel")).toBeVisible();
     await expect(page.locator("#preview-panel")).toHaveAttribute("aria-modal", "true");
@@ -207,11 +211,15 @@ test("keyboard-only browsing preserves virtual focus and closes only the top ove
     await expect(page.locator("#preview-panel")).toBeHidden();
 
     await tabTo(page, "#library-folders [role='treeitem'][tabindex='0']");
-    const focusedFolder = page.locator("#library-folders [role='treeitem']:focus");
+    const focusedFolderPath = await page.locator("#library-folders [role='treeitem']:focus").getAttribute("data-folder-path");
+    const focusedFolder = page.locator(`#library-folders [role='treeitem'][data-folder-path=${JSON.stringify(focusedFolderPath)}]`);
     await pressWithDeadline(page, "ArrowRight", "expand focused folder");
     await expect(focusedFolder).toHaveAttribute("aria-expanded", "true");
     await pressWithDeadline(page, "ArrowDown", "focus child folder");
     const childFolder = page.locator("#library-folders [role='treeitem']:focus");
+    const childGroup = focusedFolder.locator(":scope > [role='group']");
+    await expect(childGroup).toBeVisible();
+    await expect(childGroup.getByRole("treeitem").first()).toBeVisible();
     await pressWithDeadline(page, "Enter", "select child folder");
     await expect(childFolder).toHaveAttribute("aria-selected", "true");
     await expect(childFolder).toBeFocused();
@@ -224,6 +232,19 @@ test("keyboard-only browsing preserves virtual focus and closes only the top ove
     await pressWithDeadline(page, "Escape", "close settings");
     await expect(settings).toBeHidden();
     await expect(page.locator("#btn-settings")).toBeFocused();
+
+    const libraryRootTreeItem = page.locator("#library-folders [role='treeitem'][aria-keyshortcuts='Delete']");
+    await expect(libraryRootTreeItem).toHaveAttribute("aria-describedby", "library-folder-delete-hint");
+    await expect(libraryRootTreeItem.locator(".library-folder-remove")).toHaveAttribute("tabindex", "-1");
+    await expect(page.locator("#library-folders .library-folder-remove:not([tabindex='-1'])")).toHaveCount(0);
+    await tabTo(page, "#library-folders [role='treeitem'][tabindex='0']");
+    await pressWithDeadline(page, "ArrowLeft", "return to library root treeitem");
+    await expect(libraryRootTreeItem).toBeFocused();
+    await pressWithDeadline(page, "Delete", "remove library root through its treeitem action");
+    await expect.poll(() => page.evaluate((root) => {
+      const state = JSON.parse(localStorage.getItem("polytray-library-state") || "{}");
+      return state.libraryFolders?.includes(root) ?? false;
+    }, fixtureInfo.libraryRoot)).toBe(false);
 
     await expect(page.locator(".file-card.archive-summary .file-select-toggle")).toHaveCount(0);
   } finally {
@@ -258,6 +279,32 @@ test("ArrowDown across a loaded page edge preserves the focused column", async (
     await pressWithDeadline(page, "ArrowDown", "cross the grid page edge");
     await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement).dataset.itemKey), { timeout: 5000 })
       .toBe(expected);
+  } finally {
+    await isolated.close();
+  }
+});
+
+test("Delete on a focused library root uses the tree action without a per-item Tab stop", async () => {
+  test.setTimeout(30_000);
+  let fixtureInfo;
+  const isolated = await launchIsolatedApp({
+    mainEntry: path.join(APP_DIR, "out/main/index.js"),
+    beforeLaunch: ({ userDataDir }) => { fixtureInfo = seedLibrary(userDataDir); },
+  });
+  try {
+    const page = await findMainWindow(isolated.app);
+    await applyKeyboardFixtureState(page, fixtureInfo);
+    const rootTreeItem = page.locator("#library-folders [role='treeitem'][aria-keyshortcuts='Delete']");
+    await tabTo(page, "#library-folders [role='treeitem'][aria-keyshortcuts='Delete']");
+    await expect(rootTreeItem).toBeFocused();
+    await expect(rootTreeItem).toHaveAttribute("aria-describedby", "library-folder-delete-hint");
+    await expect(rootTreeItem.locator(".library-folder-remove")).toHaveAttribute("tabindex", "-1");
+    await expect(page.locator("#library-folders .library-folder-remove:not([tabindex='-1'])")).toHaveCount(0);
+    await pressWithDeadline(page, "Delete", "remove library root through its treeitem action");
+    await expect.poll(() => page.evaluate((root) => {
+      const state = JSON.parse(localStorage.getItem("polytray-library-state") || "{}");
+      return state.libraryFolders?.includes(root) ?? false;
+    }, fixtureInfo.libraryRoot)).toBe(false);
   } finally {
     await isolated.close();
   }

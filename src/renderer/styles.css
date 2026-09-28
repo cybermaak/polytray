@@ -286,6 +286,7 @@ body {
 }
 
 .library-folder-item:focus-visible,
+.folder-tree-node[role="treeitem"]:focus-visible > .library-folder-item,
 .file-card:focus-visible,
 button:focus-visible,
 select:focus-visible,

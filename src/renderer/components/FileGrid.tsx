@@ -4,7 +4,7 @@ import { formatSize, formatTimestamp, formatVertices } from "../lib/formatters";
 import type { FileRecord } from "../../shared/types";
 import { isArchiveEntryPath } from "../../shared/archivePaths";
 import { ThumbnailImage } from "./ThumbnailImage";
-import { getGridColumnCount, getGridMoveIndex, getGridPageEdgeTarget, getGridTabStopKey, reconcileGridFocus, sameGridKeys } from "../lib/gridNavigation";
+import { getGridActivationAction, getGridColumnCount, getGridMoveIndex, getGridPageEdgeTarget, getGridTabStopKey, reconcileGridFocus, sameGridKeys } from "../lib/gridNavigation";
 import {
   type DisplayFileRecord,
   isLibraryArchiveDisplayRecord,
@@ -148,6 +148,7 @@ const FileCard: React.FC<{
         <button
           type="button"
           className={`file-select-toggle${selectedForBatch ? " active" : ""}`}
+          tabIndex={-1}
           aria-label={`${selectedForBatch ? "Remove" : "Add"} ${file.name}.${file.extension} ${selectedForBatch ? "from" : "to"} batch selection`}
           aria-pressed={selectedForBatch}
           onClick={(e) => {
@@ -267,7 +268,8 @@ const GridList = React.forwardRef<
       className={`file-grid size-${context?.gridSize || "medium"}`}
       role="grid"
       aria-label={`Library files, ${context?.resultCount ?? 0} results`}
-      aria-describedby="library-result-total"
+      aria-describedby="library-result-total grid-keyboard-hint"
+      aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home End PageUp PageDown Enter Space Shift+Enter"
       data-roving-key={context?.rovingKey ?? ""}
       data-tab-stop-key={context?.tabStopKey ?? ""}
       style={{
@@ -422,9 +424,15 @@ export const FileGrid: React.FC<Props> = ({
     if (key === "Enter" || key === " ") {
       event.preventDefault();
       const file = files[currentIndex];
-      if (!isArchiveDisplay(file) && key === " " && selectedFileIds.size > 0) {
+      const action = getGridActivationAction(
+        key,
+        event.shiftKey,
+        selectedFileIds.size > 0,
+        !isArchiveDisplay(file),
+      );
+      if (action === "toggle-selection" && !isArchiveDisplay(file)) {
         onToggleFileSelection(file as FileRecord);
-      } else {
+      } else if (action === "preview") {
         onSelectFile(file);
       }
     }

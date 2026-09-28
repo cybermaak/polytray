@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   getGridMoveIndex,
   getGridColumnCount,
+  getGridActivationAction,
   getGridMoveDelta,
   getGridPageEdgeTarget,
   getGridTabStopKey,
@@ -54,4 +55,13 @@ test("a virtualized roving key falls back to a rendered tab stop without replaci
   assert.equal(getGridTabStopKey("b", ["a", "b", "c"]), "b");
   assert.equal(getGridTabStopKey("a", ["b", "c"]), "b");
   assert.equal(getGridTabStopKey("a", []), null);
+});
+
+test("grid activation keeps preview keys and exposes a modifier selection path", () => {
+  assert.equal(getGridActivationAction("Enter", false, false, true), "preview");
+  assert.equal(getGridActivationAction(" ", false, false, true), "preview");
+  assert.equal(getGridActivationAction("Enter", true, false, true), "toggle-selection");
+  assert.equal(getGridActivationAction(" ", false, true, true), "toggle-selection");
+  assert.equal(getGridActivationAction("Enter", true, false, false), "preview");
+  assert.equal(getGridActivationAction(" ", false, true, false), "preview");
 });

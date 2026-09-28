@@ -274,6 +274,9 @@ const FolderTreeNode: React.FC<{
       event.preventDefault();
       if (hasChildren && !expanded) setExpanded(true);
       else focusItem(event.currentTarget.querySelector<HTMLElement>(".folder-children [role='treeitem']") ?? undefined);
+    } else if (event.key === "Delete" && node.isLibraryRoot) {
+      event.preventDefault();
+      onRemove(node.path);
     } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       onSelect(isActive ? null : node.path);
@@ -281,20 +284,25 @@ const FolderTreeNode: React.FC<{
   };
 
   return (
-    <div className="folder-tree-node">
-      <div 
+    <div
+      className="folder-tree-node"
+      data-folder-path={node.path}
+      role="treeitem"
+      aria-label={getFolderNodeLabel(node)}
+      aria-selected={isActive}
+      aria-expanded={hasChildren ? expanded : undefined}
+      aria-keyshortcuts={node.isLibraryRoot ? "Delete" : undefined}
+      aria-describedby={node.isLibraryRoot ? "library-folder-delete-hint" : undefined}
+      tabIndex={focusedPath === node.path ? 0 : -1}
+      onFocus={() => onFocusPath(node.path)}
+      onKeyDown={handleKeyDown}
+    >
+      <div
         className={`library-folder-item ${isActive ? 'active' : ''}`}
-        data-folder-path={node.path}
-        role="treeitem"
-        aria-label={getFolderNodeLabel(node)}
-        aria-selected={isActive}
-        aria-expanded={hasChildren ? expanded : undefined}
-        tabIndex={focusedPath === node.path ? 0 : -1}
-        onFocus={() => onFocusPath(node.path)}
-        onKeyDown={handleKeyDown}
         style={{ paddingLeft: `${level * 12 + 8}px`, cursor: 'pointer' }}
         onClick={(e) => {
           if ((e.target as HTMLElement).classList.contains('folder-toggle')) return;
+          (e.currentTarget.parentElement as HTMLElement).focus();
           onSelect(isActive ? null : node.path);
         }}
         onContextMenu={(e) => {
@@ -309,7 +317,11 @@ const FolderTreeNode: React.FC<{
             tabIndex={-1}
             aria-label={`${expanded ? "Collapse" : "Expand"} ${getFolderNodeLabel(node)}`}
             aria-expanded={expanded}
-            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              (e.currentTarget.parentElement?.parentElement as HTMLElement | null)?.focus();
+              setExpanded(!expanded);
+            }}
             style={{ width: 14, display: 'inline-block', textAlign: 'center', marginRight: 4, fontSize: '10px', opacity: 0.6 }}
           >
             {expanded ? '▼' : '▶'}
@@ -318,12 +330,13 @@ const FolderTreeNode: React.FC<{
           <span style={{ width: 14, display: 'inline-block', marginRight: 4 }} />
         )}
         <FolderNodeIcon node={node} />
-          <span
+        <span
           className="library-folder-name"
           title={node.path}
           style={{ flex: 1, whiteSpace: 'nowrap' }}
           onClick={(e) => {
             e.stopPropagation();
+            (e.currentTarget.parentElement?.parentElement as HTMLElement | null)?.focus();
             onSelect(isActive ? null : node.path);
           }}
         >
@@ -334,6 +347,7 @@ const FolderTreeNode: React.FC<{
            <div className="folder-actions hide-on-idle">
              <button
                type="button"
+               tabIndex={-1}
                className="library-folder-remove"
                title="Remove from library"
                aria-label={`Remove ${getFolderNodeLabel(node)} from library`}
@@ -344,9 +358,8 @@ const FolderTreeNode: React.FC<{
            </div>
         )}
       </div>
-      
       {expanded && hasChildren && (
-        <div className="folder-children">
+        <div className="folder-children" role="group">
           {node.children.map(child => (
             <FolderTreeNode
               key={child.path}
@@ -440,7 +453,7 @@ export const Sidebar: React.FC<Props> = ({
   );
   React.useEffect(() => {
     if (activeFolder && folderPaths.includes(activeFolder)) setFocusedFolderPath(activeFolder);
-    else if (focusedFolderPath && !folderPaths.includes(focusedFolderPath)) {
+    else if (!focusedFolderPath || !folderPaths.includes(focusedFolderPath)) {
       setFocusedFolderPath(tree[0]?.path ?? null);
     }
   }, [activeFolder, focusedFolderPath, folderPaths, tree]);
@@ -479,7 +492,13 @@ export const Sidebar: React.FC<Props> = ({
             </svg>
             Add Folder
           </button>
-         <div id="library-folders" className="library-folders sidebar-scrollable" role="tree" aria-label="Library folders" style={{ marginTop: 8, flex: 1, overflowY: "auto", overflowX: "auto", paddingBottom: 16 }}>
+          <div
+            id="library-folder-delete-hint"
+            className="sr-only"
+          >
+            With a library root focused, press Delete to remove it from the library. Model files remain on disk.
+          </div>
+          <div id="library-folders" className="library-folders sidebar-scrollable" role="tree" aria-label="Library folders" style={{ marginTop: 8, flex: 1, overflowY: "auto", overflowX: "auto", paddingBottom: 16 }}>
             {tree.map((node) => (
                <FolderTreeNode
                  key={node.path}

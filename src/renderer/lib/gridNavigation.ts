@@ -8,6 +8,20 @@ export type GridNavigationKey =
   | "PageUp"
   | "PageDown";
 
+export type GridActivationAction = "preview" | "toggle-selection" | "none";
+
+export function getGridActivationAction(
+  key: string,
+  shiftKey: boolean,
+  hasSelection: boolean,
+  selectable: boolean,
+): GridActivationAction {
+  if (key !== "Enter" && key !== " ") return "none";
+  if (!selectable) return "preview";
+  if (key === "Enter") return shiftKey ? "toggle-selection" : "preview";
+  return hasSelection ? "toggle-selection" : "preview";
+}
+
 export function getGridColumnCount(template: string): number {
   const tracks = template.trim().match(/(?:\([^)]*\)|[^\s])+/g) ?? [];
   return Math.max(1, tracks.length);
