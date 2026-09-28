@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createThumbnailJobScheduler } from '../../../../src/main/thumbnailJobScheduler';
+import { createThumbnailJobScheduler, createThumbnailProgressEvent } from '../../../../src/main/thumbnailJobScheduler';
 
 test('thumbnail scheduler dedupes jobs by file path and runs single-flight', async () => {
   const calls: string[] = [];
@@ -95,6 +95,7 @@ test('thumbnail scheduler retries null results once and reports failure rather t
 
 test('thumbnail cancellation settles active and queued consumers without retrying or failing them', async () => {
   const calls: string[] = [];
+  const terminalStates: string[] = [];
   let started!: () => void;
   const startedPromise = new Promise<void>((resolve) => { started = resolve; });
   const scheduler = createThumbnailJobScheduler({ execute: async (job) => {
@@ -106,6 +107,9 @@ test('thumbnail cancellation settles active and queued consumers without retryin
     });
     return null;
   } });
+  scheduler.onJobChanged((job) => {
+    if (['completed', 'partial', 'failed', 'cancelled'].includes(job.state)) terminalStates.push(job.state);
+  });
   const settings = { thumbnail_timeout: 1000, scanning_batch_size: 10, watcher_stability: 500, page_size: 100, thumbnailColor: '#8888aa' };
   const batch = scheduler.enqueueBatch([
     { filePath: '/active.stl', ext: 'stl', settings, source: 'scan' },
@@ -122,6 +126,7 @@ test('thumbnail cancellation settles active and queued consumers without retryin
   assert.equal(snapshot.state, 'cancelled');
   assert.equal(snapshot.counts.thumbnailsPending, 0);
   assert.equal(snapshot.counts.thumbnailsFailed, 0);
+  assert.deepEqual(terminalStates, ['cancelled']);
 });
 
 test('thumbnail batch pause acknowledges only after the active item and keeps remaining work pending', async () => {
@@ -172,4 +177,96 @@ test('thumbnail batch cancellation settles queued consumers and retry failures q
   assert.equal(snapshot.counts.thumbnailsSucceeded, 2);
   assert.equal(snapshot.counts.thumbnailsFailed, 0);
   assert.equal(snapshot.counts.thumbnailsPending, 0);
+});
+
+test('terminal thumbnail batches release successful per-item records from bounded history', async () => {
+  const scheduler = createThumbnailJobScheduler({ execute: async (job) => `${job.dedupeKey}.png` });
+  const settings = { thumbnail_timeout: 1000, scanning_batch_size: 10, watcher_stability: 500, page_size: 100, thumbnailColor: '#8888aa' };
+  const batch = scheduler.enqueueBatch(Array.from({ length: 300 }, (_, index) => ({
+    filePath: `/models/${index}.stl`, ext: 'stl', settings, source: 'scan' as const, dedupeKey: `identity-${index}`,
+  })));
+  await batch.done;
+  const snapshot = scheduler.getJobs().find((job) => job.jobId === batch.jobId)!;
+  assert.equal(snapshot.counts.thumbnailsSucceeded, 300);
+  assert.equal(snapshot.counts.thumbnailsPending, 0);
+  assert.equal(scheduler.getStats().retainedJobItems, 0);
+  assert.equal(scheduler.getStats().retainedFailureRequests, 0);
+  assert.equal(scheduler.getStats().retainedErrorDetails, 0);
+});
+
+test('large failed batches bound retry requests and error details without retrying non-retained failures', async () => {
+  let fail = true;
+  let calls = 0;
+  const scheduler = createThumbnailJobScheduler({ execute: async (job) => {
+    calls += 1;
+    if (fail) throw new Error(`failed ${job.filePath}`);
+    return `${job.filePath}.png`;
+  } });
+  const settings = { thumbnail_timeout: 1000, scanning_batch_size: 10, watcher_stability: 500, page_size: 100, thumbnailColor: '#8888aa' };
+  const batch = scheduler.enqueueBatch(Array.from({ length: 300 }, (_, index) => ({
+    filePath: `/broken/${index}.stl`, ext: 'stl', settings, source: 'scan' as const, retries: 0,
+  })));
+  await batch.done;
+  const failed = scheduler.getJobs().find((job) => job.jobId === batch.jobId)!;
+  assert.equal(failed.counts.thumbnailsFailed, 300);
+  assert.ok(failed.errors.length <= 64);
+  assert.equal(scheduler.getStats().retainedFailureRequests, 256);
+  assert.equal(scheduler.getStats().retainedErrorDetails <= 64, true);
+  fail = false;
+  await scheduler.retryFailures(batch.jobId);
+  const retried = scheduler.getJobs().find((job) => job.jobId === batch.jobId)!;
+  assert.equal(calls, 556);
+  assert.equal(retried.counts.thumbnailsSucceeded, 256);
+  assert.equal(retried.counts.thumbnailsFailed, 44);
+  assert.equal(scheduler.getStats().retainedFailureRequests, 0);
+});
+
+test('thumbnail progress never counts partial, failed, or cancelled work as generated', () => {
+  const makeJob = (state: 'partial' | 'failed' | 'cancelled', succeeded: number, failed: number, pending: number) => ({
+    jobId: 'job', kind: 'thumbnail' as const, rootPath: null, scopePath: null, state,
+    counts: {
+      discovered: 0, indexed: 0, indexFailed: 0, metadataCompleted: 0, metadataFailed: 0,
+      thumbnailsSucceeded: succeeded, thumbnailsFailed: failed, thumbnailsPending: pending,
+    },
+    errors: [], startedAt: 1, updatedAt: 2,
+  });
+  for (const [state, succeeded, failed] of [
+    ['partial', 2, 1], ['failed', 0, 3], ['cancelled', 0, 0],
+  ] as const) {
+    const event = createThumbnailProgressEvent(makeJob(state, succeeded, failed, 0), 3);
+    assert.notEqual(event.phase, 'done');
+    assert.notEqual(event.current, event.total);
+    assert.equal(event.generated, succeeded);
+    assert.equal(event.failed, failed);
+    assert.equal(event.cancelled, 3 - succeeded - failed);
+    assert.equal(event.outcome, state);
+  }
+});
+
+test('invalidating an active paused attempt releases its safe-boundary waiter', async () => {
+  let started!: () => void;
+  const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+  const scheduler = createThumbnailJobScheduler({ execute: async (job) => {
+    started();
+    await new Promise<void>((resolve) => {
+      if (job.controller.signal.aborted) return resolve();
+      job.controller.signal.addEventListener('abort', () => resolve(), { once: true });
+    });
+    return null;
+  } });
+  const settings = { thumbnail_timeout: 1000, scanning_batch_size: 10, watcher_stability: 500, page_size: 100, thumbnailColor: '#8888aa' };
+  const batch = scheduler.enqueueBatch([
+    { filePath: '/invalidate.stl', ext: 'stl', settings, source: 'scan' },
+  ]);
+  await startedPromise;
+  const pause = scheduler.pause(batch.jobId);
+  scheduler.clearPending((request) => request.filePath === '/invalidate.stl');
+  await pause;
+  await batch.done;
+  await new Promise((resolve) => setImmediate(resolve));
+  const snapshot = scheduler.getJobs().find((job) => job.jobId === batch.jobId)!;
+  assert.equal(snapshot.state, 'cancelled');
+  assert.equal(snapshot.counts.thumbnailsPending, 0);
+  assert.equal(snapshot.counts.thumbnailsFailed, 0);
+  assert.equal(scheduler.getStats().active, 0);
 });

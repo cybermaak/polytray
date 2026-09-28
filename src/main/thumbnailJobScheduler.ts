@@ -28,21 +28,19 @@ interface SchedulerJob extends ThumbnailJobRequest {
   consumers: Consumer[];
 }
 
-interface BatchItem {
-  request: ThumbnailJobRequest;
-  status: "pending" | "succeeded" | "failed" | "cancelled";
-}
-
 interface BatchJob {
   snapshot: BackgroundJob;
-  items: BatchItem[];
+  pendingRequests: Map<string, ThumbnailJobRequest>;
+  failedRequests: Map<string, ThumbnailJobRequest>;
   done: Promise<void>;
   resolveDone: () => void;
   paused: boolean;
   cancelled: boolean;
   active: number;
+  cancelledItems: number;
+  unretainedFailures: number;
+  terminalEmitted: boolean;
   pauseWaiters: Array<() => void>;
-  errorsByKey: Map<string, BackgroundJobError>;
 }
 
 interface SchedulerHooks {
@@ -58,6 +56,9 @@ export interface ThumbnailSchedulerStats {
   cancelled: number;
   retries: number;
   active: number;
+  retainedJobItems: number;
+  retainedFailureRequests: number;
+  retainedErrorDetails: number;
 }
 
 export class ThumbnailJobCancelledError extends Error {
@@ -67,6 +68,39 @@ export class ThumbnailJobCancelledError extends Error {
 
 const HISTORY_LIMIT = 20;
 const ERROR_LIMIT = 64;
+const RETRY_REQUEST_LIMIT = 256;
+
+export interface ThumbnailProgressEvent {
+  current: number;
+  total: number;
+  filename: string;
+  phase: "start" | "progress" | "done";
+  outcome: "running" | "completed" | "partial" | "failed" | "cancelled";
+  generated: number;
+  failed: number;
+  cancelled: number;
+  pending: number;
+}
+
+export function createThumbnailProgressEvent(job: BackgroundJob, total: number): ThumbnailProgressEvent {
+  const generated = job.counts.thumbnailsSucceeded;
+  const failed = job.counts.thumbnailsFailed;
+  const pending = job.counts.thumbnailsPending;
+  const outcome = job.state === "queued" || job.state === "running" || job.state === "pausing" || job.state === "paused" || job.state === "cancelling"
+    ? "running"
+    : job.state;
+  return {
+    current: generated,
+    total,
+    filename: "",
+    phase: outcome === "completed" ? "done" : "progress",
+    outcome,
+    generated,
+    failed,
+    cancelled: Math.max(0, total - generated - failed - pending),
+    pending,
+  };
+}
 
 function sourcePriority(request: ThumbnailJobRequest): number {
   if (request.priority !== undefined) return request.priority;
@@ -99,12 +133,18 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
   const notificationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const lastNotificationAt = new Map<string, number>();
   let draining = false;
-  const stats: ThumbnailSchedulerStats = { queueDepth: 0, completed: 0, failed: 0, cancelled: 0, retries: 0, active: 0 };
+  const stats: ThumbnailSchedulerStats = {
+    queueDepth: 0, completed: 0, failed: 0, cancelled: 0, retries: 0, active: 0,
+    retainedJobItems: 0, retainedFailureRequests: 0, retainedErrorDetails: 0,
+  };
 
   const keyOf = (request: ThumbnailJobRequest) => request.dedupeKey ?? request.filePath;
 
   function emitJob(job: BatchJob) {
     job.snapshot.updatedAt = Date.now();
+    const isTerminal = ["completed", "partial", "failed", "cancelled"].includes(job.snapshot.state);
+    if (isTerminal && job.terminalEmitted) return;
+    if (isTerminal) job.terminalEmitted = true;
     const publish = () => {
       notificationTimers.delete(job.snapshot.jobId);
       const snapshot = { ...job.snapshot, counts: { ...job.snapshot.counts }, errors: [...job.snapshot.errors] };
@@ -129,7 +169,7 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
 
   function updateJobState(job: BatchJob) {
     const counts = job.snapshot.counts;
-    const hasCancelledItems = job.items.some((item) => item.status === "cancelled");
+    const hasCancelledItems = job.cancelledItems > 0;
     if (job.cancelled) job.snapshot.state = job.active > 0 ? "cancelling" : "cancelled";
     else if (counts.thumbnailsPending > 0 && job.paused) job.snapshot.state = job.active > 0 ? "pausing" : "paused";
     else if (counts.thumbnailsPending > 0) job.snapshot.state = job.snapshot.startedAt === null ? "queued" : "running";
@@ -155,7 +195,7 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
     }
   }
 
-  function addError(job: BatchJob, key: string, request: ThumbnailJobRequest, error: Error) {
+  function addError(job: BatchJob, request: ThumbnailJobRequest, error: Error) {
     const detail: BackgroundJobError = {
       path: request.filePath,
       phase: "thumbnail",
@@ -163,8 +203,23 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
       message: error.message,
       retryable: true,
     };
-    job.errorsByKey.set(key, detail);
-    job.snapshot.errors = [...job.errorsByKey.values()].slice(-ERROR_LIMIT);
+    if (job.snapshot.errors.length < ERROR_LIMIT) job.snapshot.errors.push(detail);
+    if (job.failedRequests.size >= RETRY_REQUEST_LIMIT) {
+      job.unretainedFailures += 1;
+      const warning: BackgroundJobError = {
+        path: null,
+        phase: "thumbnail",
+        code: "THUMBNAIL_RETRY_LIMIT",
+        message: `Retry history is full; ${job.unretainedFailures} additional failed request(s) were not retained.`,
+        retryable: false,
+      };
+      const warningIndex = job.snapshot.errors.findIndex((item) => item.code === warning.code);
+      if (warningIndex >= 0) job.snapshot.errors[warningIndex] = warning;
+      else if (job.snapshot.errors.length < ERROR_LIMIT) job.snapshot.errors.push(warning);
+      else job.snapshot.errors[ERROR_LIMIT - 1] = warning;
+    } else {
+      job.failedRequests.set(keyOf(request), request);
+    }
   }
 
   function settleConsumer(consumer: Consumer, result: string | null, error?: Error) {
@@ -172,14 +227,18 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
     consumer.settled = true;
     const job = jobs.get(consumer.jobId);
     if (job) {
-      const item = job.items.find((candidate) => keyOf(candidate.request) === consumerKey(consumer));
-      if (item && item.status === "pending") {
-        item.status = error instanceof ThumbnailJobCancelledError ? "cancelled" : result ? "succeeded" : "failed";
+      const key = consumerKey(consumer);
+      const request = job.pendingRequests.get(key);
+      if (request) {
+        job.pendingRequests.delete(key);
         job.snapshot.counts.thumbnailsPending = Math.max(0, job.snapshot.counts.thumbnailsPending - 1);
-        if (item.status === "succeeded") job.snapshot.counts.thumbnailsSucceeded += 1;
-        else if (item.status === "failed") job.snapshot.counts.thumbnailsFailed += 1;
+        if (error instanceof ThumbnailJobCancelledError) job.cancelledItems += 1;
+        else if (result) job.snapshot.counts.thumbnailsSucceeded += 1;
+        else {
+          job.snapshot.counts.thumbnailsFailed += 1;
+          addError(job, request, error ?? new Error("Thumbnail generation returned no image"));
+        }
       }
-      if (error && !(error instanceof ThumbnailJobCancelledError)) addError(job, consumerKey(consumer), item?.request ?? { filePath: "", ext: "", source: "scan", settings: {} as RuntimeSettingsData }, error);
       updateJobState(job);
       if (job.snapshot.counts.thumbnailsPending === 0) job.resolveDone();
     }
@@ -193,6 +252,9 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
   function emitStats() {
     stats.queueDepth = queue.size;
     stats.active = activeJobs.size;
+    stats.retainedJobItems = [...jobs.values()].reduce((total, job) => total + job.pendingRequests.size, 0);
+    stats.retainedFailureRequests = [...jobs.values()].reduce((total, job) => total + job.failedRequests.size, 0);
+    stats.retainedErrorDetails = [...jobs.values()].reduce((total, job) => total + job.snapshot.errors.length, 0);
     hooks.onStats?.({ ...stats });
   }
 
@@ -284,20 +346,23 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
     for (const request of requests) unique.set(keyOf(request), request);
     const batch: BatchJob = {
       snapshot: makeSnapshot(jobId, "queued", [...unique.values()]),
-      items: [...unique.values()].map((request) => ({ request, status: "pending" })),
+      pendingRequests: new Map(unique),
+      failedRequests: new Map(),
       done,
       resolveDone,
       paused: false,
       cancelled: false,
       active: 0,
+      cancelledItems: 0,
+      unretainedFailures: 0,
+      terminalEmitted: false,
       pauseWaiters: [],
-      errorsByKey: new Map(),
     };
-    batch.snapshot.counts.thumbnailsPending = batch.items.length;
+    batch.snapshot.counts.thumbnailsPending = batch.pendingRequests.size;
     jobs.set(jobId, batch);
     pruneHistory();
     emitJob(batch);
-    if (batch.items.length === 0) { batch.snapshot.state = "completed"; batch.resolveDone(); emitJob(batch); }
+    if (batch.pendingRequests.size === 0) { batch.snapshot.state = "completed"; batch.resolveDone(); emitJob(batch); }
     return { jobId, done };
   }
 
@@ -326,10 +391,10 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
 
   function enqueueBatch(requests: ThumbnailJobRequest[]) {
     const batch = createBatch(requests);
-    const results = jobs.get(batch.jobId)!.items.map((item) =>
-      addRequest(batch.jobId, item.request).then(
-        (thumbnailPath) => ({ request: item.request, thumbnailPath, error: null as Error | null }),
-        (error) => ({ request: item.request, thumbnailPath: null, error: error instanceof Error ? error : new Error(String(error)) }),
+    const results = [...jobs.get(batch.jobId)!.pendingRequests.values()].map((request) =>
+      addRequest(batch.jobId, request).then(
+        (thumbnailPath) => ({ request, thumbnailPath, error: null as Error | null }),
+        (error) => ({ request, thumbnailPath: null, error: error instanceof Error ? error : new Error(String(error)) }),
       ),
     );
     void runQueue();
@@ -374,11 +439,10 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
         }
       }
     }
-    for (const item of job.items) {
-      if (item.status === "pending") {
-        item.status = "cancelled";
-        job.snapshot.counts.thumbnailsPending = Math.max(0, job.snapshot.counts.thumbnailsPending - 1);
-      }
+    for (const [key] of job.pendingRequests) {
+      job.pendingRequests.delete(key);
+      job.cancelledItems += 1;
+      job.snapshot.counts.thumbnailsPending = Math.max(0, job.snapshot.counts.thumbnailsPending - 1);
     }
     if (job.snapshot.counts.thumbnailsPending === 0) job.resolveDone();
     updateJobState(job);
@@ -409,18 +473,23 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
   async function retryFailures(jobId: string) {
     const job = jobs.get(jobId);
     if (!job) return;
-    const failed = job.items.filter((item) => item.status === "failed");
+    const failed = [...job.failedRequests.entries()];
     if (!failed.length) return;
     job.snapshot.counts.thumbnailsFailed -= failed.length;
     job.snapshot.counts.thumbnailsPending += failed.length;
-    for (const item of failed) item.status = "pending";
-    job.errorsByKey.clear();
+    for (const [key, request] of failed) job.pendingRequests.set(key, request);
+    job.failedRequests.clear();
     job.snapshot.errors = [];
+    if (job.unretainedFailures > 0) job.snapshot.errors.push({
+      path: null, phase: "thumbnail", code: "THUMBNAIL_RETRY_LIMIT",
+      message: `${job.unretainedFailures} failed request(s) were not retained and cannot be retried by this job.`, retryable: false,
+    });
     job.cancelled = false;
     job.paused = false;
+    job.terminalEmitted = false;
     job.done = new Promise<void>((resolve) => { job.resolveDone = resolve; });
     updateJobState(job);
-    for (const item of failed) void addRequest(jobId, item.request, 1);
+    for (const [, request] of failed) void addRequest(jobId, request, 1);
     void runQueue();
     await job.done;
   }
@@ -428,7 +497,13 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
   return {
     enqueue,
     enqueueBatch,
-    getStats: () => ({ ...stats, queueDepth: queue.size }),
+    getStats: () => ({
+      ...stats,
+      queueDepth: queue.size,
+      retainedJobItems: [...jobs.values()].reduce((total, job) => total + job.pendingRequests.size, 0),
+      retainedFailureRequests: [...jobs.values()].reduce((total, job) => total + job.failedRequests.size, 0),
+      retainedErrorDetails: [...jobs.values()].reduce((total, job) => total + job.snapshot.errors.length, 0),
+    }),
     getJobs: () => [...jobs.values()].map((job) => ({ ...job.snapshot, counts: { ...job.snapshot.counts }, errors: [...job.snapshot.errors] })),
     onJobChanged(callback: (job: BackgroundJob) => void) { listeners.add(callback); return () => listeners.delete(callback); },
     pause,
@@ -439,8 +514,8 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
       for (const [key, task] of queue) {
         const removed = task.consumers.filter((consumer) => {
           const job = jobs.get(consumer.jobId);
-          const item = job?.items.find((candidate) => keyOf(candidate.request) === consumer.key);
-          return !predicate || !!item && predicate(item.request);
+          const request = job?.pendingRequests.get(consumer.key);
+          return !predicate || !!request && predicate(request);
         });
         if (!removed.length) continue;
         task.consumers = task.consumers.filter((consumer) => !removed.includes(consumer));
@@ -451,8 +526,8 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
       for (const task of activeJobs.values()) {
         const removed = task.consumers.filter((consumer) => {
           const job = jobs.get(consumer.jobId);
-          const item = job?.items.find((candidate) => keyOf(candidate.request) === consumer.key);
-          return !predicate || !!item && predicate(item.request);
+          const request = job?.pendingRequests.get(consumer.key);
+          return !predicate || !!request && predicate(request);
         });
         if (!removed.length) continue;
         if (removed.length === task.consumers.length) task.controller.abort();

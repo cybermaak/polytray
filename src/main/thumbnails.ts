@@ -12,7 +12,7 @@ import { getThumbnailWindow } from "./index";
 import { getDb } from "./database";
 import { createFileIndexRepository } from "./fileIndexing";
 import { filterContainedPaths, isPathContained } from "./pathContainment";
-import { createThumbnailJobScheduler, ThumbnailJobCancelledError } from "./thumbnailJobScheduler";
+import { createThumbnailJobScheduler, createThumbnailProgressEvent, ThumbnailJobCancelledError } from "./thumbnailJobScheduler";
 import type { BackgroundJob } from "../shared/backgroundJobs";
 import type { ThumbnailJobRequest as SharedThumbnailJobRequest, ThumbnailJobResult } from "../shared/backgroundJobs";
 import {
@@ -310,22 +310,24 @@ export async function generateThumbnailsInBackground(
   const total = targets.length;
   const mainWindow = getMainWindow();
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send(IPC.THUMBNAIL_PROGRESS, { current: 0, total, filename: "", phase: "start" });
+    mainWindow.webContents.send(IPC.THUMBNAIL_PROGRESS, {
+      current: 0, total, filename: "", phase: "start", outcome: "running",
+      generated: 0, failed: 0, cancelled: 0, pending: total,
+    });
   }
   if (targets.length === 0) {
     const finalWin = getMainWindow();
-    if (finalWin && !finalWin.isDestroyed()) finalWin.webContents.send(IPC.THUMBNAIL_PROGRESS, { current: total, total, filename: "", phase: "done" });
+    if (finalWin && !finalWin.isDestroyed()) finalWin.webContents.send(IPC.THUMBNAIL_PROGRESS, {
+      current: 0, total, filename: "", phase: "done", outcome: "completed",
+      generated: 0, failed: 0, cancelled: 0, pending: 0,
+    });
     return;
   }
   const batch = thumbnailScheduler.enqueueBatch(targets.map((target) => target.request));
   const stopProgress = thumbnailScheduler.onJobChanged((job) => {
     if (job.jobId !== batch.jobId) return;
-    const current = targets.length - job.counts.thumbnailsPending;
-    const terminal = ["completed", "partial", "failed", "cancelled"].includes(job.state);
     const win = getMainWindow();
-    if (win && !win.isDestroyed()) win.webContents.send(IPC.THUMBNAIL_PROGRESS, {
-      current, total, filename: "", phase: terminal ? "done" : "progress",
-    });
+    if (win && !win.isDestroyed()) win.webContents.send(IPC.THUMBNAIL_PROGRESS, createThumbnailProgressEvent(job, total));
   });
   try {
     await Promise.all((await batch.results).map(async ({ request, thumbnailPath, error }) => {
