@@ -18,13 +18,24 @@ export interface MetadataWorkerClientOptions {
 }
 type Pending = { request: MetadataWorkerRequest; resolve: (value: MetadataSummary) => void; reject: (error: Error) => void; signal?: AbortSignal; retries: number; abort?: () => void; };
 
-function isMetadataSummary(value: unknown): value is MetadataSummary {
+function isMetadataSummary(value: unknown, extension: string): value is MetadataSummary {
   if (!value || typeof value !== "object") return false;
   const summary = value as Partial<MetadataSummary>;
   if (!Number.isSafeInteger(summary.vertexCount) || (summary.vertexCount as number) < 0
     || !Number.isSafeInteger(summary.faceCount) || (summary.faceCount as number) < 0) return false;
-  if (summary.dimensions === null) return true;
-  return isCurrentMeasurement(summary.dimensions);
+  const expectedUnit = measurementUnitForExtension(extension);
+  return expectedUnit !== null
+    && isCurrentMeasurement(summary.dimensions)
+    && summary.dimensions.unit === expectedUnit;
+}
+
+function measurementUnitForExtension(extension: string): 'mm' | 'model-unit' | null {
+  switch (extension.toLowerCase().replace(/^\./, '')) {
+    case '3mf': return 'mm';
+    case 'stl':
+    case 'obj': return 'model-unit';
+    default: return null;
+  }
 }
 
 export class MetadataWorkerClient {
@@ -110,7 +121,7 @@ export class MetadataWorkerClient {
     }
     this.clearActive(pending);
     if (typeof message.error === "string" && message.error.length) pending.reject(new Error(message.error));
-    else if (isMetadataSummary(message.summary)) pending.resolve(message.summary);
+    else if (isMetadataSummary(message.summary, pending.request.extension)) pending.resolve(message.summary);
     else pending.reject(new Error("Metadata worker returned an invalid response"));
     this.pump();
   };

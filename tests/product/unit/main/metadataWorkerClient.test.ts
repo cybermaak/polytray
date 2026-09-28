@@ -10,6 +10,14 @@ class FakeUtility extends EventEmitter {
   kill() { this.killed = true; return true; }
 }
 
+function unavailableSummary(unit: 'mm' | 'model-unit') {
+  return {
+    vertexCount: 0,
+    faceCount: 0,
+    dimensions: { version: 1, x: null, y: null, z: null, unit, basis: 'source-build', status: 'unavailable', reason: 'Not measurable in fixture' },
+  };
+}
+
 test("metadata worker client starts lazily and resolves only the matching request", async () => {
   const child = new FakeUtility();
   let starts = 0;
@@ -40,6 +48,54 @@ test('metadata worker client accepts versioned source-build measurements over th
   child.emit('message', { requestId: request.requestId, summary });
   assert.deepEqual(await extraction, summary);
   await client.shutdown();
+});
+
+test('metadata worker rejects null measurements and units that do not match the requested format', async () => {
+  const child = new FakeUtility();
+  const client = new MetadataWorkerClient({ spawn: () => { setImmediate(() => child.emit('spawn')); return child as never; } });
+  const requests = [
+    { extension: 'stl', unit: 'mm' },
+    { extension: 'obj', unit: 'mm' },
+    { extension: '3mf', unit: 'model-unit' },
+  ];
+  try {
+    for (let index = 0; index < requests.length; index++) {
+      const { extension, unit } = requests[index]!;
+      const request = { requestId: `bad-measurement-${index}`, fileId: 1, contentRevision: 1, filePath: `/tmp/model.${extension}`, extension };
+      const extraction = client.extract(request);
+      await new Promise((resolve) => setImmediate(resolve));
+      child.emit('message', { requestId: request.requestId, summary: { vertexCount: 0, faceCount: 0, dimensions: null } });
+      await assert.rejects(extraction, /invalid response/i);
+
+      const mismatch = { ...request, requestId: `bad-unit-${index}` };
+      const mismatchedExtraction = client.extract(mismatch);
+      await new Promise((resolve) => setImmediate(resolve));
+      child.emit('message', {
+        requestId: mismatch.requestId,
+        summary: { vertexCount: 3, faceCount: 1, dimensions: { version: 1, x: 1, y: 1, z: 0, unit, basis: 'source-build', status: 'available' } },
+      });
+      await assert.rejects(mismatchedExtraction, /invalid response/i);
+    }
+  } finally { await client.shutdown(); }
+});
+
+test('metadata worker accepts reasoned unavailable measurements with each format unit', async () => {
+  const child = new FakeUtility();
+  const client = new MetadataWorkerClient({ spawn: () => { setImmediate(() => child.emit('spawn')); return child as never; } });
+  try {
+    for (const [index, extension, unit] of [['a', 'stl', 'model-unit'], ['b', 'obj', 'model-unit'], ['c', '3mf', 'mm']] as const) {
+      const request = { requestId: `unavailable-${index}`, fileId: 1, contentRevision: 1, filePath: `/tmp/model.${extension}`, extension };
+      const extraction = client.extract(request);
+      await new Promise((resolve) => setImmediate(resolve));
+      const summary = {
+        vertexCount: 0,
+        faceCount: 0,
+        dimensions: { version: 1, x: null, y: null, z: null, unit, basis: 'source-build', status: 'unavailable', reason: 'Unsupported structure' },
+      };
+      child.emit('message', { requestId: request.requestId, summary });
+      assert.deepEqual(await extraction, summary);
+    }
+  } finally { await client.shutdown(); }
 });
 
 test("metadata worker cancellation settles the request and terminates its owned process", async () => {
@@ -73,8 +129,9 @@ test("cancelling one active scan preserves unrelated queued metadata requests", 
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(starts, 2);
   assert.deepEqual(workers[1].requests, [secondRequest]);
-  workers[1].emit("message", { requestId: secondRequest.requestId, summary: { vertexCount: 8, faceCount: 6, dimensions: null } });
-  assert.deepEqual(await second, { vertexCount: 8, faceCount: 6, dimensions: null });
+  const secondSummary = { ...unavailableSummary('model-unit'), vertexCount: 8, faceCount: 6 };
+  workers[1].emit("message", { requestId: secondRequest.requestId, summary: secondSummary });
+  assert.deepEqual(await second, secondSummary);
   await client.shutdown();
 });
 
@@ -98,12 +155,14 @@ test("metadata worker retries an in-flight request once after its owned process 
   const nextRequest = { ...request, requestId: "retry-followup" };
   const nextExtraction = client.extract(nextRequest);
   assert.equal(starts, 2);
-  workers[1].emit("message", { requestId: request.requestId, summary: { vertexCount: 3, faceCount: 1, dimensions: null } });
+  const retriedSummary = { ...unavailableSummary('model-unit'), vertexCount: 3, faceCount: 1 };
+  workers[1].emit("message", { requestId: request.requestId, summary: retriedSummary });
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(workers[1].requests, [request, nextRequest]);
-  workers[1].emit("message", { requestId: nextRequest.requestId, summary: { vertexCount: 3, faceCount: 1, dimensions: null } });
-  assert.deepEqual(await extraction, { vertexCount: 3, faceCount: 1, dimensions: null });
-  assert.deepEqual(await nextExtraction, { vertexCount: 3, faceCount: 1, dimensions: null });
+  const nextSummary = { ...unavailableSummary('model-unit'), vertexCount: 3, faceCount: 1 };
+  workers[1].emit("message", { requestId: nextRequest.requestId, summary: nextSummary });
+  assert.deepEqual(await extraction, retriedSummary);
+  assert.deepEqual(await nextExtraction, nextSummary);
   await client.shutdown();
 });
 
@@ -140,10 +199,11 @@ test("metadata worker client applies queue backpressure and promptly cancels a w
   controller.abort();
   await assert.rejects(third, /cancelled/i);
   assert.deepEqual(child.requests.map(({ requestId }) => requestId), ["queue-1"]);
-  child.emit("message", { requestId: "queue-1", summary: { vertexCount: 1, faceCount: 0, dimensions: null } });
+  const firstSummary = { ...unavailableSummary('model-unit'), vertexCount: 1, faceCount: 0 };
+  child.emit("message", { requestId: "queue-1", summary: firstSummary });
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(child.requests.map(({ requestId }) => requestId), ["queue-1", "queue-2"]);
-  child.emit("message", { requestId: "queue-2", summary: { vertexCount: 1, faceCount: 0, dimensions: null } });
+  child.emit("message", { requestId: "queue-2", summary: firstSummary });
   await Promise.all([first, second]);
   await client.shutdown();
 });
