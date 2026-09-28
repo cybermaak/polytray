@@ -25,6 +25,25 @@ function oversizedMesh(vertexCount: number): SerializedMesh {
   };
 }
 
+function patternedIndexedMesh(vertexCount: number): SerializedMesh {
+  const position = new Float32Array(vertexCount * 3);
+  const normal = new Float32Array(vertexCount * 3);
+  for (let vertex = 0; vertex < vertexCount; vertex += 1) {
+    position.set([vertex + 0.25, vertex * 2 + 0.5, -vertex - 0.75], vertex * 3);
+    normal.set([vertex % 11, vertex % 17, vertex % 23], vertex * 3);
+  }
+  return {
+    name: 'patterned-oversized',
+    geometry: {
+      attributes: {
+        position: { array: position, itemSize: 3, normalized: false },
+        normal: { array: normal, itemSize: 3, normalized: false },
+      },
+      index: { array: Uint32Array.from({ length: vertexCount }, (_, index) => index), itemSize: 1 },
+    },
+  };
+}
+
 function options(signal: AbortSignal, yieldToFrame: () => Promise<void>, onYield: () => void = () => {}) {
   return {
     signal,
@@ -74,6 +93,34 @@ test('oversized indexed input is remapped to valid local chunk indices without l
     assert.ok(positions.count <= 32_768);
     assert.ok(indices);
     for (let index = 0; index < indices.count; index += 1) assert.ok(indices.getX(index) < positions.count);
+  }
+  group.traverse((object) => {
+    if (object instanceof THREE.Mesh) {
+      object.geometry.dispose();
+      (object.material as THREE.Material).dispose();
+    }
+  });
+});
+
+test('emitted chunk attributes retain their own values after later chunks reuse scratch buffers', async () => {
+  const vertexCount = 210_000;
+  const source = patternedIndexedMesh(vertexCount);
+  const group = await assembleSerializedMeshes(
+    [source],
+    options(new AbortController().signal, async () => {}),
+  );
+  assert.ok(group);
+  const chunks: THREE.Mesh[] = [];
+  group.traverse((object) => { if (object instanceof THREE.Mesh) chunks.push(object); });
+  assert.ok(chunks.length > 2);
+
+  const firstPosition = chunks[0].geometry.getAttribute('position').array;
+  const firstNormal = chunks[0].geometry.getAttribute('normal').array;
+  const sourcePosition = source.geometry.attributes.position.array;
+  const sourceNormal = source.geometry.attributes.normal.array;
+  for (let component = 0; component < firstPosition.length; component += 1) {
+    assert.equal(firstPosition[component], sourcePosition[component], `position component ${component} remains owned by its chunk`);
+    assert.equal(firstNormal[component], sourceNormal[component], `normal component ${component} remains owned by its chunk`);
   }
   group.traverse((object) => {
     if (object instanceof THREE.Mesh) {

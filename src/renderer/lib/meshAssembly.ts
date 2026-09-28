@@ -87,7 +87,8 @@ export async function assembleSerializedMeshes(
         for (const [name, attribute] of Object.entries(attributes)) {
           const output = attributeScratch.get(name)!;
           const length = chunkVertices * attribute.itemSize;
-          geometry.setAttribute(name, new THREE.BufferAttribute(output.subarray(0, length), attribute.itemSize, attribute.normalized));
+          // Each emitted chunk needs stable ownership because the scratch arrays are reused.
+          geometry.setAttribute(name, new THREE.BufferAttribute(output.slice(0, length), attribute.itemSize, attribute.normalized));
         }
         geometry.setIndex(new THREE.BufferAttribute(indexScratch.slice(0, chunkIndices), 1));
         modelGroup.add(createMesh(geometry, chunkNumber === 0 ? serialized.name : `${serialized.name}#${chunkNumber + 1}`, options.createMaterial));
