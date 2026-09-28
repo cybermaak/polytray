@@ -1212,6 +1212,7 @@ test("files can be tagged from preview and found via tag search", async () => {
   await ensureFixtureFilesLoaded();
   await resetUiState();
 
+  await window.locator("#search-input").fill("test_model_a");
   const firstCard = window.locator(".file-card").filter({
     has: window.locator('.card-name[title="test_model_a"]'),
   }).first();
