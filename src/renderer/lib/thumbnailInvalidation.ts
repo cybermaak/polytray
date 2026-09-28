@@ -1,14 +1,6 @@
-import type { ThumbnailInvalidatedData } from "../../shared/types";
-import type { ThumbnailIdentity } from "../../shared/thumbnailContracts";
+import type { ThumbnailInvalidatedData, ThumbnailReadyData } from "../../shared/types";
 import type { ThumbnailImageCache } from "./thumbnailImageCache";
 import type { FileRecord } from "../../shared/types";
-
-export interface ThumbnailReadyPatch {
-  fileId: number;
-  thumbnailPath: string;
-  identity: ThumbnailIdentity;
-  contentRevision: number;
-}
 
 /** Evict cache entries before callers patch renderer records to the empty state. */
 export function invalidateThumbnailImages(
@@ -23,10 +15,10 @@ export function invalidateThumbnailImages(
   return new Set(event.modelPaths);
 }
 
-/** Apply only the cache path from a ready event, fenced by its content revision when supplied. */
+/** Apply a ready event only when its file path and content revision still match the record. */
 export function applyThumbnailReadyToRecord(
   file: FileRecord,
-  event: ThumbnailReadyPatch,
+  event: ThumbnailReadyData,
 ): FileRecord | null {
   if (file.id !== event.fileId) return null;
   if (file.path !== event.identity.path

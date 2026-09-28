@@ -60,14 +60,13 @@ import {
   addFilesToCollection,
 } from "../shared/libraryCollections";
 import { normalizeFileTags, parseStoredFileTags } from "../shared/fileTags";
-import type { FileRecord, ScanProgressData } from "../shared/types";
+import type { FileRecord, ScanProgressData, ThumbnailReadyData } from "../shared/types";
 import type { LibraryQuery, LibraryItem } from "../shared/libraryQuery";
 import type { PreviewTarget } from "../shared/previewTarget";
 import { thumbnailImageCache } from "./lib/thumbnailImageCache";
 import {
   applyThumbnailReadyToRecord,
   invalidateThumbnailImages,
-  type ThumbnailReadyPatch,
 } from "./lib/thumbnailInvalidation";
 
 interface LibraryStats {
@@ -425,8 +424,7 @@ export const App: React.FC = () => {
 
     cleanups.push(
       window.polytray.onThumbnailReady(
-        (data: { fileId: number; thumbnailPath: string }) => {
-          const ready = data as ThumbnailReadyPatch;
+        (ready: ThumbnailReadyData) => {
           thumbnailImageCache.invalidate(ready.thumbnailPath);
           const currentPages = libraryPagesRef.current;
           const loadedFiles = currentPages.items.flatMap((item) =>
@@ -1139,6 +1137,7 @@ export const App: React.FC = () => {
         <PreviewPanel
           file={comparisonActive ? null : previewFile}
           item={comparisonActive ? null : previewFile}
+          target={comparisonActive ? null : previewTarget}
           showGrid={settings.showGrid}
           thumbnailColor={settings.thumbnailColor}
           thumbQuality={settings.thumbQuality}

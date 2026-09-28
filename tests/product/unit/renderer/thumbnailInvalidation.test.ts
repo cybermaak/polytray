@@ -1,9 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { ThumbnailInvalidatedData } from "../../../../src/shared/types";
+import type { ThumbnailInvalidatedData, ThumbnailReadyData } from "../../../../src/shared/types";
 import type { ThumbnailImageCache } from "../../../../src/renderer/lib/thumbnailImageCache";
 import {
-  type ThumbnailReadyPatch,
   invalidateThumbnailImages,
   applyThumbnailReadyToRecord,
 } from "../../../../src/renderer/lib/thumbnailInvalidation";
@@ -41,7 +40,7 @@ test("thumbnail-ready patches only the matching file content revision with its c
     size_bytes: 10, modified_at: 1, vertex_count: 3, face_count: 1, thumbnail: null,
     thumbnail_failed: 1, indexed_at: 1, content_revision: 8, archive_path: null,
   };
-  const event: ThumbnailReadyPatch = {
+  const event: ThumbnailReadyData = {
     fileId: 10,
     thumbnailPath: "/cache/a.png",
     identity: {

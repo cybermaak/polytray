@@ -274,9 +274,8 @@ export const PreviewPanel: React.FC<Props> = ({
   useEffect(() => {
     if (!archiveKey || !archivePages) return;
     return window.polytray.onThumbnailReady((data) => {
-      const contentRevision = Reflect.get(data, 'contentRevision') as unknown;
-      if (!Number.isSafeInteger(contentRevision)) return;
-      archivePages.updateThumbnail(data.fileId, contentRevision as number, data.thumbnailPath);
+      const contentRevision = data.contentRevision;
+      archivePages.updateThumbnail(data.fileId, contentRevision, data.thumbnailPath);
       setArchiveView((previous) => {
         if (previous.key !== archiveKey || !previous.page) return previous;
         let changed = false;
