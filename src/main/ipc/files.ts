@@ -26,6 +26,7 @@ import {
 import { createFileIndexRepository } from "../fileIndexing";
 import { getLibraryFiles, getLibraryPage } from "../libraryQueries";
 import { getLibrarySummaryService } from "../librarySummary";
+import { countIsolatedRequest } from "../testing/isolatedRequestCounters";
 
 export interface FileHandlerReadiness {
   isScopeIndexReady(): boolean;
@@ -37,9 +38,11 @@ export function registerLibrarySummaryHandlers(
   getSummaryDb: () => Database = getDb,
 ) {
   summaryIpc.handle(IPC.GET_DIRECTORIES, () => {
+    countIsolatedRequest("directories");
     return getLibrarySummaryService(getSummaryDb()).getDirectories();
   });
   summaryIpc.handle(IPC.GET_STATS, (): LibraryStats => {
+    countIsolatedRequest("stats");
     return getLibrarySummaryService(getSummaryDb()).getStats();
   });
 }
@@ -143,6 +146,7 @@ export function registerFileHandlers(readiness: FileHandlerReadiness) {
   });
 
   ipcMain.handle(IPC.GET_LIBRARY_PAGE, async (event, rawQuery): Promise<LibraryPageResult> => {
+    countIsolatedRequest("libraryPages");
     const query: LibraryQuery = parseLibraryQuery(rawQuery);
     await readiness.ensureScopeIndexReady();
     return getLibraryPage(getDb(), query);
