@@ -275,6 +275,41 @@ test("responsive panels preserve browsing space across supported window sizes", 
           );
           if (measurements.previewMode === "overlay") {
             expect(scrollTopAfterClose).toBe(scrollTopBeforePreview);
+            if (sizeCase.name === "default" && windowCase.width === 900 && !lightMode) {
+              await lastModelName.click();
+              await expect(mainWindow.locator("#preview-panel")).not.toHaveClass(/hidden/);
+              await expect(mainWindow.locator("#viewer-loading")).toHaveClass(/hidden/, { timeout: 30000 });
+              const scrollTopAtReopen = await mainWindow.evaluate(() =>
+                document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,
+              );
+              const exposedGridPoint = await mainWindow.evaluate(() => {
+                const scroller = document.querySelector<HTMLElement>("[data-virtuoso-scroller]");
+                const preview = document.querySelector<HTMLElement>("#preview-panel");
+                if (!scroller || !preview) throw new Error("Overlay scroll target is unavailable");
+                const scrollBounds = scroller.getBoundingClientRect();
+                const previewBounds = preview.getBoundingClientRect();
+                const right = Math.min(scrollBounds.right, previewBounds.left);
+                const x = Math.floor((scrollBounds.left + right) / 2);
+                const y = Math.floor((scrollBounds.top + scrollBounds.bottom) / 2);
+                if (right <= scrollBounds.left || !scroller.contains(document.elementFromPoint(x, y))) {
+                  throw new Error("No exposed grid area is available beside the preview overlay");
+                }
+                return { x, y };
+              });
+              await mainWindow.mouse.move(exposedGridPoint.x, exposedGridPoint.y);
+              await mainWindow.mouse.wheel(0, -80);
+              await expect.poll(() => mainWindow.evaluate(() =>
+                document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,
+              )).not.toBe(scrollTopAtReopen);
+              const scrollTopAtClose = await mainWindow.evaluate(() =>
+                document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,
+              );
+              await mainWindow.locator("#btn-close-viewer").click();
+              await expect(mainWindow.locator("#preview-panel")).toHaveClass(/hidden/);
+              await expect.poll(() => mainWindow.evaluate(() =>
+                document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,
+              )).toBe(scrollTopAtClose);
+            }
           } else {
             expect(scrollTopAfterClose).toBeGreaterThan(0);
           }

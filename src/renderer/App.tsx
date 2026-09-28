@@ -108,7 +108,6 @@ export const App: React.FC = () => {
   const [resultCountAnnouncement, setResultCountAnnouncement] = useState("");
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
   const previewFocusReturnRef = useRef<HTMLElement | null>(null);
-  const previewScrollReturnRef = useRef<number | null>(null);
   const pendingPreviewScrollRestoreRef = useRef<number | null>(null);
   useLayoutEffect(() => {
     if (previewTarget !== null || pendingPreviewScrollRestoreRef.current === null) return;
@@ -958,7 +957,6 @@ export const App: React.FC = () => {
   }, [batchCollectionId, handleAddFilesToCollection, selectedFiles]);
 
   const handleSelectLibraryItem = useCallback((item: DisplayFileRecord) => {
-    previewScrollReturnRef.current = document.querySelector<HTMLElement>("[data-virtuoso-scroller]")?.scrollTop ?? null;
     if (document.activeElement instanceof HTMLElement) previewFocusReturnRef.current = document.activeElement;
     setComparisonFiles([]);
     if (isLibraryArchiveDisplayRecord(item)) {
@@ -983,7 +981,6 @@ export const App: React.FC = () => {
   }, [selectedFiles]);
 
   const handleOpenComparedFile = useCallback((file: FileRecord) => {
-    previewScrollReturnRef.current = document.querySelector<HTMLElement>("[data-virtuoso-scroller]")?.scrollTop ?? null;
     if (document.activeElement instanceof HTMLElement) previewFocusReturnRef.current = document.activeElement;
     setComparisonFiles([]);
     setPreviewTarget({ kind: "file", file });
@@ -1004,8 +1001,9 @@ export const App: React.FC = () => {
 
   const handleClosePreview = useCallback(() => {
     const restoreOverlayScroll = Boolean(document.querySelector("#preview-panel.overlay"));
-    const scrollTop = previewScrollReturnRef.current;
-    previewScrollReturnRef.current = null;
+    const scrollTop = restoreOverlayScroll
+      ? document.querySelector<HTMLElement>("[data-virtuoso-scroller]")?.scrollTop ?? null
+      : null;
     pendingPreviewScrollRestoreRef.current = restoreOverlayScroll ? scrollTop : null;
     setPreviewTarget(null);
     const returnFocus = previewFocusReturnRef.current;
