@@ -8,7 +8,7 @@ import {
 import { collectSerializedPreviewMeshes } from "../meshSerialization";
 import { prepareModelGroup } from "../meshPreparation";
 import type { PreparedPreviewMeshes } from "../../../shared/types";
-import type { ModelMeasurement } from "../../../shared/measurementContracts";
+import { sourceBuildMeasurementFromGroup } from "../sourceBuildMeasurement";
 
 const ctx: Worker = self as unknown as Worker;
 
@@ -38,11 +38,7 @@ ctx.onmessage = async (e) => {
     }
 
     group.updateMatrixWorld(true);
-    const sourceBounds = new THREE.Box3().setFromObject(group);
-    const sourceSize = sourceBounds.getSize(new THREE.Vector3());
-    const sourceBuildMeasurements: ModelMeasurement = sourceBounds.isEmpty()
-      ? { version: 1, x: null, y: null, z: null, unit: "model-unit", basis: "source-build", status: "unavailable", reason: "invalid-geometry" }
-      : { version: 1, x: sourceSize.x, y: sourceSize.y, z: sourceSize.z, unit: "model-unit", basis: "source-build", status: "verified" };
+    const sourceBuildMeasurements = sourceBuildMeasurementFromGroup(group, "model-unit");
     const preparationStartedAt = performance.now();
     const prepared = prepareModelGroup(group);
     const preparationDurationMs = performance.now() - preparationStartedAt;

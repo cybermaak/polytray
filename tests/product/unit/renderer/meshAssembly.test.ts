@@ -130,6 +130,43 @@ test('emitted chunk attributes retain their own values after later chunks reuse 
   });
 });
 
+test('small indexed geometry with a huge index stream is chunked and yielded cooperatively', async () => {
+  const source = oversizedMesh(3);
+  const indexCount = 120_000;
+  source.geometry.index = {
+    array: Uint16Array.from({ length: indexCount }, (_, index) => index % 3),
+    itemSize: 1,
+  };
+  let yields = 0;
+  const group = await assembleSerializedMeshes(
+    [source],
+    options(new AbortController().signal, async () => {}, () => { yields += 1; }),
+  );
+  assert.ok(group);
+  const chunks: THREE.Mesh[] = [];
+  group.traverse((object) => { if (object instanceof THREE.Mesh) chunks.push(object); });
+  assert.ok(chunks.length > 1);
+  assert.ok(yields >= 1);
+  assert.equal(chunks.reduce((total, chunk) => total + (chunk.geometry.index?.count ?? 0), 0), indexCount);
+  assert.ok(chunks.every((chunk) => (chunk.geometry.index?.count ?? Infinity) <= 32_768 * 3));
+});
+
+test('small indexed geometry rejects malformed index format and out-of-range indices', async () => {
+  const malformed = oversizedMesh(3);
+  malformed.geometry.index = { array: new Uint16Array([0, 1, 2, 0]), itemSize: 1 };
+  await assert.rejects(
+    assembleSerializedMeshes([malformed], options(new AbortController().signal, async () => {})),
+    /index is malformed/,
+  );
+
+  const outOfRange = oversizedMesh(3);
+  outOfRange.geometry.index = { array: new Uint16Array([0, 1, 3]), itemSize: 1 };
+  await assert.rejects(
+    assembleSerializedMeshes([outOfRange], options(new AbortController().signal, async () => {})),
+    /index is malformed/,
+  );
+});
+
 test('abort during a yielded single-mesh assembly disposes partial resources without token replacement', async () => {
   const controller = new AbortController();
   const originalDispose = THREE.BufferGeometry.prototype.dispose;

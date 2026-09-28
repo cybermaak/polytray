@@ -53,12 +53,24 @@ export async function assembleSerializedMeshes(
           throw new Error("Prepared preview attribute is malformed");
         }
       }
+      const indexData = serialized.geometry.index;
+      const indexArray = indexData?.array;
+      if (indexData && (indexData.itemSize !== 1 || indexArray!.length % 3 !== 0)) {
+        throw new Error("Prepared preview index is malformed");
+      }
+      if (!indexArray && vertexCount % 3 !== 0) throw new Error("Prepared preview triangle positions are incomplete");
+      const hasLargeIndexStream = indexArray !== undefined && indexArray.length > ASSEMBLY_CHUNK_INDEX_LIMIT;
 
-      if (vertexCount <= ASSEMBLY_CHUNK_VERTEX_LIMIT) {
-        const geometry = wrapGeometry(attributes, serialized.geometry.index);
+      if (vertexCount <= ASSEMBLY_CHUNK_VERTEX_LIMIT && !hasLargeIndexStream) {
+        if (indexArray) {
+          for (let index = 0; index < indexArray.length; index += 1) {
+            if (indexArray[index] >= vertexCount) throw new Error("Prepared preview index is malformed");
+          }
+        }
+        const geometry = wrapGeometry(attributes, indexData);
         const mesh = createMesh(geometry, serialized.name, options.createMaterial);
         group.add(mesh);
-        pendingVertices += vertexCount;
+        pendingVertices += Math.max(vertexCount, indexArray?.length ?? 0);
         if (!(await yieldIfNeeded())) { cleanup(); return null; }
         continue;
       }
@@ -66,11 +78,7 @@ export async function assembleSerializedMeshes(
       const modelGroup = new THREE.Group();
       modelGroup.name = serialized.name;
       group.add(modelGroup);
-      const indexData = serialized.geometry.index;
-      const indexArray = indexData?.array;
-      if (indexData && (indexData.itemSize !== 1 || indexArray!.length % 3 !== 0)) throw new Error("Prepared preview index is malformed");
       const triangleCount = indexArray ? indexArray.length / 3 : vertexCount / 3;
-      if (!indexArray && vertexCount % 3 !== 0) throw new Error("Prepared preview triangle positions are incomplete");
       const indexScratch = new Uint16Array(ASSEMBLY_CHUNK_INDEX_LIMIT);
       const attributeScratch = new Map<string, Float32Array>();
       for (const [name, attribute] of Object.entries(attributes)) {
