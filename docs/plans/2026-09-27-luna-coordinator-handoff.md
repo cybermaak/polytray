@@ -2,13 +2,13 @@
 
 ## Authority, scope, and immediate state
 
-The user requested a new **GPT-6 Luna coordinator**, retaining the existing Astra chat for the **final integration review**. The new coordinator chat is `01a0e49e-6109-77d0-9035-574d005c8bd2` on host `local`. This document changes execution order and coordination ownership, not the approved product scope or acceptance criteria.
+The user requested a new **GPT-6 Luna coordinator**, retaining the existing Astra chat for the **final integration review**. The new coordinator chat is `01a0e49e-6109-77d0-9035-574d005c8bd2` on host `local`. The newer [sequential execution policy](2026-09-27-sequential-execution-policy.md) supersedes this document's previous concurrency/scheduling instructions. Product scope and acceptance criteria remain unchanged.
 
 - Coordinator and implementation/review workers: `gpt-6-luna`, medium reasoning. Do not silently upgrade or wake Astra for routine work.
-- Coordinator onboarding is complete. The user explicitly resumed implementation; continue through the staged execution queue below.
+- **Execution is paused at the user's latest request.** All workers/reviewers and owned build/test processes are idle. Apply the sequential policy on the next explicit resume; do not resume because an older instruction says to continue.
 - Existing authorization permits isolated worktrees, task commits, and integration into local main. **Do not push to origin/main without explicit user permission.** No release or website publication is authorized.
 - Follow `AGENTS.md`, `DEV_CONTEXT.md`, and the existing [33-task tracker](2026-09-26-performance-ux/tracker.md). Original task specifications and [C1-C10 contracts](2026-09-26-performance-ux/contracts.md) remain authoritative. A producer's DONE does not imply its later UI consumer is finished.
-- **19 tasks are DONE; 14 remain.** S02/V03 passed the combined gate in Stage 1; S03/T02 passed the combined gate in Stage 2; U01/V02 passed the combined gate in Stage 3. Begin Stage 4 with U02/T04.
+- **19 tasks are DONE; 14 remain.** S02/V03 passed the combined gate in Stage 1; S03/T02 passed the combined gate in Stage 2; U01/V02 passed the combined gate in Stage 3. U02/T04 are an unfinished, already interleaved Stage 4 checkpoint; stabilize it with one owner before selecting a new task.
 - Current product source includes integrated scanning, thumbnail, browsing, and preview work through local `main`; the Stage 3 gate below records the latest combined verification. Verify HEAD/status before further integration.
 - Stage 1 gate passed on 2026-09-27: `npm run build` PASS; full `PYTHON=/usr/bin/python3 npm run test:product` PASS (257 unit passes/1 Windows-only skip; 40 E2E passes/1 optional real-model skip). The S02 held-subtree metrics were 5.1 ms to first query and 35.21 ms maximum main heartbeat gap; V03 stopped the obsolete renderer in 73 ms. The E2E mutation-event assertion was corrected for the documented notification coalescing contract and independently reviewed.
 - Stage 2 gate passed on 2026-09-27: `npm run build` PASS; full Product PASS (296 unit passes/1 Windows-only skip; 42 E2E passes/1 optional real-model skip). Metadata-worker heartbeat E2E, thumbnail invalidation E2E, scan-streaming metrics (5.6 ms first query/35.17 ms maximum heartbeat gap), and V03 cancellation (72 ms) passed.
@@ -20,41 +20,15 @@ Graph tools were unavailable in the prior work; check availability once and use 
 
 Read only this handoff and the current task's specification initially. Do not reload old conversation transcripts, raw token-accounting files, or every source module into the coordinator context.
 
-## Operating model
+## Operating model and execution queue
 
-1. Use **at most two implementation workers concurrently**, plus one independent Luna reviewer when needed. Start with one worker for a task involving shared lifecycle or persistence boundaries. Maintain one GUI/Electron/performance-test lease across all chats.
-2. Use separate worktrees for concurrent implementation. Reuse a suitable existing checkout after checking status and accounting for its work; preserve all dirty/partially merged checkouts. Do not recreate completed work or merge the superseded drafts listed below.
-3. Workers own the modules in their task specification. The Luna coordinator now owns shared startup/IPC/preload/settings wiring, the tracker, merge decisions, and test-lease assignment. Delegate a narrow common-file edit explicitly; never let two workers edit the same shared file concurrently.
-4. Resume the existing worker only to finish its current checkpoint. For a later task prefer a fresh bounded Luna worker context, supplying the exact task, base, owned paths, contracts, and prior handoff. The user authorized this ongoing worker-coordination workflow.
-5. Freeze a cross-stream API in a small reviewed commit before implementing both sides. Integrate the producer once, then update consumers from that verified base. Do not repeatedly merge a moving main into every idle branch.
-6. Keep implementation self-review, independent specification review, then independent code-quality review. Luna performs these gates. Return concrete defects to the owner; do not repeat an entire source audit when only a small reviewed correction changed.
-7. Workers report commit, owned files, tests, unresolved items, and process/lease state in <=150 words; detailed evidence belongs in the task handoff file. Use `wait_threads` with cursors and bounded waits; do not repeatedly read unchanged histories or logs.
-8. Run focused tests during implementation. Run the required affected-layer Product/Build checks on a coherent candidate and reuse that evidence when the integrated source/test/config tree is identical. Any conflict resolution or subsequent code change requires appropriate revalidation. Never omit an AGENTS-required check to save credits.
-9. At a stage boundary, update the tracker and a concise run-state note, and report progress. Do not create a second competing task-status system or make broad claims from static review alone.
-10. No routine messages to the Astra chat. At the final gate, send one review request with the packet path and frozen commit, then wait for findings. The original Astra chat is `01a0e10d-a660-7090-b9ca-bcf0fe5f3a01`.
+Follow the [sequential coordinator/worker policy](2026-09-27-sequential-execution-policy.md): one active task, one implementation worker, one authoritative candidate. Implementation, independent reviews, integration and verification are serial phases. The coordinator selects the next ready task and applies acceptance criteria; it does not create a second implementation or duplicate worker-owned tests/handoffs on main.
 
-## Ordered execution queue
+On explicit resume, stabilize the current U02/T04 checkpoint with one owner, then proceed one at a time: S04, S05, S06, U04, V04, V05, P04, U05, U06, G01, G02, G03 preparation, and final Astra review. Preserve all existing WIP; do not restart finished work. The new policy contains the limited build/test execution instructions and the explicitly deferred reliability/code changes.
 
-The order below deliberately postpones persistence recovery until scanner/watcher/job interfaces are stable. It reduces repeated shared-file merges. Each row requires its stated gate before dependent rows proceed.
+## Task reference and acceptance map
 
-| Stage | Task IDs | Assignment and allowed concurrency | Required exit |
-| --- | --- | --- | --- |
-| 0 | Takeover only | Luna coordinator, read-only. Inventory WIP checkouts and the V02 approval constraint. | Completed: checkpoint, ownership, lease, and rejection constraint recorded. |
-| 1 | S02, V03 | One validation owner on the current combined source. No new feature work while establishing this baseline. | Completed: Type + Build + full Product pass with corrected ZIP cleanup; both marked DONE with runtime evidence. |
-| 2 | T02, S03 | Two workers: thumbnail invalidation and metadata utility process. Coordinator serializes their narrow scan/startup wiring. | Completed: both producer APIs reviewed, real renderer/utility-process E2Es passed, and combined Product passed. T02 event consumer remains explicitly in stage 3. |
-| 3 | U01, V02 | Two coordinated UI owners: App/grid versus PreviewPanel. Resolve the preserved merge safely first; exchange the existing PreviewTarget and T02 event contracts. | **Completed:** joint paging/preview/thumbnail-arrival E2E and full Product pass. All 600+ records and multi-page archives are reachable; metadata edits preserve geometry/camera. |
-| 4 | U02, T04 | Search/targeted refresh and thumbnail job controls can run concurrently in disjoint modules. | Search cannot revive after clear; warm summary request counts remain stable; thumbnail pause/cancel/retry and accounting pass. |
-| 5 | S04, S05 | Measurement parser work and watcher ordering may run concurrently once S03 is stable. Freeze the metadata result/version contract first. | Correct source-build measurements, parser parity, watcher add/change/unlink/root-disconnect tests, and affected Product gate. |
-| 6 | U04, S06 | Keyboard/focus UI and scan job controls can run concurrently; coordinator owns their shared job/overlay adapters. | Keyboard-only virtualized navigation and topmost Escape pass; pause acknowledgment/cancel/no-prune/retry invariants pass. |
-| 7 | V04, P04 | Geometry preparation and restore backend may run concurrently. P04 is one serially checkpointed persistence stream; do not split its tightly coupled transaction logic among competing writers. | Dense geometry budgets/parity plus crash-safe restore producer and mutation barrier verified. P04 substeps below must be reviewed in order. |
-| 8 | V05, U05 | Progressive part images and background-job UI may run concurrently. U owns CSS; V supplies a narrow part-strip style request. | First usable frame precedes part images; camera/resources stable; real job controls work and watch preference remains authoritative. |
-| 9 | U06 | One UI/workflow owner on the integrated base. Backend owners answer narrow questions without editing UI concurrently. | Slicer, export/import-preview/apply/recovery, pending matching, honest dimensions, and focus behavior work end-to-end. |
-| 10 | G01 -> G02 -> G03 preparation | One integration/validation lane. Fixes return to their owners. No unrelated features. | Integrated correctness, supported-platform evidence, reference performance/resource report, and reconciled docs. G03 remains REVIEW pending Astra's final assessment. |
-| 11 | Final Astra review | Frozen candidate plus review packet. Wake the original Astra chat once; Luna handles any requested repairs. | Final findings resolved and affected evidence refreshed; only then finalize G03/overall readiness. No publication. |
-
-## What each remaining task must deliver
-
-Use the linked full specification for owned files, individual steps, and tests. The checks below highlight the remaining integration risks rather than replace those specifications.
+The tracker is authoritative for current completion status; this reference includes previously completed producers. Use the linked full specification for owned files, individual steps, and tests. The checks below highlight the remaining integration risks rather than replace those specifications.
 
 | ID | Specification | Remaining concrete completion check |
 | --- | --- | --- |
