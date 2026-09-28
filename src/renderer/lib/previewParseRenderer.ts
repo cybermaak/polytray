@@ -4,13 +4,7 @@ import { collectSerializedPreviewMeshes } from './meshSerialization';
 import type { PreparedPreview, PreviewOrientationTransform } from '../../shared/previewContracts';
 import type { PreviewParseDispatchData } from '../../shared/types';
 import { isArchiveEntryPath } from '../../shared/archivePaths';
-
-const IDENTITY_ORIENTATION: PreviewOrientationTransform = [
-  1, 0, 0, 0,
-  0, 1, 0, 0,
-  0, 0, 1, 0,
-  0, 0, 0, 1,
-];
+import { prepareModelGroup } from './meshPreparation';
 
 function disposeObject(obj: THREE.Object3D) {
   obj.traverse((child) => {
@@ -28,18 +22,21 @@ export async function parsePreviewMeshes(arrayBuffer: ArrayBuffer, extension: st
   const group = await parseModelToGroup(arrayBuffer, extension);
   const parseDurationMs = performance.now() - parseStartedAt;
   try {
-    const bounds = new THREE.Box3().setFromObject(group);
-    const min = (bounds.isEmpty() ? new THREE.Vector3() : bounds.min).toArray() as [number, number, number];
-    const max = (bounds.isEmpty() ? new THREE.Vector3() : bounds.max).toArray() as [number, number, number];
+    const preparationStartedAt = performance.now();
+    const prepared = prepareModelGroup(group);
+    const preparationDurationMs = performance.now() - preparationStartedAt;
+    const serializationStartedAt = performance.now();
     const serialized = collectSerializedPreviewMeshes(group);
+    const serializationDurationMs = performance.now() - serializationStartedAt;
     const preview: PreparedPreview = {
       meshes: serialized.meshes,
-      orientation: IDENTITY_ORIENTATION,
-      bounds: { min, max },
+      orientation: prepared.orientation.toArray() as PreviewOrientationTransform,
+      bounds: prepared.bounds,
     };
     const payloadBytes = serialized.transferables.reduce((total, transferable) => total + transferable.byteLength, 0);
     window.polytray.emitPreviewMetric({ source: 'hidden-renderer', phase: 'parse', filePath, ext: extension, durationMs: parseDurationMs, meshCount: preview.meshes.length });
-    window.polytray.emitPreviewMetric({ source: 'hidden-renderer', phase: 'serialize', filePath, ext: extension, durationMs: performance.now() - parseStartedAt - parseDurationMs, meshCount: preview.meshes.length, payloadBytes });
+    window.polytray.emitPreviewMetric({ source: 'hidden-renderer', phase: 'prepare', filePath, ext: extension, durationMs: preparationDurationMs, meshCount: preview.meshes.length });
+    window.polytray.emitPreviewMetric({ source: 'hidden-renderer', phase: 'serialize', filePath, ext: extension, durationMs: serializationDurationMs, meshCount: preview.meshes.length, payloadBytes });
     return preview;
   } finally {
     disposeObject(group);

@@ -257,6 +257,13 @@ export interface SerializedMesh {
   name: string;
 }
 
+export interface PreparedPreviewMeshes {
+  meshes: SerializedMesh[];
+  orientation: import("./previewContracts").PreviewOrientationTransform;
+  bounds: { min: [number, number, number]; max: [number, number, number] };
+  preparationDurationMs?: number;
+}
+
 export type PreviewParseRequestData = PreviewParseRequest;
 export type PreviewParseCancelRequestData = PreviewParseCancelRequest;
 
@@ -286,11 +293,15 @@ export interface PreviewMetricData {
     | "serialize"
     | "background-total"
     | "background-wait"
+    | "prepare"
     | "build"
+    | "first-render"
     | "preview-total";
   filePath: string;
   ext: string;
   durationMs: number;
+  /** Synchronous renderer submission time for the first visible frame; GPU completion is asynchronous. */
+  renderSubmitMs?: number;
   meshCount?: number;
   payloadBytes?: number;
 }

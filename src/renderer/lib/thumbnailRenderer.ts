@@ -7,7 +7,7 @@
 import * as THREE from "three";
 import { VIEWER_CONFIG } from "./viewerConfig";
 import { parseModelToGroup, setModelColor } from "./modelParsers";
-import { applySmartOrientation } from "./orientation";
+import { prepareModelGroup } from "./meshPreparation";
 import { computeCameraFit } from "./cameraUtils";
 import { isArchiveEntryPath } from "../../shared/archivePaths";
 import type { ThumbnailSize } from "../../shared/thumbnailContracts";
@@ -133,7 +133,7 @@ export async function renderThumbnail(
   await new Promise<void>((r) => requestAnimationFrame(() => r()));
 
   // Apply smart orientation heuristics
-  applySmartOrientation(group);
+  prepareModelGroup(group);
 
   // Yield after orientation computation
   await new Promise<void>((r) => requestAnimationFrame(() => r()));

@@ -40,4 +40,5 @@ export interface PreparedPreview {
   orientation: PreviewOrientationTransform;
   bounds: { min: [number, number, number]; max: [number, number, number] };
   measurements?: import("./measurementContracts").ModelMeasurement;
+  preparationDurationMs?: number;
 }

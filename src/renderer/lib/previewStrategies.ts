@@ -1,5 +1,5 @@
 import ParserWorker from './workers/parser.worker?worker';
-import type { SerializedMesh } from '../../shared/types';
+import type { PreparedPreviewMeshes } from '../../shared/types';
 import type { PreviewParseRequest } from '../../shared/previewContracts';
 import { isArchiveEntryPath } from '../../shared/archivePaths';
 import { dispatchAbortablePreviewRequest } from './previewRequest';
@@ -14,7 +14,7 @@ interface PreviewStrategyArgs {
 }
 
 interface PreviewParseStrategy {
-  loadMeshes(args: PreviewStrategyArgs): Promise<SerializedMesh[]>;
+  loadPrepared(args: PreviewStrategyArgs): Promise<PreparedPreviewMeshes>;
 }
 
 function toPreviewUrl(fileUrl: string) {
@@ -60,24 +60,25 @@ function readArchiveBufferWithSignal(request: PreviewParseRequest, signal: Abort
 }
 
 const workerStrategy: PreviewParseStrategy = {
-  async loadMeshes(args) {
+  async loadPrepared(args) {
     if (args.onProgress) args.onProgress(-1);
     const buffer = await loadModelBuffer(args);
     if (args.signal.aborted) throw makeAbortError();
 
-    return new Promise<SerializedMesh[]>((resolve, reject) => {
+    return new Promise<PreparedPreviewMeshes>((resolve, reject) => {
       const worker = new ParserWorker();
       let settled = false;
       const cleanup = () => {
         args.signal.removeEventListener('abort', abortHandler);
         worker.terminate();
       };
-      const settle = (error?: unknown, meshes?: SerializedMesh[]) => {
+      const settle = (error?: unknown, result?: PreparedPreviewMeshes) => {
         if (settled) return;
         settled = true;
         cleanup();
         if (error !== undefined) reject(error instanceof Error ? error : new Error(String(error)));
-        else resolve(meshes ?? []);
+        else if (result) resolve(result);
+        else reject(new Error('Parser worker returned no prepared model'));
       };
       const abortHandler = () => settle(makeAbortError());
       args.signal.addEventListener('abort', abortHandler, { once: true });
@@ -87,7 +88,7 @@ const workerStrategy: PreviewParseStrategy = {
       }
       worker.onmessage = (event) => {
         if (event.data.error) settle(new Error(event.data.error));
-        else settle(undefined, event.data.meshes as SerializedMesh[]);
+        else settle(undefined, event.data as PreparedPreviewMeshes);
       };
       worker.onerror = (event) => settle(event);
       worker.postMessage({ buffer, extension: args.extension }, [buffer]);
@@ -96,7 +97,7 @@ const workerStrategy: PreviewParseStrategy = {
 };
 
 const hiddenRendererStrategy: PreviewParseStrategy = {
-  async loadMeshes(args) {
+  async loadPrepared(args) {
     if (args.onProgress) args.onProgress(-1);
     const request = createRequest(args);
     const prepared = await dispatchAbortablePreviewRequest(
@@ -105,7 +106,7 @@ const hiddenRendererStrategy: PreviewParseStrategy = {
       (parseRequest) => window.polytray.requestPreviewParse(parseRequest),
       (requestId) => window.polytray.cancelPreviewParse(requestId, 'replaced'),
     );
-    return prepared.meshes;
+    return prepared;
   },
 };
 
@@ -120,10 +121,10 @@ export async function loadPreviewMeshes(args: {
   contentRevision: number;
   signal: AbortSignal;
   onProgress?: (percent: number) => void;
-}) {
+}): Promise<PreparedPreviewMeshes> {
   if (args.signal.aborted) throw makeAbortError();
   const strategy = resolvePreviewStrategy(args.extension);
-  return strategy.loadMeshes({
+  return strategy.loadPrepared({
     ...args,
     requestId: crypto.randomUUID(),
   });

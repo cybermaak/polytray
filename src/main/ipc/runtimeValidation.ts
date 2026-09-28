@@ -196,7 +196,9 @@ export function parsePreviewMetric(value: unknown): PreviewMetricData {
     "serialize",
     "background-total",
     "background-wait",
+    "prepare",
     "build",
+    "first-render",
     "preview-total",
   ]);
 
@@ -217,7 +219,9 @@ export function parsePreviewMetric(value: unknown): PreviewMetricData {
     (metric.meshCount !== undefined &&
       (typeof metric.meshCount !== "number" || !Number.isFinite(metric.meshCount))) ||
     (metric.payloadBytes !== undefined &&
-      (typeof metric.payloadBytes !== "number" || !Number.isFinite(metric.payloadBytes)))
+      (typeof metric.payloadBytes !== "number" || !Number.isFinite(metric.payloadBytes))) ||
+    (metric.renderSubmitMs !== undefined &&
+      (typeof metric.renderSubmitMs !== "number" || !Number.isFinite(metric.renderSubmitMs) || metric.renderSubmitMs < 0))
   ) {
     throw new Error("Invalid preview metric");
   }
@@ -230,6 +234,7 @@ export function parsePreviewMetric(value: unknown): PreviewMetricData {
     durationMs: metric.durationMs,
     meshCount: metric.meshCount,
     payloadBytes: metric.payloadBytes,
+    renderSubmitMs: metric.renderSubmitMs,
   };
 }
 

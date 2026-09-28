@@ -31,6 +31,13 @@ test('parseRuntimeSettings normalizes valid runtime settings', () => {
       thumbQuality: '256',
     },
   );
+  assert.deepEqual(parsePreviewMetric({
+    source: 'viewer', phase: 'first-render', filePath: '/tmp/dense.stl', ext: 'stl',
+    durationMs: 28, renderSubmitMs: 7.5, meshCount: 1,
+  }), {
+    source: 'viewer', phase: 'first-render', filePath: '/tmp/dense.stl', ext: 'stl',
+    durationMs: 28, renderSubmitMs: 7.5, meshCount: 1, payloadBytes: undefined,
+  });
 });
 
 test('parseRuntimeSettings rejects invalid runtime settings', () => {
@@ -93,6 +100,7 @@ test('path and preview validators reject malformed IPC payloads', () => {
       durationMs: 123.4,
       meshCount: 5,
       payloadBytes: 2048,
+      renderSubmitMs: undefined,
     },
   );
 

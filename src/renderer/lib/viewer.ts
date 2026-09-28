@@ -7,8 +7,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { VIEWER_CONFIG } from "./viewerConfig";
-import { parseModelToGroup, setModelColor, createMaterial } from "./modelParsers";
-import { applySmartOrientation } from "./orientation";
+import { setModelColor, createMaterial } from "./modelParsers";
 import { computeCameraFit } from "./cameraUtils";
 import type { SerializedMesh } from "../../shared/types";
 import { loadPreviewMeshes } from "./previewStrategies";
@@ -57,7 +56,16 @@ function createInitialState(): ViewerState {
 
 let state: ViewerState = createInitialState();
 let activeSession: ViewerSession<ViewerState> | null = null;
-const BUILD_MESH_BATCH_SIZE = 8;
+let pendingFirstRenderMetric: {
+  filePath: string;
+  ext: string;
+  startedAt: number;
+  meshCount: number;
+  owner: ViewerSession<ViewerState>;
+  loadToken: number;
+} | null = null;
+const BUILD_TIME_BUDGET_MS = 8;
+const BUILD_VERTEX_BUDGET = 100_000;
 const PREVIEW_COLOR_PATTERN = /^#[\da-f]{6}$/i;
 
 function seedViewerModelColor(containerEl: HTMLElement) {
@@ -168,7 +176,34 @@ export function initViewer(containerEl: HTMLElement) {
     draw: () => {
       const { renderer, scene, camera } = resources;
       if (!renderer || !scene || !camera) return;
+      let firstRender = pendingFirstRenderMetric;
+      if (firstRender && (!firstRender.owner.isCurrent(firstRender.loadToken) || activeSession !== firstRender.owner)) {
+        pendingFirstRenderMetric = null;
+        firstRender = null;
+      }
+      const renderStartedAt = performance.now();
       renderer.render(scene, camera);
+      if (firstRender) {
+        pendingFirstRenderMetric = null;
+        const renderedAt = performance.now();
+        performance.measure("polytray-preview-first-render", {
+          start: firstRender.startedAt,
+          end: renderedAt,
+        });
+        performance.measure("polytray-preview-render-submit", {
+          start: renderStartedAt,
+          end: renderedAt,
+        });
+        window.polytray.emitPreviewMetric({
+          source: "viewer",
+          phase: "first-render",
+          filePath: firstRender.filePath,
+          ext: firstRender.ext,
+          durationMs: renderedAt - firstRender.startedAt,
+          meshCount: firstRender.meshCount,
+          renderSubmitMs: renderedAt - renderStartedAt,
+        });
+      }
       const probeWindow = window as Window & {
         __POLYTRAY_RENDERER_PROBE?: {
           markViewerFrame?: () => void;
@@ -266,71 +301,6 @@ export function notifyViewerResize() {
 
 // ── Model Loading ─────────────────────────────────────────────────
 
-export async function loadModelFromUrl(
-  fileUrl: string,
-  extension: string,
-  fileName: string,
-  onProgress?: (percent: number) => void,
-) {
-  const session = activeSession;
-  if (!session) throw new Error("Viewer is not initialized");
-  const loadToken = session.beginLoad();
-  const loadUrl = fileUrl.startsWith("polytray://local/")
-    ? fileUrl
-    : `polytray://local/${encodeURIComponent(fileUrl)}`;
-
-  return new Promise<void>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    let settled = false;
-    let removeSessionCleanup = () => {};
-    const settle = (error?: unknown) => {
-      if (settled) return;
-      settled = true;
-      removeSessionCleanup();
-      if (error === undefined) resolve();
-      else reject(error);
-    };
-    removeSessionCleanup = session.addCleanup(() => {
-      if (settled) return;
-      settled = true;
-      xhr.abort();
-      reject(new DOMException("Viewer session disposed", "AbortError"));
-    });
-    xhr.open("GET", loadUrl, true);
-    xhr.responseType = "arraybuffer";
-
-    xhr.onprogress = (event) => {
-      if (!session.isCurrent(loadToken)) return;
-      if (onProgress && event.lengthComputable && event.total > 0) {
-        onProgress(Math.round((event.loaded / event.total) * 100));
-      } else if (onProgress) {
-        onProgress(-1); // Indeterminate or parsing phase
-      }
-    };
-
-    xhr.onload = async () => {
-      if (!session.isCurrent(loadToken)) {
-        settle();
-        return;
-      }
-      if (xhr.status === 200 || xhr.status === 0) {
-        try {
-          await loadModel(xhr.response, extension, fileName, session, loadToken);
-          settle();
-        } catch (err) {
-          settle(err);
-        }
-      } else {
-        settle(new Error(`Failed to load ${loadUrl}: status ${xhr.status}`));
-      }
-    };
-
-    xhr.onerror = () => settle(new Error("Network error loading model"));
-    xhr.onabort = () => settle(new DOMException("Model load aborted", "AbortError"));
-    xhr.send();
-  });
-}
-
 /**
  * Modern non-blocking loader using Web Workers and AbortSignal.
  */
@@ -345,8 +315,9 @@ export async function loadModelWithWorker(
   const session = activeSession;
   if (!session) throw new Error("Viewer is not initialized");
   const loadToken = session.beginLoad();
+  pendingFirstRenderMetric = null;
   const backgroundStartedAt = performance.now();
-  const meshes = await loadPreviewMeshes({
+  const prepared = await loadPreviewMeshes({
     fileUrl,
     extension,
     contentRevision,
@@ -356,17 +327,32 @@ export async function loadModelWithWorker(
   if (!session.isCurrent(loadToken) || signal.aborted) return;
   const backgroundWaitMs = performance.now() - backgroundStartedAt;
 
+  if (prepared.preparationDurationMs !== undefined) {
+    window.polytray.emitPreviewMetric({
+      source: "viewer",
+      phase: "prepare",
+      filePath: fileUrl,
+      ext: extension,
+      durationMs: prepared.preparationDurationMs,
+      meshCount: prepared.meshes.length,
+    });
+  }
+
   window.polytray.emitPreviewMetric({
     source: "viewer",
     phase: "background-wait",
     filePath: fileUrl,
     ext: extension,
     durationMs: backgroundWaitMs,
-    meshCount: meshes.length,
+    meshCount: prepared.meshes.length,
   });
 
   const buildStartedAt = performance.now();
-  await buildModelFromMeshes(meshes, fileName, session, loadToken);
+  await buildModelFromMeshes(prepared.meshes, fileName, session, loadToken, prepared.bounds, {
+    filePath: fileUrl,
+    extension,
+    startedAt: backgroundStartedAt,
+  });
   if (!session.isCurrent(loadToken)) return;
   const buildDurationMs = performance.now() - buildStartedAt;
 
@@ -376,7 +362,7 @@ export async function loadModelWithWorker(
     filePath: fileUrl,
     ext: extension,
     durationMs: buildDurationMs,
-    meshCount: meshes.length,
+    meshCount: prepared.meshes.length,
   });
   window.polytray.emitPreviewMetric({
     source: "viewer",
@@ -384,74 +370,8 @@ export async function loadModelWithWorker(
     filePath: fileUrl,
     ext: extension,
     durationMs: backgroundWaitMs + buildDurationMs,
-    meshCount: meshes.length,
+    meshCount: prepared.meshes.length,
   });
-}
-
-export async function loadModel(
-  arrayBuffer: ArrayBuffer,
-  extension: string,
-  name: string,
-  owner = activeSession,
-  requestedToken?: number,
-) {
-  const session = owner;
-  if (!session) throw new Error("Viewer is not initialized");
-  const loadToken = requestedToken ?? session.beginLoad();
-  if (activeSession !== session || !session.isCurrent(loadToken)) return;
-  // Remove previous model
-  if (state.currentModel) {
-    state.scene!.remove(state.currentModel);
-    clearCurrentModelDiagnostic(state);
-    disposeObject(state.currentModel);
-    state.currentModel = null;
-  }
-
-  const group = await parseModelToGroup(arrayBuffer, extension);
-  if (!session.isCurrent(loadToken)) {
-    disposeObject(group);
-    return;
-  }
-  group.name = name;
-
-  // Apply smart orientation heuristics
-  applySmartOrientation(group);
-
-  // Normalize scale so max dimension is 10 units relative to the standard plane grid
-  const scaledBox = new THREE.Box3().setFromObject(group);
-  const scaledSize = scaledBox.getSize(new THREE.Vector3());
-  const maxDim = Math.max(scaledSize.x, scaledSize.y, scaledSize.z);
-  if (maxDim > 0) {
-    const scale = VIEWER_CONFIG.normalizeScale / maxDim;
-    group.scale.set(scale, scale, scale);
-    group.updateMatrixWorld(true);
-  }
-
-  // Final recenter to bring the base of the model to the grid floor
-  const finalBox = new THREE.Box3().setFromObject(group);
-  const finalCenter = finalBox.getCenter(new THREE.Vector3());
-  group.position.x -= finalCenter.x;
-  group.position.y -= finalBox.min.y;
-  group.position.z -= finalCenter.z;
-
-  state.scene!.add(group);
-  state.currentModel = group;
-  session.invalidate();
-
-  // Render multi-model carousel if applicable
-  await updateMultiModelThumbnailStrip(group, session, loadToken);
-  if (!session.isCurrent(loadToken)) return;
-
-  // Expose current model for E2E testing diagnostics
-  if (typeof window !== "undefined") {
-    publishCurrentModelDiagnostic(state);
-  }
-
-  // Auto-fit camera
-  fitCameraToObject(group);
-
-  state.wireframeMode = false;
-  session.invalidate();
 }
 
 // ── Multi-Model Thumbnail Strip ───────────────────────────────────
@@ -602,6 +522,7 @@ export function toggleWireframe() {
 // ── Cleanup ───────────────────────────────────────────────────────
 
 export function disposeViewer() {
+  pendingFirstRenderMetric = null;
   const session = activeSession;
   if (session) {
     session.dispose();
@@ -617,19 +538,15 @@ export async function buildModelFromMeshes(
   name: string,
   owner = activeSession,
   requestedToken?: number,
+  preparedBounds?: { min: [number, number, number]; max: [number, number, number] },
+  metricContext?: { filePath: string; extension: string; startedAt: number },
 ) {
   if (!owner || owner.isDisposed || activeSession !== owner) return;
   const loadToken = requestedToken ?? owner.beginLoad();
-  // Remove previous model
-  if (state.currentModel) {
-    state.scene!.remove(state.currentModel);
-    clearCurrentModelDiagnostic(state);
-    disposeObject(state.currentModel);
-    state.currentModel = null;
-  }
-
   const group = new THREE.Group();
   group.name = name;
+  let pendingVertices = 0;
+  let sliceStartedAt = performance.now();
 
   for (let i = 0; i < meshes.length; i++) {
     const m = meshes[i];
@@ -646,9 +563,10 @@ export async function buildModelFromMeshes(
       }
     }
 
-    // Fallback safety for old worker payloads.
     if (!geometry.getAttribute("normal")) {
-      geometry.computeVertexNormals();
+      geometry.dispose();
+      disposeObject(group);
+      throw new Error("Prepared preview geometry is missing normals");
     }
 
     const mesh = new THREE.Mesh(geometry, createMaterial());
@@ -657,12 +575,15 @@ export async function buildModelFromMeshes(
     mesh.receiveShadow = true;
     group.add(mesh);
 
-    if (i > 0 && i % BUILD_MESH_BATCH_SIZE === 0) {
+    pendingVertices += geometry.getAttribute("position")?.count ?? 0;
+    if (performance.now() - sliceStartedAt >= BUILD_TIME_BUDGET_MS || pendingVertices >= BUILD_VERTEX_BUDGET) {
       await owner.yieldToFrame();
       if (!owner.isCurrent(loadToken) || activeSession !== owner) {
         disposeObject(group);
         return;
       }
+      pendingVertices = 0;
+      sliceStartedAt = performance.now();
     }
   }
 
@@ -671,28 +592,43 @@ export async function buildModelFromMeshes(
     return;
   }
 
-  // Apply smart orientation heuristics
-  applySmartOrientation(group);
-
-  // Normalize scale
-  const scaledBox = new THREE.Box3().setFromObject(group);
+  const scaledBox = preparedBounds
+    ? new THREE.Box3(new THREE.Vector3(...preparedBounds.min), new THREE.Vector3(...preparedBounds.max))
+    : new THREE.Box3().setFromObject(group);
   const scaledSize = scaledBox.getSize(new THREE.Vector3());
   const maxDim = Math.max(scaledSize.x, scaledSize.y, scaledSize.z);
   if (maxDim > 0) {
     const scale = VIEWER_CONFIG.normalizeScale / maxDim;
     group.scale.set(scale, scale, scale);
-    group.updateMatrixWorld(true);
   }
 
-  // Recenters base to floor
-  const finalBox = new THREE.Box3().setFromObject(group);
-  const finalCenter = finalBox.getCenter(new THREE.Vector3());
-  group.position.x -= finalCenter.x;
-  group.position.y -= finalBox.min.y;
-  group.position.z -= finalCenter.z;
+  const finalCenter = scaledBox.getCenter(new THREE.Vector3());
+  group.position.x = -finalCenter.x * group.scale.x;
+  group.position.y = -scaledBox.min.y * group.scale.y;
+  group.position.z = -finalCenter.z * group.scale.z;
+
+  if (!owner.isCurrent(loadToken) || activeSession !== owner) {
+    disposeObject(group);
+    return;
+  }
+  if (state.currentModel) {
+    state.scene!.remove(state.currentModel);
+    clearCurrentModelDiagnostic(state);
+    disposeObject(state.currentModel);
+    state.currentModel = null;
+  }
 
   state.scene!.add(group);
   state.currentModel = group;
+  if (metricContext) {
+    pendingFirstRenderMetric = {
+      ...metricContext,
+      ext: metricContext.extension.toLowerCase(),
+      meshCount: meshes.length,
+      owner,
+      loadToken,
+    };
+  }
   owner.invalidate();
 
   await updateMultiModelThumbnailStrip(group, owner, loadToken);
