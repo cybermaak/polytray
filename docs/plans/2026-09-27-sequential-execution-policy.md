@@ -1,12 +1,12 @@
 # Sequential coordinator/worker execution policy
 
-## User decision and current pause
+## User decision and current execution state
 
 The user requested that parallel implementation stop. Luna remains the coordinator for selecting work and applying acceptance criteria; one Luna worker performs the selected task. Astra remains reserved for final integration review. This policy supersedes the concurrency and scheduling sections of the earlier Luna handoff; the task scope, contracts, and required verification gates remain in force.
 
-**Implementation is paused. Do not resume until the user instructs the coordinator.** No implementation/review worker or owned build/test process was active at the pause confirmation.
+**Execution resumed by the user on 2026-09-28.** The user confirmed that the feedback/access interruptions were addressed, selected Full access for the Luna coordinator, and requested continued autonomous execution. Follow the bounded autonomy rules below. Earlier pause instructions are historical and do not require another confirmation.
 
-Pause checkpoint:
+Historical 2026-09-27 pause checkpoint (not current task status; use the tracker):
 
 - Primary checkout `/Users/maak/repos/polytray`: HEAD `4506751`, no merge/cherry-pick in progress, but unfinished Stage 4 source/wiring/test edits remain uncommitted.
 - U02 worker `/Users/maak/.codex/worktrees/stage4-u02/polytray`: HEAD `8a8e03d`, clean, worker idle.
@@ -15,6 +15,34 @@ Pause checkpoint:
 - The latest full Product attempt, before final API narrowing, had 337 unit passes/1 skip and 46 E2E passes/1 optional skip **plus one reproducible library-pages E2E failure**. It was not a passing gate. The attempted pagination-wait adjustment did not resolve the failure. The subsequent thumbnail-only API narrowing is not yet reverified.
 - Preserve the generated `tests/support/fixtures/test_bundle.zip` change until the next designated owner accounts for/restores that known artifact. Preserve all other in-flight changes and the pre-existing user edits listed in the handoff.
 - Tracker remains 19/33 DONE; U02/T04 are candidates under review, not completed tasks.
+
+## Bounded autonomy and permission handling
+
+The objective is the complete remaining approved plan, not only the most recent repair. After a task, status answer, permission repair, or successful commit, update the checkpoint and continue to the next dependency-ready task. Do not end execution merely because one such step finished. Stop the overall run only on explicit user pause, readiness for final Astra review, or a genuine external constraint that prevents all useful authorized progress.
+
+Already-authorized routine work includes:
+
+- Implementing the approved task specifications and their necessary, acceptance-preserving regressions/fixes in this repository and assigned worktrees. Core modules are not excluded merely because they control lifecycle: for example, S05 explicitly includes watcher event ordering and lifecycle changes. This is authorization for the planned bounded implementation, not an unrelated redesign or permission to ignore an explicit denial.
+- Reading/editing assigned source, tests and handoffs; ordinary engineering choices within C1-C10; independent Luna review; local Git metadata writes, commits, cherry-picks and merges; dependency/native rebuilds; isolated Electron/Playwright/local-socket tests; and cleanup of exact task-owned temporary artifacts/processes.
+- Messaging/dispatching the authorized worker/reviewer tasks, selecting the next ready task, and continuing unaffected work when one task is blocked. Do not ask whether to continue unaffected work when this policy already permits it. Keep exactly one active implementation task/worker.
+
+Each dispatch must restate the task's actual intended edits, owned paths, test scope and relevant authorization briefly. A reference to a task ID alone may not communicate the required scope to an approval reviewer. Retain the user-approved contracts and prior decisions; do not request approval again for the same resolved issue.
+
+Distinguish three different situations:
+
+1. **Ordinary sandbox denial:** `.git/index.lock`, external-worktree build output, FSEvents and TSX `listen EPERM` can be execution-boundary failures. Use the supported scoped escalation when the active permission mode permits it. Do not change source, loosen assertions, change filesystem ownership, or relocate a socket repeatedly without evidence. Moving a TSX socket to another temp directory does not establish permission to create sockets.
+2. **Explicit automatic-review rejection:** preserve the exact action and reason. Never retry through another route or treat Full access as retroactively erasing that decision. Inspect the current user authorization and concrete risk, use the normal approval/override path where applicable, or establish a materially safer alternative. If a binding denial remains, park that task and continue an independent ready task; ask the user only for the unresolved action, not for general permission to continue the plan.
+3. **Real external dependency:** unavailable credentials, usage/reviewer limits, unavailable platforms, or a genuinely new user-facing decision may still need the user. Report what is missing, its impact and the smallest decision needed. No permission setting guarantees those dependencies disappear.
+
+The coordinator's latest inspected permission context was Full access (`danger-full-access`, approval policy `never`), selected by the user. Leave that setting unchanged unless the user changes it. Other existing workers/chats can have different permission contexts; inspect the actual context rather than assuming a coordinator setting automatically updates every old task.
+
+If the user later selects **Approve for me**, eligible escalations go to automatic review while the sandbox remains in force. That mode can deny or interrupt work and cannot guarantee unattended completion. This policy does not override the reviewer, alter its policy, or change global permissions. See [official auto-review behavior](https://learn.chatgpt.com/docs/sandboxing/auto-review) and [permission modes](https://learn.chatgpt.com/docs/permission-modes).
+
+Boundaries remain unchanged: preserve user edits and data; no real slicer/user-library test runs; no `origin/main` push without explicit permission; no release/site publication; no unrelated machine changes, credential access, or security-policy weakening. Independent reviews and required verification remain mandatory.
+
+The previously authorized narrow scanner-hold repair has been completed; do not ask for it again. Task-specific test/fixture repairs necessary to prove an approved acceptance criterion remain part of that task. Broad test-harness or build-pipeline optimization remains deferred. If a new substantial harness project is necessary, preserve the failure and park/report it rather than silently widening scope or weakening the gate.
+
+Immediate continuation: reconcile/commit only the coordinator-owned U04 evidence updates for accepted source `48d7b95`, without retesting unchanged source for prose. Then reassess S05's preserved rejection against its approved specification and the user's latest authorization. If it still cannot proceed through a permitted path, keep its block explicit and execute the next independent ready task, such as V04, rather than ending the overall run.
 
 ## One task, one owner, one candidate
 
@@ -39,7 +67,7 @@ Pause checkpoint:
 - Integration uses reviewed commits, not file copying followed by duplicate cherry-picks. Worker-owned tests and handoff files are not separately authored on main beforehand.
 - All required acceptance and verification evidence must exist before marking DONE and selecting the next dependent task. Existing tracker statuses remain the source of truth; record the current phase in its evidence/active-assignment note.
 
-## Queue after the user resumes
+## Sequential queue (completed entries are skipped using the tracker)
 
 First stabilize the **already interleaved U02/T04 candidate as one recovery checkpoint**, with one designated integration worker. This is a one-time preservation measure, not permission to start two new implementation tasks. Inventory the current main diff, separate task-owned edits from user edits, complete the reviewed thumbnail-only API boundary, and classify the reproducible library-pages failure before deciding the bounded repair. Do not discard either worker's completed work. Both IDs remain open until their own acceptance cases and the combined gate pass.
 
@@ -91,4 +119,4 @@ Some duplicate builds are **inside** `app.e2e.ts` and `viewer-idle.e2e.ts`. Remo
 - Do not expand this policy change into build/test-code work or performance profiling.
 - The current reproducible library-pages failure is **unclassified**, not assumed flaky. On resume, distinguish a product regression (bounded in-scope repair) from a harness issue needing the deferred reliability work. If that diagnosis or required harness work becomes substantial, report the blocker rather than spending indefinitely or claiming the gate passed.
 - A deferred required-test failure stays visible and blocks the corresponding completion claim. Deferral is not a waiver of correctness, Product, platform, or final review requirements.
-- Preserve the existing no-push-to-origin/main rule and all user edits. Implementation remains paused after installing these instructions until the user resumes it.
+- Preserve the existing no-push-to-origin/main rule and all user edits. Follow the current execution state above; a historical pause does not override the user's later resume.
