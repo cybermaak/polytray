@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createBarrier } from '../../../support/helpers/performanceProbe';
 import type { DiscoveryEvent } from '../../../../src/shared/backgroundJobs';
 import { streamDiscoverFolder } from '../../../../src/main/scanner';
 
@@ -29,17 +28,21 @@ test('isolated scanner hold blocks a configured second subtree until its release
   process.env.POLYTRAY_SCAN_TEST_HOLD_PATH = delayedDirectory;
   process.env.POLYTRAY_SCAN_TEST_RELEASE_PATH = releasePath;
   process.env.POLYTRAY_SCAN_TEST_REACHED_PATH = reachedPath;
-  const enteredHold = createBarrier<void>();
-  const watcher = fs.watch(rootPath, (_event, name) => {
-    if (String(name) === path.basename(reachedPath)) enteredHold.release();
-  });
   const events: DiscoveryEvent[] = [];
   const discovery = (async () => {
     for await (const event of streamDiscoverFolder(rootPath)) events.push(event);
   })();
+  const reachedDeadline = Date.now() + 5_000;
+  let stopMarkerPolling = false;
+  const waitForReachedMarker = async () => {
+    while (!stopMarkerPolling && !fs.existsSync(reachedPath)) {
+      if (Date.now() >= reachedDeadline) throw new Error('Timed out waiting for the scanner hold marker');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  };
   try {
     await Promise.race([
-      enteredHold.wait(),
+      waitForReachedMarker(),
       discovery.then(() => { throw new Error('Discovery completed without entering the configured hold'); }),
     ]);
     assert.equal(fs.existsSync(reachedPath), true);
@@ -49,7 +52,7 @@ test('isolated scanner hold blocks a configured second subtree until its release
     assert.equal(events.some((event) => event.type === 'discovery-complete'), false);
   } finally {
     fs.writeFileSync(releasePath, 'release');
-    watcher.close();
+    stopMarkerPolling = true;
     await discovery;
     if (oldEnv.isolated === undefined) delete process.env.POLYTRAY_ISOLATED_TEST; else process.env.POLYTRAY_ISOLATED_TEST = oldEnv.isolated;
     if (oldEnv.scratch === undefined) delete process.env.POLYTRAY_PERF_SCRATCH; else process.env.POLYTRAY_PERF_SCRATCH = oldEnv.scratch;
