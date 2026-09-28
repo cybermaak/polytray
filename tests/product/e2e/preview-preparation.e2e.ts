@@ -38,6 +38,14 @@ async function writeMultipart3mf(filePath: string, partCount: number) {
   fs.writeFileSync(filePath, await zip.generateAsync({ type: 'nodebuffer' }));
 }
 
+async function writeFallback3mf(filePath: string) {
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>`);
+  zip.file('_rels/.rels', `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>`);
+  zip.file('3D/3dmodel.model', `<model unit="centimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources><colorgroup id="2"><color color="#FF0000"/></colorgroup><object id="1" type="model" pid="2" pindex="0"><mesh><vertices><vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="2" z="0"/></vertices><triangles><triangle v1="0" v2="1" v3="2"/></triangles></mesh></object></resources><build><item objectid="1"/></build></model>`);
+  fs.writeFileSync(filePath, await zip.generateAsync({ type: 'nodebuffer' }));
+}
+
 async function findMainWindow(app: Awaited<ReturnType<typeof launchIsolatedApp>>['app']) {
   await app.firstWindow();
   for (let attempt = 0; attempt < 40; attempt++) {
@@ -60,8 +68,9 @@ test('dense and transformed multipart previews report first-frame and render-sub
     beforeLaunch: async ({ scratchDir }) => {
       library = path.join(scratchDir, 'library');
       fs.mkdirSync(library);
-      writeDenseBinaryStl(path.join(library, 'dense.stl'), 60_000);
+      writeDenseBinaryStl(path.join(library, 'dense.stl'), 250_000);
       await writeMultipart3mf(path.join(library, 'multipart.3mf'), 32);
+      await writeFallback3mf(path.join(library, 'fallback.3mf'));
     },
   });
 
@@ -70,7 +79,23 @@ test('dense and transformed multipart previews report first-frame and render-sub
     await page.waitForLoadState('domcontentloaded');
     await page.locator('#search-input').waitFor();
     await page.evaluate(({ folder, settings }) => window.polytray.scanFolder(folder, settings), { folder: library, settings: SETTINGS });
-    await expect(page.locator('#library-result-total')).toContainText('2 models', { timeout: 30000 });
+    await expect(page.locator('#library-result-total')).toContainText('3 models', { timeout: 30000 });
+
+    const fallbackPreview = await page.evaluate(async (folder) => {
+      const page = await window.polytray.getFiles({ folder, limit: 20, offset: 0 });
+      const source = page.files.find((file) => file.name === 'fallback');
+      if (!source) throw new Error('Fallback fixture was not indexed');
+      return window.polytray.requestPreviewParse({
+        requestId: 'v04-fallback-measurement',
+        path: source.path,
+        extension: source.extension,
+        contentRevision: source.content_revision,
+      });
+    }, library);
+    expect(fallbackPreview.meshes.length).toBeGreaterThan(0);
+    expect(fallbackPreview.measurements).toMatchObject({
+      x: null, y: null, z: null, unit: 'mm', basis: 'source-build', status: 'unavailable',
+    });
 
     for (const model of ['dense', 'multipart']) {
       await page.evaluate(() => {

@@ -262,6 +262,7 @@ export interface PreparedPreviewMeshes {
   orientation: import("./previewContracts").PreviewOrientationTransform;
   bounds: { min: [number, number, number]; max: [number, number, number] };
   preparationDurationMs?: number;
+  measurements?: import("./measurementContracts").ModelMeasurement;
 }
 
 export type PreviewParseRequestData = PreviewParseRequest;

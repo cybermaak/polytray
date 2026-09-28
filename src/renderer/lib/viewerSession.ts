@@ -83,15 +83,28 @@ export class ViewerSession<TResources> {
     return () => this.cleanups.delete(cleanup);
   }
 
-  yieldToFrame() {
-    if (this.disposed) return Promise.resolve();
+  yieldToFrame(signal?: AbortSignal) {
+    if (this.disposed || signal?.aborted) return Promise.resolve();
     return new Promise<void>((resolve) => {
       let frameId = 0;
-      frameId = this.scheduler.requestFrame(() => {
+      let settled = false;
+      const cleanup = () => signal?.removeEventListener("abort", onAbort);
+      const finish = () => {
+        if (settled) return;
+        settled = true;
         this.deferredFrames.delete(frameId);
+        cleanup();
         resolve();
-      });
-      this.deferredFrames.set(frameId, resolve);
+      };
+      const onAbort = () => {
+        if (settled) return;
+        this.scheduler.cancelFrame(frameId);
+        finish();
+      };
+      frameId = this.scheduler.requestFrame(finish);
+      this.deferredFrames.set(frameId, finish);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) onAbort();
     });
   }
 

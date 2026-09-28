@@ -11,6 +11,7 @@ import { setModelColor, createMaterial } from "./modelParsers";
 import { computeCameraFit } from "./cameraUtils";
 import type { SerializedMesh } from "../../shared/types";
 import { loadPreviewMeshes } from "./previewStrategies";
+import { assembleSerializedMeshes, disposeAssemblyGroup, yieldToFrameOrAbort } from "./meshAssembly";
 import {
   createMainWindowVisibilityGate,
   disposeOwnedViewerResources,
@@ -64,8 +65,6 @@ let pendingFirstRenderMetric: {
   owner: ViewerSession<ViewerState>;
   loadToken: number;
 } | null = null;
-const BUILD_TIME_BUDGET_MS = 8;
-const BUILD_VERTEX_BUDGET = 100_000;
 const PREVIEW_COLOR_PATTERN = /^#[\da-f]{6}$/i;
 
 function seedViewerModelColor(containerEl: HTMLElement) {
@@ -348,12 +347,12 @@ export async function loadModelWithWorker(
   });
 
   const buildStartedAt = performance.now();
-  await buildModelFromMeshes(prepared.meshes, fileName, session, loadToken, prepared.bounds, {
+  await buildModelFromMeshes(prepared.meshes, fileName, signal, session, loadToken, prepared.bounds, {
     filePath: fileUrl,
     extension,
     startedAt: backgroundStartedAt,
   });
-  if (!session.isCurrent(loadToken)) return;
+  if (!session.isCurrent(loadToken) || signal.aborted) return;
   const buildDurationMs = performance.now() - buildStartedAt;
 
   window.polytray.emitPreviewMetric({
@@ -380,8 +379,9 @@ async function updateMultiModelThumbnailStrip(
   group: THREE.Group,
   session: ViewerSession<ViewerState>,
   loadToken: number,
+  signal: AbortSignal,
 ) {
-  if (!session.isCurrent(loadToken)) return;
+  if (signal.aborted || !session.isCurrent(loadToken)) return;
   const multiModelContainer = getMultiModelContainer();
   if (!multiModelContainer) return;
 
@@ -410,13 +410,13 @@ async function updateMultiModelThumbnailStrip(
   multiModelContainer.classList.remove("hidden");
 
   // Wait a frame so the UI flexbox can settle before generating thumbs
-  await new Promise((r) => setTimeout(r, 10));
-  if (!session.isCurrent(loadToken)) return;
+  if (!(await yieldToFrameOrAbort(signal, () => new Promise((resolve) => setTimeout(resolve, 10))))) return;
+  if (signal.aborted || !session.isCurrent(loadToken)) return;
 
   for (let i = 0; i < state.multiModelMeshes.length; i++) {
     if (i > 0 && i % 2 === 0) {
-      await session.yieldToFrame();
-      if (!session.isCurrent(loadToken)) return;
+      if (!(await yieldToFrameOrAbort(signal, () => session.yieldToFrame(signal)))) return;
+      if (signal.aborted || !session.isCurrent(loadToken)) return;
     }
 
     const sub = state.multiModelMeshes[i];
@@ -536,6 +536,7 @@ export function disposeViewer() {
 export async function buildModelFromMeshes(
   meshes: SerializedMesh[],
   name: string,
+  signal: AbortSignal,
   owner = activeSession,
   requestedToken?: number,
   preparedBounds?: { min: [number, number, number]; max: [number, number, number] },
@@ -543,54 +544,20 @@ export async function buildModelFromMeshes(
 ) {
   if (!owner || owner.isDisposed || activeSession !== owner) return;
   const loadToken = requestedToken ?? owner.beginLoad();
-  const group = new THREE.Group();
-  group.name = name;
-  let pendingVertices = 0;
-  let sliceStartedAt = performance.now();
-
-  for (let i = 0; i < meshes.length; i++) {
-    const m = meshes[i];
-    const geometry = new THREE.BufferGeometry();
-    for (const [attrName, attrData] of Object.entries(m.geometry.attributes)) {
-      const { array, itemSize, normalized } = attrData;
-      geometry.setAttribute(attrName, new THREE.BufferAttribute(array, itemSize, normalized));
-    }
-    if (m.geometry.index) {
-      if (m.geometry.index.array instanceof Uint16Array) {
-        geometry.setIndex(new THREE.Uint16BufferAttribute(m.geometry.index.array, 1));
-      } else {
-        geometry.setIndex(new THREE.Uint32BufferAttribute(m.geometry.index.array, 1));
-      }
-    }
-
-    if (!geometry.getAttribute("normal")) {
-      geometry.dispose();
-      disposeObject(group);
-      throw new Error("Prepared preview geometry is missing normals");
-    }
-
-    const mesh = new THREE.Mesh(geometry, createMaterial());
-    mesh.name = m.name;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
-
-    pendingVertices += geometry.getAttribute("position")?.count ?? 0;
-    if (performance.now() - sliceStartedAt >= BUILD_TIME_BUDGET_MS || pendingVertices >= BUILD_VERTEX_BUDGET) {
-      await owner.yieldToFrame();
-      if (!owner.isCurrent(loadToken) || activeSession !== owner) {
-        disposeObject(group);
-        return;
-      }
-      pendingVertices = 0;
-      sliceStartedAt = performance.now();
-    }
-  }
-
-  if (!owner.isCurrent(loadToken) || activeSession !== owner) {
-    disposeObject(group);
+  const group = await assembleSerializedMeshes(meshes, {
+    signal,
+    isCurrent: () => owner.isCurrent(loadToken) && activeSession === owner,
+    yieldToFrame: () => owner.yieldToFrame(signal),
+    createMaterial,
+  });
+  if (!group) return;
+  if (signal.aborted || !owner.isCurrent(loadToken) || activeSession !== owner) {
+    disposeAssemblyGroup(group);
     return;
   }
+  group.name = name;
+
+  if (signal.aborted || !owner.isCurrent(loadToken) || activeSession !== owner) { disposeAssemblyGroup(group); return; }
 
   const scaledBox = preparedBounds
     ? new THREE.Box3(new THREE.Vector3(...preparedBounds.min), new THREE.Vector3(...preparedBounds.max))
@@ -607,8 +574,8 @@ export async function buildModelFromMeshes(
   group.position.y = -scaledBox.min.y * group.scale.y;
   group.position.z = -finalCenter.z * group.scale.z;
 
-  if (!owner.isCurrent(loadToken) || activeSession !== owner) {
-    disposeObject(group);
+  if (signal.aborted || !owner.isCurrent(loadToken) || activeSession !== owner) {
+    disposeAssemblyGroup(group);
     return;
   }
   if (state.currentModel) {
@@ -631,8 +598,8 @@ export async function buildModelFromMeshes(
   }
   owner.invalidate();
 
-  await updateMultiModelThumbnailStrip(group, owner, loadToken);
-  if (!owner.isCurrent(loadToken) || activeSession !== owner) return;
+  await updateMultiModelThumbnailStrip(group, owner, loadToken, signal);
+  if (signal.aborted || !owner.isCurrent(loadToken) || activeSession !== owner) return;
 
   if (typeof window !== "undefined") {
     publishCurrentModelDiagnostic(state);

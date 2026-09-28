@@ -82,6 +82,27 @@ test("hidden and disposed sessions do not schedule frames or run stale load toke
   assert.equal(session.isCurrent(token), false);
 });
 
+test("aborting a yielded frame cancels its scheduled callback without disposing the session", async () => {
+  const frames = createFrameHarness();
+  const session = new ViewerSession({}, {
+    requestFrame: frames.requestFrame,
+    cancelFrame: frames.cancelFrame,
+    updateControls: () => false,
+    draw: () => {},
+  });
+  const controller = new AbortController();
+  let settled = false;
+  const yielded = session.yieldToFrame(controller.signal).then(() => { settled = true; });
+  assert.equal(frames.pendingCount, 1);
+  controller.abort();
+  await Promise.resolve();
+  assert.equal(frames.pendingCount, 0);
+  assert.equal(settled, true);
+  assert.equal(session.isDisposed, false);
+  await yielded;
+  session.dispose();
+});
+
 test("disposing an old session tears down only its own resources", () => {
   const frames = createFrameHarness();
   const disposedResources: string[] = [];

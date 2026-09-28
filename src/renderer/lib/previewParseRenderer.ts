@@ -5,6 +5,8 @@ import type { PreparedPreview, PreviewOrientationTransform } from '../../shared/
 import type { PreviewParseDispatchData } from '../../shared/types';
 import { isArchiveEntryPath } from '../../shared/archivePaths';
 import { prepareModelGroup } from './meshPreparation';
+import { measureFast3mfBuild, type Fast3mfBuildMeasurement } from '../../shared/model/fast3mfGeometry';
+import type { ModelMeasurement } from '../../shared/measurementContracts';
 
 function disposeObject(obj: THREE.Object3D) {
   obj.traverse((child) => {
@@ -19,9 +21,13 @@ function disposeObject(obj: THREE.Object3D) {
 
 export async function parsePreviewMeshes(arrayBuffer: ArrayBuffer, extension: string, filePath = ''): Promise<PreparedPreview> {
   const parseStartedAt = performance.now();
+  const sourceMeasurePromise = extension.toLowerCase() === '3mf'
+    ? measureFast3mfBuild(arrayBuffer)
+    : Promise.resolve(null);
   const group = await parseModelToGroup(arrayBuffer, extension);
   const parseDurationMs = performance.now() - parseStartedAt;
   try {
+    const sourceMeasure = await sourceMeasurePromise;
     const preparationStartedAt = performance.now();
     const prepared = prepareModelGroup(group);
     const preparationDurationMs = performance.now() - preparationStartedAt;
@@ -32,6 +38,7 @@ export async function parsePreviewMeshes(arrayBuffer: ArrayBuffer, extension: st
       meshes: serialized.meshes,
       orientation: prepared.orientation.toArray() as PreviewOrientationTransform,
       bounds: prepared.bounds,
+      ...(sourceMeasure ? { measurements: toPreviewMeasurement(sourceMeasure) } : {}),
     };
     const payloadBytes = serialized.transferables.reduce((total, transferable) => total + transferable.byteLength, 0);
     window.polytray.emitPreviewMetric({ source: 'hidden-renderer', phase: 'parse', filePath, ext: extension, durationMs: parseDurationMs, meshCount: preview.meshes.length });
@@ -41,6 +48,34 @@ export async function parsePreviewMeshes(arrayBuffer: ArrayBuffer, extension: st
   } finally {
     disposeObject(group);
   }
+}
+
+function toPreviewMeasurement(source: Fast3mfBuildMeasurement): ModelMeasurement {
+  if (source.status === 'available') {
+    return {
+      version: 1,
+      ...source.dimensions,
+      unit: 'mm',
+      basis: 'source-build',
+      status: 'verified',
+    };
+  }
+  const reason = source.measurement.reason.toLowerCase();
+  const code = /unit/.test(reason)
+    ? 'unknown-units'
+    : /extension|support/.test(reason)
+      ? 'unsupported-structure'
+      : 'invalid-geometry';
+  return {
+    version: 1,
+    x: null,
+    y: null,
+    z: null,
+    unit: source.measurement.unit,
+    basis: 'source-build',
+    status: 'unavailable',
+    reason: code,
+  };
 }
 
 async function readPreviewBuffer(data: PreviewParseDispatchData) {

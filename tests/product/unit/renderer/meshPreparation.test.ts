@@ -35,6 +35,10 @@ test("background preparation orients indexed and nonindexed meshes and returns d
     const normals = serialized.meshes[0].geometry.attributes.normal.array;
     assert.equal(normals.length, 9);
     assert.ok(Array.from(normals).every(Number.isFinite));
+    for (let offset = 0; offset < normals.length; offset += 3) {
+      const length = Math.hypot(normals[offset], normals[offset + 1], normals[offset + 2]);
+      assert.ok(Math.abs(length - 1) < 1e-6);
+    }
     const positions = serialized.meshes[0].geometry.attributes.position.array;
     const serializedBounds = new THREE.Box3().setFromBufferAttribute(
       new THREE.BufferAttribute(positions, 3),
@@ -46,6 +50,28 @@ test("background preparation orients indexed and nonindexed meshes and returns d
       assert.ok(actual.every((value, index) => Math.abs(value - expected[index]) < 1e-6));
     }
   }
+});
+
+test('preview and thumbnail preparation produce identical orientation, transformed positions, normals, and bounds', () => {
+  const previewGroup = makeVerticalTriangle(true);
+  const thumbnailGroup = makeVerticalTriangle(true);
+  const previewPreparation = prepareModelGroup(previewGroup);
+  const thumbnailPreparation = prepareModelGroup(thumbnailGroup);
+  const previewMeshes = collectSerializedPreviewMeshes(previewGroup).meshes;
+  const thumbnailMeshes = collectSerializedPreviewMeshes(thumbnailGroup).meshes;
+
+  assert.deepEqual(previewPreparation.orientation.elements, thumbnailPreparation.orientation.elements);
+  assert.deepEqual(previewPreparation.bounds, thumbnailPreparation.bounds);
+  assert.deepEqual(
+    Array.from(previewMeshes[0].geometry.attributes.position.array),
+    Array.from(thumbnailMeshes[0].geometry.attributes.position.array),
+  );
+  assert.deepEqual(
+    Array.from(previewMeshes[0].geometry.attributes.normal.array),
+    Array.from(thumbnailMeshes[0].geometry.attributes.normal.array),
+  );
+  const transformedPositions = Array.from(previewMeshes[0].geometry.attributes.position.array);
+  assert.ok(transformedPositions.some((value, index) => value !== [0, 0, 0, 0, 2, 0, 0, 0, 1][index]));
 });
 
 test("multipart preparation includes each mesh's world transform in bounds", () => {
