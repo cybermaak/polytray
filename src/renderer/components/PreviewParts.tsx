@@ -75,7 +75,7 @@ export const PreviewParts: React.FC = () => {
 
   if (!parts.length) return <div ref={stripRef} className="viewer-multi-model hidden" id="viewer-multi-model" />;
   return (
-    <div ref={stripRef} className="viewer-multi-model" id="viewer-multi-model" aria-label="Model parts">
+    <div ref={stripRef} className="viewer-multi-model" id="viewer-multi-model" role="group" aria-label="Model parts">
       <button type="button" className={`multi-model-thumb${selected === -1 ? " active" : ""}`}
         aria-label="Show all model parts" title="Show all" onClick={() => { selectViewerPart(-1); setSelected(-1); }}>
         <span className="archive-thumb-fallback">Show all</span>

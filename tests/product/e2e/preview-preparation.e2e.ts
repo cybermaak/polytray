@@ -152,6 +152,9 @@ test('dense and transformed multipart previews report first-frame and render-sub
       const contextStart = await page.evaluate(() => (window as Window & { __V05_WEBGL_CONTEXTS?: WebGLRenderingContext[] }).__V05_WEBGL_CONTEXTS?.length ?? 0);
       await card.click();
       await expect(page.locator('#viewer-loading')).toHaveClass(/hidden/, { timeout: 30000 });
+      if (model === 'multipart') {
+        await expect(page.getByRole('group', { name: 'Model parts' })).toBeVisible();
+      }
       expect(await page.evaluate(() => performance.getEntriesByName('polytray-preview-first-render').length)).toBeGreaterThan(0);
       await expect.poll(() => page.evaluate(() => performance.getEntriesByName('polytray-preview-first-render').length), { timeout: 30000 }).toBeGreaterThan(0);
       const result = await page.evaluate(() => {
