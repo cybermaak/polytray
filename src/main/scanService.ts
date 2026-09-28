@@ -148,12 +148,16 @@ function startIsolatedScanHeartbeatProbe(): () => void {
   const intervalMs = 25;
   const gapsMs: number[] = [];
   let previous = performance.now();
-  const timer = setInterval(() => {
+  const recordGap = () => {
     const now = performance.now();
     gapsMs.push(now - previous);
     previous = now;
-  }, intervalMs);
+  };
+  const timer = setInterval(recordGap, intervalMs);
   return () => {
+    // Include the final interval through scan completion; otherwise a stall
+    // that ends the scan before the next timer tick would be omitted.
+    recordGap();
     clearInterval(timer);
     const result = {
       intervalMs,

@@ -390,13 +390,8 @@ export const App: React.FC = () => {
 
     cleanups.push(
       window.polytray.onThumbnailProgress(
-        (data: {
-          current: number;
-          total: number;
-          filename: string;
-          phase: string;
-        }) => {
-          const { current, total, filename, phase } = data;
+        (data) => {
+          const { current, total, filename, phase, outcome } = data;
           if (phase === "start") {
             isGeneratingRef.current = true;
             setProgress({
@@ -407,13 +402,21 @@ export const App: React.FC = () => {
             });
             return;
           }
-          if (phase === "done") {
+          if (outcome !== "running") {
             isGeneratingRef.current = false;
+            const { generated, failed, cancelled } = data;
+            const terminalText = outcome === "completed"
+              ? `Thumbnails complete — ${generated} generated`
+              : outcome === "cancelled"
+                ? `Thumbnail generation cancelled — ${generated} generated, ${failed} failed`
+                : outcome === "partial"
+                  ? `Thumbnails finished — ${generated} generated, ${failed} failed, ${cancelled} cancelled`
+                  : `Thumbnail generation failed — ${generated} generated, ${failed} failed`;
             setProgress({
               visible: true,
               percent: 100,
-              text: `Thumbnails complete — ${total} generated`,
-              count: `${total} / ${total}`,
+              text: terminalText,
+              count: `${generated} / ${total}${cancelled ? ` (${cancelled} cancelled)` : ""}`,
             });
             setTimeout(
               () => setProgress((p) => ({ ...p, visible: false })),

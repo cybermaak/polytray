@@ -23,6 +23,7 @@ import type {
   SlicerHandoffRequest,
   SlicerHandoffResult,
   SlicerConfiguration,
+  BackgroundJob,
 } from "../shared/types";
 import type { PreparedPreview, PreviewParseRequest } from "../shared/previewContracts";
 
@@ -39,6 +40,12 @@ interface PolytrayAPI {
   rescan: () => Promise<void>;
   clearThumbnails: (settings: RuntimeSettingsData) => Promise<void>;
   refreshFolderThumbnails: (folderPath: string, settings: RuntimeSettingsData) => Promise<void>;
+  getBackgroundJobs: () => Promise<BackgroundJob[]>;
+  getThumbnailJobs: () => Promise<BackgroundJob[]>;
+  pauseThumbnailJob: (jobId: string) => Promise<void>;
+  resumeThumbnailJob: (jobId: string) => Promise<void>;
+  cancelThumbnailJob: (jobId: string) => Promise<void>;
+  retryThumbnailJobFailures: (jobId: string) => Promise<void>;
 
   getFiles: (
     opts: SortOptions,
@@ -92,6 +99,7 @@ interface PolytrayAPI {
   onArchiveOpen: (callback: (archiveVirtualPath: string) => void) => () => void;
   onScanProgress: (callback: (data: ScanProgressData) => void) => () => void;
   onScanComplete: (callback: (data: ScanCompleteData) => void) => () => void;
+  onBackgroundJobChanged: (callback: (job: BackgroundJob) => void) => () => void;
   onFilesUpdated: (callback: (data: FilesUpdatedData) => void) => () => void;
   onLibraryChanged: (callback: (data: IndexMutationResult) => void) => () => void;
   onFileIndexed: (callback: (data: FileIndexedData) => void) => () => void;

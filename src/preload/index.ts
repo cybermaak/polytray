@@ -22,6 +22,7 @@ import {
   SlicerHandoffRequest,
   SlicerHandoffResult,
   SlicerConfiguration,
+  BackgroundJob,
 } from "../shared/types";
 
 function onChannel<T>(channel: string, callback: (data: T) => void) {
@@ -67,6 +68,12 @@ contextBridge.exposeInMainWorld("polytray", {
     ipcRenderer.invoke(IPC.CLEAR_THUMBNAILS, settings),
   refreshFolderThumbnails: (folderPath: string, settings: RuntimeSettingsData) =>
     ipcRenderer.invoke(IPC.REFRESH_FOLDER_THUMBNAILS, folderPath, settings),
+  getBackgroundJobs: () => ipcRenderer.invoke(IPC.GET_BACKGROUND_JOBS) as Promise<BackgroundJob[]>,
+  getThumbnailJobs: () => ipcRenderer.invoke(IPC.GET_THUMBNAIL_JOBS) as Promise<BackgroundJob[]>,
+  pauseThumbnailJob: (jobId: string) => ipcRenderer.invoke(IPC.PAUSE_THUMBNAIL_JOB, jobId) as Promise<void>,
+  resumeThumbnailJob: (jobId: string) => ipcRenderer.invoke(IPC.RESUME_THUMBNAIL_JOB, jobId) as Promise<void>,
+  cancelThumbnailJob: (jobId: string) => ipcRenderer.invoke(IPC.CANCEL_THUMBNAIL_JOB, jobId) as Promise<void>,
+  retryThumbnailJobFailures: (jobId: string) => ipcRenderer.invoke(IPC.RETRY_THUMBNAIL_JOB_FAILURES, jobId) as Promise<void>,
 
   // File queries
   getFiles: (opts: SortOptions) => ipcRenderer.invoke(IPC.GET_FILES, opts),
@@ -146,6 +153,8 @@ contextBridge.exposeInMainWorld("polytray", {
     onChannel<ScanProgressData>(IPC.SCAN_PROGRESS, callback),
   onScanComplete: (cb: (data: ScanCompleteData) => void) =>
     onChannel<ScanCompleteData>(IPC.SCAN_COMPLETE, cb),
+  onBackgroundJobChanged: (cb: (job: BackgroundJob) => void) =>
+    onChannel<BackgroundJob>(IPC.BACKGROUND_JOB_CHANGED, cb),
   onFilesUpdated: (cb: (data: FilesUpdatedData) => void) =>
     onChannel<FilesUpdatedData>(IPC.FILES_UPDATED, cb),
   onLibraryChanged: (cb: (data: IndexMutationResult) => void) =>

@@ -72,6 +72,12 @@ export const IPC = {
   GET_DIRECTORIES: "get-directories",
   UPDATE_FILE_METADATA: "update-file-metadata",
   REQUEST_THUMBNAIL_GENERATION: "request-thumbnail-generation",
+  GET_BACKGROUND_JOBS: "get-background-jobs",
+  GET_THUMBNAIL_JOBS: "get-thumbnail-jobs",
+  PAUSE_THUMBNAIL_JOB: "pause-thumbnail-job",
+  RESUME_THUMBNAIL_JOB: "resume-thumbnail-job",
+  CANCEL_THUMBNAIL_JOB: "cancel-thumbnail-job",
+  RETRY_THUMBNAIL_JOB_FAILURES: "retry-thumbnail-job-failures",
   REQUEST_PREVIEW_PARSE: "request-preview-parse",
   READ_PREVIEW_ARCHIVE_BUFFER: "read-preview-archive-buffer",
   CANCEL_PREVIEW_PARSE: "cancel-preview-parse",
@@ -104,6 +110,7 @@ export const IPC = {
   THUMBNAIL_READY: "thumbnail-ready",
   THUMBNAIL_INVALIDATED: "thumbnail-invalidated",
   THUMBNAIL_PROGRESS: "thumbnail-progress",
+  BACKGROUND_JOB_CHANGED: "background-job-changed",
   GENERATE_THUMBNAIL_REQUEST: "generate-thumbnail-request",
   GENERATE_PREVIEW_PARSE_REQUEST: "generate-preview-parse-request",
   PREVIEW_PARSE_PORT: "preview-parse-port",
@@ -198,6 +205,11 @@ export interface ThumbnailProgressData {
   total: number;
   filename: string;
   phase: "start" | "progress" | "done";
+  outcome: "running" | "completed" | "partial" | "failed" | "cancelled";
+  generated: number;
+  failed: number;
+  cancelled: number;
+  pending: number;
 }
 
 /** GENERATE_THUMBNAIL_REQUEST event payload */
@@ -338,6 +350,8 @@ export type {
   ThumbnailJobs,
   ThumbnailJobResult,
   ScanJobs,
+  BackgroundJobControls,
+  ThumbnailJobControls,
 } from "./backgroundJobs";
 export type {
   ThumbnailSize,

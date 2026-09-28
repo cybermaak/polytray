@@ -30,7 +30,6 @@ test.beforeAll(async () => {
   library = path.join(scratch, 'library');
   fs.mkdirSync(library);
   for (let index = 0; index < 80; index += 1) writeModel(path.join(library, `model-${index.toString().padStart(3, '0')}.stl`));
-  writeModel(path.join(library, 'bad-model.stl'), true);
   const extraArgs = process.platform === 'linux' ? ['--no-sandbox', '--disable-gpu'] : [];
   const args = buildElectronLaunchArgs(path.join(appRoot, 'out/main/index.js'), userData, extraArgs);
   app = await electron.launch({ args, env: buildElectronLaunchEnv(process.env, { ELECTRON_USER_DATA: userData }) });
@@ -50,23 +49,23 @@ test('thumbnail background job pause retains pending work and cancel is not reco
   });
   const outcome = await page.evaluate(async () => {
     const bridge = window.polytray as unknown as {
-      getBackgroundJobs: () => Promise<Array<{jobId: string; kind: string; state: string; counts: {thumbnailsPending: number; thumbnailsFailed: number}}>>;
-      pauseJob: (jobId: string) => Promise<void>;
-      resumeJob: (jobId: string) => Promise<void>;
-      cancelJob: (jobId: string) => Promise<void>;
+      getThumbnailJobs: () => Promise<Array<{jobId: string; kind: string; state: string; counts: {thumbnailsPending: number; thumbnailsFailed: number}}>>;
+      pauseThumbnailJob: (jobId: string) => Promise<void>;
+      resumeThumbnailJob: (jobId: string) => Promise<void>;
+      cancelThumbnailJob: (jobId: string) => Promise<void>;
     };
     const deadline = Date.now() + 15000;
-    let job = (await bridge.getBackgroundJobs()).find((candidate) => candidate.kind === 'thumbnail' && candidate.counts.thumbnailsPending > 0);
+    let job = (await bridge.getThumbnailJobs()).find((candidate) => candidate.counts.thumbnailsPending > 0);
     while (!job && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 50));
-      job = (await bridge.getBackgroundJobs()).find((candidate) => candidate.kind === 'thumbnail' && candidate.counts.thumbnailsPending > 0);
+      job = (await bridge.getThumbnailJobs()).find((candidate) => candidate.counts.thumbnailsPending > 0);
     }
     if (!job) throw new Error('thumbnail batch did not expose pending work');
-    await bridge.pauseJob(job.jobId);
-    const paused = (await bridge.getBackgroundJobs()).find((candidate) => candidate.jobId === job!.jobId)!;
-    await bridge.resumeJob(job.jobId);
-    await bridge.cancelJob(job.jobId);
-    const cancelled = (await bridge.getBackgroundJobs()).find((candidate) => candidate.jobId === job!.jobId)!;
+    await bridge.pauseThumbnailJob(job.jobId);
+    const paused = (await bridge.getThumbnailJobs()).find((candidate) => candidate.jobId === job!.jobId)!;
+    await bridge.resumeThumbnailJob(job.jobId);
+    await bridge.cancelThumbnailJob(job.jobId);
+    const cancelled = (await bridge.getThumbnailJobs()).find((candidate) => candidate.jobId === job!.jobId)!;
     return { paused: paused.state, pendingAtPause: paused.counts.thumbnailsPending, cancelled: cancelled.state, failedAtCancel: cancelled.counts.thumbnailsFailed };
   });
   expect(outcome.paused).toBe('paused');

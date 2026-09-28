@@ -15,6 +15,8 @@ import { DEFAULT_APP_SETTINGS } from "../../shared/settings";
 import { createScanService } from "../scanService";
 import { MetadataWorkerClient } from "../metadataWorkerClient";
 import { parseFolderPath, parseRuntimeSettings } from "./runtimeValidation";
+import { getThumbnailBackgroundJobs, onThumbnailBackgroundJobChanged, pauseThumbnailJob, resumeThumbnailJob, cancelThumbnailJob, retryThumbnailJobFailures } from "../thumbnails";
+import type { BackgroundJob } from "../../shared/backgroundJobs";
 
 export function registerScanningHandlers(
   getMainWindow: () => BrowserWindow | null,
@@ -36,7 +38,26 @@ export function registerScanningHandlers(
         mainWindow.webContents.send(IPC.FILE_INDEXED, { path: filePath, current, total });
       }
     },
+    onJobChanged: (job) => {
+      const mainWindow = getMainWindow();
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.BACKGROUND_JOB_CHANGED, job);
+    },
   });
+
+  const stopThumbnailJobEvents = onThumbnailBackgroundJobChanged((job) => {
+    const mainWindow = getMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.BACKGROUND_JOB_CHANGED, job);
+  });
+
+  ipcMain.handle(IPC.GET_BACKGROUND_JOBS, async (): Promise<BackgroundJob[]> => [
+    ...scanService.getBackgroundJobs(),
+    ...await getThumbnailBackgroundJobs(),
+  ]);
+  ipcMain.handle(IPC.GET_THUMBNAIL_JOBS, () => getThumbnailBackgroundJobs());
+  ipcMain.handle(IPC.PAUSE_THUMBNAIL_JOB, async (_event, jobId: string) => pauseThumbnailJob(jobId));
+  ipcMain.handle(IPC.RESUME_THUMBNAIL_JOB, async (_event, jobId: string) => resumeThumbnailJob(jobId));
+  ipcMain.handle(IPC.CANCEL_THUMBNAIL_JOB, async (_event, jobId: string) => cancelThumbnailJob(jobId));
+  ipcMain.handle(IPC.RETRY_THUMBNAIL_JOB_FAILURES, async (_event, jobId: string) => retryThumbnailJobFailures(jobId));
 
   async function performScan(
     folderPath: string,
@@ -115,5 +136,5 @@ export function registerScanningHandlers(
     return true;
   });
 
-  return { dispose: async () => { await scanService.dispose(); await metadataWorker.shutdown(); } };
+  return { dispose: async () => { stopThumbnailJobEvents(); await scanService.dispose(); await metadataWorker.shutdown(); } };
 }

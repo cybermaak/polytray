@@ -81,13 +81,14 @@ test("library pages expose every matching model, complete archive counts, and st
     const firstFile = firstPage.items[0].file;
     await page.locator(`.file-card[data-file-id="${firstFile.id}"] .file-select-toggle`).click();
     const lastRecordCard = page.locator(`.file-card[data-file-id="${fixtureInfo.thumbnailTestFileId}"]`);
-    for (let attempt = 0; attempt < 4 && !(await lastRecordCard.isVisible()); attempt += 1) {
-      await page.locator("[data-virtuoso-scroller]").evaluate((element) => {
-        element.scrollTo({ top: element.scrollHeight, behavior: "instant" });
-      });
-      await page.waitForTimeout(150);
-    }
-    await expect(page.locator(`.card-name[title="${fixtureInfo.lastRecordName}"]`)).toBeVisible({ timeout: 30000 });
+    const lastRecordName = page.locator(`.card-name[title="${fixtureInfo.lastRecordName}"]`);
+    await page.locator("[data-virtuoso-scroller]").hover();
+    await expect.poll(async () => {
+      if (await lastRecordCard.isVisible()) return true;
+      await page.mouse.wheel(0, 1000);
+      return false;
+    }, { timeout: 30000, intervals: [100, 250, 500] }).toBe(true);
+    await expect(lastRecordName).toBeVisible();
     const loadedThumbnail = lastRecordCard.locator("img[data-thumbnail-state]");
     await expect(loadedThumbnail).toHaveAttribute("data-thumbnail-state", "placeholder");
     await page.evaluate((folder) => window.polytray.scanFolder(folder, {

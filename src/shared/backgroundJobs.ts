@@ -78,3 +78,16 @@ export interface ScanJobs {
   cancelJob(jobId: string): Promise<void>;
   retryJobFailures(jobId: string): Promise<void>;
 }
+
+export interface BackgroundJobControls {
+  getBackgroundJobs(): Promise<BackgroundJob[]>;
+  onBackgroundJobChanged(callback: (job: BackgroundJob) => void): () => void;
+}
+
+export interface ThumbnailJobControls {
+  getThumbnailJobs(): Promise<BackgroundJob[]>;
+  pauseThumbnailJob(jobId: string): Promise<void>;
+  resumeThumbnailJob(jobId: string): Promise<void>;
+  cancelThumbnailJob(jobId: string): Promise<void>;
+  retryThumbnailJobFailures(jobId: string): Promise<void>;
+}
