@@ -245,14 +245,13 @@ function parseMesh(xml: string): ParsedMeshData {
 
   for (const match of xml.matchAll(VERTEX_RE)) {
     const attrs = match[1] ?? "";
-    const values = ['x', 'y', 'z'].map((name) => Number(getAttr(attrs, name)));
-    if (values.some((value) => !Number.isFinite(value))) throw new Error('3MF mesh contains a missing or nonfinite vertex coordinate');
+    const values = ['x', 'y', 'z'].map((name) => parseRequiredNumber(attrs, name, 'vertex coordinate'));
     positions.push(...values);
   }
 
   for (const match of xml.matchAll(TRIANGLE_RE)) {
     const attrs = match[1] ?? "";
-    const triangle = ['v1', 'v2', 'v3'].map((name) => Number(getAttr(attrs, name)));
+    const triangle = ['v1', 'v2', 'v3'].map((name) => parseRequiredNumber(attrs, name, 'triangle index'));
     if (triangle.some((index) => !Number.isInteger(index) || index < 0 || index >= positions.length / 3)) {
       throw new Error('3MF triangle contains a missing or out-of-range vertex index');
     }
@@ -267,6 +266,14 @@ function parseMesh(xml: string): ParsedMeshData {
     positions: new Float32Array(positions),
     indices: new Uint32Array(indices),
   };
+}
+
+function parseRequiredNumber(attrs: string, name: string, description: string): number {
+  const raw = getAttr(attrs, name);
+  if (raw === null || raw.trim() === '') throw new Error(`3MF mesh is missing a required ${description} (${name})`);
+  const value = Number(raw);
+  if (!Number.isFinite(value)) throw new Error(`3MF mesh has a nonfinite ${description} (${name})`);
+  return value;
 }
 
 function instantiateObject(
@@ -331,9 +338,9 @@ function parseTransform(raw: string | null): THREE.Matrix4 | null {
 
 function getAttr(attrs: string, name: string): string | null {
   const match = attrs.match(
-    new RegExp(`(?:^|\\s)${name}="([^"]*)"`, "i"),
+    new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i"),
   );
-  return match?.[1] ?? null;
+  return match?.[1] ?? match?.[2] ?? null;
 }
 
 async function inspectFast3mfPreviewSupportFromZip(
@@ -367,6 +374,16 @@ async function inspectFast3mfPreviewSupportFromZip(
   }
 
   const xmlString = await raw.async("string");
+
+  const modelMatch = xmlString.match(/<(?:[\w-]+:)?model\b([^>]*)>/i);
+  if (!modelMatch) return { supported: false, reason: '3MF model element is missing or malformed' };
+  const requiredExtensions = getAttr(modelMatch[1] ?? '', 'requiredextensions')?.trim();
+  if (requiredExtensions) {
+    return {
+      supported: false,
+      reason: `3MF measurement does not support required extension(s): ${requiredExtensions}`,
+    };
+  }
 
   if (/\b(?:path|p:path|slic3rpe:path)=/i.test(xmlString)) {
     return {

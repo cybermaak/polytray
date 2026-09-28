@@ -69,6 +69,26 @@ test('3MF declared unit conversion is applied once and omitted units default to 
   assert.deepEqual(omitted, { status: 'available', dimensions: { x: 2, y: 2, z: 0 }, unit: 'mm' });
 });
 
+test('single-quoted coordinates and unit attributes are measured correctly', async () => {
+  const singleQuoted = xml(triangle, 'inch').replaceAll('"', "'");
+  const result = await measureFast3mfBuild(await make3mf(singleQuoted));
+  assert.deepEqual(result, { status: 'available', dimensions: { x: 50.8, y: 50.8, z: 0 }, unit: 'mm' });
+});
+
+test('a missing required mesh coordinate is unavailable rather than coerced to zero', async () => {
+  const missingCoordinate = xml(triangle.replace(' x="1"', ''), 'millimeter');
+  const result = await measureFast3mfBuild(await make3mf(missingCoordinate));
+  assert.equal(result.status, 'unavailable');
+  if (result.status === 'unavailable') assert.match(result.measurement.reason, /coordinate/i);
+});
+
+test('an unsupported required 3MF extension is not measured as trusted geometry', async () => {
+  const requiredExtension = xml(triangle).replace('unit="millimeter"', 'unit="millimeter" requiredextensions="vendor" xmlns:vendor="urn:unsupported"');
+  const result = await measureFast3mfBuild(await make3mf(requiredExtension));
+  assert.equal(result.status, 'unavailable');
+  if (result.status === 'unavailable') assert.match(result.measurement.reason, /extension/i);
+});
+
 test('unknown units, external references, and corrupt archives return explicit unavailable reasons', async () => {
   const unknown = await measureFast3mfBuild(await make3mf(xml(triangle, 'parsec')));
   assert.equal(unknown.status, 'unavailable');
