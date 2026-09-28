@@ -73,7 +73,7 @@ export function useOverlayFocus(
       const index = overlayOrder.indexOf(id);
       if (index >= 0) overlayOrder.splice(index, 1);
       requestAnimationFrame(() => {
-        if (returnFocus?.isConnected) returnFocus.focus();
+        if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
       });
     };
   }, [active, containerRef]);

@@ -276,6 +276,18 @@ test("responsive panels preserve browsing space across supported window sizes", 
           if (measurements.previewMode === "overlay") {
             expect(scrollTopAfterClose).toBe(scrollTopBeforePreview);
             if (sizeCase.name === "default" && windowCase.width === 900 && !lightMode) {
+              await mainWindow.evaluate(() => {
+                const state = window as any;
+                state.__u04OpenerFocusCalls = [];
+                state.__u04OriginalFocus = HTMLElement.prototype.focus;
+                HTMLElement.prototype.focus = function (options?: FocusOptions) {
+                  if (this.matches(".file-card")
+                    && this.querySelector(".card-name[title='library model 38']")) {
+                    state.__u04OpenerFocusCalls.push(options?.preventScroll ?? null);
+                  }
+                  return state.__u04OriginalFocus.call(this, options);
+                };
+              });
               await lastModelName.click();
               await expect(mainWindow.locator("#preview-panel")).not.toHaveClass(/hidden/);
               await expect(mainWindow.locator("#viewer-loading")).toHaveClass(/hidden/, { timeout: 30000 });
@@ -297,15 +309,43 @@ test("responsive panels preserve browsing space across supported window sizes", 
                 return { x, y };
               });
               await mainWindow.mouse.move(exposedGridPoint.x, exposedGridPoint.y);
-              await mainWindow.mouse.wheel(0, -80);
+              await mainWindow.mouse.wheel(0, -335);
               await expect.poll(() => mainWindow.evaluate(() =>
                 document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,
               )).not.toBe(scrollTopAtReopen);
+              const openerState = await mainWindow.evaluate(() => {
+                const card = document.querySelector<HTMLElement>(
+                  ".file-card .card-name[title='library model 38']",
+                )?.closest<HTMLElement>(".file-card");
+                const scroller = document.querySelector("[data-virtuoso-scroller]");
+                if (!card || !scroller) return null;
+                const cardBounds = card.getBoundingClientRect();
+                const scrollBounds = scroller.getBoundingClientRect();
+                return {
+                  connected: card.isConnected,
+                  offscreen: cardBounds.bottom <= scrollBounds.top || cardBounds.top >= scrollBounds.bottom,
+                  cardTop: cardBounds.top,
+                  cardBottom: cardBounds.bottom,
+                  scrollerTop: scrollBounds.top,
+                  scrollerBottom: scrollBounds.bottom,
+                };
+              });
+              expect(openerState?.connected && openerState.offscreen).toBe(true);
               const scrollTopAtClose = await mainWindow.evaluate(() =>
                 document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,
               );
               await mainWindow.locator("#btn-close-viewer").click();
               await expect(mainWindow.locator("#preview-panel")).toHaveClass(/hidden/);
+              await expect(lastModelCard).toBeFocused();
+              const openerFocusOptions = await mainWindow.evaluate(() => {
+                const state = window as any;
+                const options = state.__u04OpenerFocusCalls as Array<boolean | null>;
+                HTMLElement.prototype.focus = state.__u04OriginalFocus;
+                delete state.__u04OpenerFocusCalls;
+                delete state.__u04OriginalFocus;
+                return options;
+              });
+              expect(openerFocusOptions.at(-1)).toBe(true);
               await expect.poll(() => mainWindow.evaluate(() =>
                 document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,
               )).toBe(scrollTopAtClose);

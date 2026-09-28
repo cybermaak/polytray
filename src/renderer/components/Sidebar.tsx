@@ -246,7 +246,13 @@ const FolderTreeNode: React.FC<{
   React.useLayoutEffect(() => {
     if (!expanded || !refocusAfterExpandRef.current) return;
     refocusAfterExpandRef.current = false;
-    treeItemRef.current?.focus({ preventScroll: true });
+    requestAnimationFrame(() => {
+      const treeItem = treeItemRef.current;
+      const tree = treeItem?.closest<HTMLElement>("[role='tree']");
+      if (treeItem && tree && !tree.contains(document.activeElement)) {
+        treeItem.focus({ preventScroll: true });
+      }
+    });
   }, [expanded]);
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget) return;
