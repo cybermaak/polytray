@@ -45,3 +45,26 @@ test('createRefreshDebouncer cancel prevents a queued refresh from firing', asyn
 
   assert.equal(callCount, 0);
 });
+
+test('createRefreshDebouncer coalesces refresh targets without losing independent invalidations', async () => {
+  const calls: Array<{ pages: boolean; stats: boolean; topology: boolean }> = [];
+  const debouncer = createRefreshDebouncer((targets) => calls.push(targets), 20);
+
+  debouncer.trigger({ pages: true, stats: false, topology: false });
+  debouncer.trigger({ pages: false, stats: true, topology: false });
+  debouncer.trigger({ pages: false, stats: false, topology: true });
+  await new Promise((resolve) => setTimeout(resolve, 45));
+
+  assert.deepEqual(calls, [{ pages: true, stats: true, topology: true }]);
+});
+
+test('createRefreshDebouncer cancel discards pending refresh targets', async () => {
+  const calls: unknown[] = [];
+  const debouncer = createRefreshDebouncer((targets) => calls.push(targets), 20);
+
+  debouncer.trigger({ pages: true, stats: true, topology: true });
+  debouncer.cancel();
+  await new Promise((resolve) => setTimeout(resolve, 45));
+
+  assert.deepEqual(calls, []);
+});

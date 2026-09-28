@@ -1,10 +1,11 @@
-import React, { useState, useRef } from "react";
+import React, { useEffect } from "react";
 import { AppIcon } from "./AppIcon";
 
 interface Props {
   sort: string;
   order: "ASC" | "DESC";
   search: string;
+  searchDraft: string;
   activeFolderLabel: string | null;
   activeCollectionLabel: string | null;
   activeFilter: string | null;
@@ -12,6 +13,7 @@ interface Props {
   onSortChange: (sort: string) => void;
   onOrderToggle: () => void;
   onSearch: (query: string) => void;
+  onSearchDraftChange: (query: string) => void;
   onRescan: () => void;
   onClearThumbnails: () => void;
   onDismissFolder: () => void;
@@ -24,6 +26,7 @@ export const Toolbar: React.FC<Props> = ({
   sort,
   order,
   search,
+  searchDraft,
   activeFolderLabel,
   activeCollectionLabel,
   activeFilter,
@@ -31,6 +34,7 @@ export const Toolbar: React.FC<Props> = ({
   onSortChange,
   onOrderToggle,
   onSearch,
+  onSearchDraftChange,
   onRescan,
   onClearThumbnails,
   onDismissFolder,
@@ -38,17 +42,14 @@ export const Toolbar: React.FC<Props> = ({
   onDismissFilter,
   onDismissSearch,
 }) => {
-  const [searchValue, setSearchValue] = useState(search);
-  const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  const handleInput = (val: string) => {
-    setSearchValue(val);
-    clearTimeout(debounce.current);
-    debounce.current = setTimeout(() => onSearch(val.trim()), 200);
-  };
+  useEffect(() => {
+    if (searchDraft === search) return;
+    const timeout = setTimeout(() => onSearch(searchDraft.trim()), 200);
+    return () => clearTimeout(timeout);
+  }, [onSearch, search, searchDraft]);
 
   const clearSearch = () => {
-    setSearchValue("");
+    onSearchDraftChange("");
     onSearch("");
   };
 
@@ -134,12 +135,12 @@ export const Toolbar: React.FC<Props> = ({
             id="search-input"
             placeholder="Search files..."
             autoComplete="off"
-            value={searchValue}
-            onChange={(e) => handleInput(e.target.value)}
+            value={searchDraft}
+            onChange={(e) => onSearchDraftChange(e.target.value)}
           />
           <button
             id="search-clear"
-            className={`search-clear${searchValue ? "" : " hidden"}`}
+            className={`search-clear${searchDraft ? "" : " hidden"}`}
             onClick={clearSearch}
           >
             ×

@@ -15,7 +15,7 @@ import { BatchActionsBar } from "./components/BatchActionsBar";
 import { EmptyState } from "./components/EmptyState";
 import { FileGrid } from "./components/FileGrid";
 import { ScanProgress } from "./components/ScanProgress";
-import { createRefreshDebouncer } from "./lib/refreshDebouncer";
+import { createRefreshDebouncer, type RefreshTargets } from "./lib/refreshDebouncer";
 import { getScanProgressPresentation } from "./lib/scanProgress";
 import { calculatePanelLayout } from "./lib/panelLayout";
 import {
@@ -104,6 +104,7 @@ export const App: React.FC = () => {
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [directories, setDirectories] = useState<string[]>([]);
   const [search, setSearch] = useState("");
+  const [searchDraft, setSearchDraft] = useState("");
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
   const [comparisonFiles, setComparisonFiles] = useState<FileRecord[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -309,15 +310,20 @@ export const App: React.FC = () => {
     libraryPages.removeFiles(ids);
   }, [libraryPages.removeFiles]);
 
-  const refreshLibrary = useCallback(async () => {
-    const pageRefresh = libraryPages.refresh();
-    const [nextStats, nextDirectories] = await Promise.all([
-      window.polytray.getStats(),
-      window.polytray.getDirectories(),
-    ]);
-    setStats(nextStats);
-    setDirectories(nextDirectories);
-    await pageRefresh;
+  const refreshLibrary = useCallback(async (targets: RefreshTargets = {
+    pages: true,
+    stats: true,
+    topology: true,
+  }) => {
+    const reads: Promise<unknown>[] = [];
+    if (targets.pages) reads.push(libraryPages.refresh());
+    if (targets.stats) {
+      reads.push(window.polytray.getStats().then(setStats));
+    }
+    if (targets.topology) {
+      reads.push(window.polytray.getDirectories().then(setDirectories));
+    }
+    await Promise.all(reads);
   }, [libraryPages.refresh]);
 
   const queryScopeKey = libraryQueryScopeKey(pageQuery);
@@ -330,8 +336,8 @@ export const App: React.FC = () => {
   }, [clearSelection, queryScopeKey]);
 
   useEffect(() => {
-    const debouncer = createRefreshDebouncer(() => {
-      void refreshLibrary();
+    const debouncer = createRefreshDebouncer((targets) => {
+      void refreshLibrary(targets);
     }, 150);
     fileRefreshDebouncerRef.current = debouncer;
 
@@ -540,14 +546,21 @@ export const App: React.FC = () => {
           const latestById = new Map(results.flatMap((result) => result.latest ? [[result.id, result.latest] as const] : []));
           setComparisonFiles((current) => removeDeletedFileIds(current, deletedIds)
             .map((file) => latestById.get(file.id) ?? file));
-          fileRefreshDebouncerRef.current?.trigger();
+        }
+        if (mutation.rowsChanged || (mutation.annotationsChanged && searchRef.current.length > 0)
+          || mutation.statsChanged || mutation.topologyChanged) {
+          fileRefreshDebouncerRef.current?.trigger({
+            pages: mutation.rowsChanged || (mutation.annotationsChanged && searchRef.current.length > 0),
+            stats: mutation.statsChanged,
+            topology: mutation.topologyChanged,
+          });
         }
       }),
     );
 
     cleanups.push(
       window.polytray.onFilesUpdated(async () => {
-        fileRefreshDebouncerRef.current?.trigger();
+        fileRefreshDebouncerRef.current?.trigger({ pages: true, stats: false, topology: false });
       }),
     );
 
@@ -784,6 +797,7 @@ export const App: React.FC = () => {
     async (query: string) => {
       if (searchRef.current !== query) clearSelection();
       setSearch(query);
+      setSearchDraft(query);
       searchRef.current = query;
     },
     [clearSelection],
@@ -1071,6 +1085,7 @@ export const App: React.FC = () => {
             sort={sort}
             order={order}
             search={search}
+            searchDraft={searchDraft}
             activeFolderLabel={activeFolderLabel}
             activeCollectionLabel={activeCollectionLabel}
             activeFilter={extension}
@@ -1078,6 +1093,7 @@ export const App: React.FC = () => {
             onSortChange={handleSortChange}
             onOrderToggle={handleOrderToggle}
             onSearch={handleSearch}
+            onSearchDraftChange={setSearchDraft}
             onRescan={handleRescan}
             onClearThumbnails={handleClearThumbnails}
             onDismissFolder={() => handleFolderSelect(null)}
