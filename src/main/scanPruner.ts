@@ -10,7 +10,7 @@ import type { ScanDiscovery } from './scanner';
 export function captureScanPruneSnapshot(db: Database, rootPath: string): ScanSnapshotRow[] {
   const rows = db.prepare(`
     SELECT id, path, indexed_at, modified_at, size_bytes, tags, notes, print_status,
-      content_revision, scan_generation FROM files
+      content_revision, scan_generation, dimensions FROM files
   `).all() as ScanSnapshotRow[];
   const containedPaths = new Set(filterContainedPaths(rootPath, rows.map((row) => row.path)));
   return rows.filter((row) => containedPaths.has(row.path));

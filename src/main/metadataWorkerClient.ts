@@ -1,6 +1,7 @@
 import { join } from "path";
 import { utilityProcess, type UtilityProcess } from "electron";
 import type { MetadataSummary } from "./metadata";
+import { isCurrentMeasurement } from '../shared/model/measurement';
 
 export interface MetadataWorkerRequest {
   requestId: string;
@@ -23,9 +24,7 @@ function isMetadataSummary(value: unknown): value is MetadataSummary {
   if (!Number.isSafeInteger(summary.vertexCount) || (summary.vertexCount as number) < 0
     || !Number.isSafeInteger(summary.faceCount) || (summary.faceCount as number) < 0) return false;
   if (summary.dimensions === null) return true;
-  if (!summary.dimensions || typeof summary.dimensions !== "object") return false;
-  const { x, y, z } = summary.dimensions;
-  return [x, y, z].every((dimension) => typeof dimension === "number" && Number.isFinite(dimension) && dimension >= 0);
+  return isCurrentMeasurement(summary.dimensions);
 }
 
 export class MetadataWorkerClient {

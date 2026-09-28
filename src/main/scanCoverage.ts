@@ -24,6 +24,7 @@ export interface ScanSnapshotRow {
   print_status: string | null;
   content_revision: number;
   scan_generation: number;
+  dimensions?: string | null;
 }
 
 export function matchesScanSnapshot(snapshot: ScanSnapshotRow, current: ScanSnapshotRow) {

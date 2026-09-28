@@ -8,6 +8,7 @@ import { scheduleSingleThumbnailGeneration } from './thumbnails';
 import { EXT_SET, IPC, RuntimeSettingsData } from '../shared/types';
 import { createWatcherLifecycleManager } from './watcherLifecycle';
 import { applyWatchedFileRecord, createFileIndexRepository } from './fileIndexing';
+import { createUnavailableMeasurement } from '../shared/model/measurement';
 
 const watcherLifecycle = createWatcherLifecycleManager<UtilityProcess>({
   createProcess: () => {
@@ -74,7 +75,7 @@ async function handleFileChange(
     let meta: MetadataSummary = {
       vertexCount: 0,
       faceCount: 0,
-      dimensions: null,
+      dimensions: createUnavailableMeasurement(ext === '3mf' ? 'mm' : 'model-unit', 'Metadata extraction has not completed'),
     };
     try {
       meta = await extractMetadata(filePath, ext);

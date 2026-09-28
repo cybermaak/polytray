@@ -224,6 +224,26 @@ test('metadata enrichment from an older content revision is rejected', () => {
   }
 });
 
+test('metadata enrichment persists versioned unavailable provenance without touching annotations or thumbnail', () => {
+  const db = createRepositoryDatabase();
+  try {
+    const repository = createFileIndexRepository(db);
+    repository.applyIndexBatch({ scanGeneration: 3, records: [{
+      path: '/models/a.3mf', name: 'a', extension: '3mf', directory: '/models', sizeBytes: 100, modifiedAt: 200, scanGeneration: 3,
+    }] });
+    db.prepare("UPDATE files SET tags = 'keep', notes = 'note', thumbnail = '/cache/a.png' WHERE path = '/models/a.3mf'").run();
+    const identity = db.prepare('SELECT id, content_revision FROM files WHERE path = ?').get('/models/a.3mf') as { id: number; content_revision: number };
+    const measurement = JSON.stringify({ version: 1, x: null, y: null, z: null, unit: 'mm', basis: 'source-build', status: 'unavailable', reason: 'External component reference is unsupported' });
+    const result = repository.applyMetadataResult({
+      fileId: identity.id, path: '/models/a.3mf', expectedContentRevision: identity.content_revision,
+      vertexCount: 0, faceCount: 0, dimensions: measurement,
+    });
+    assert.equal(result.status, 'updated');
+    const row = db.prepare('SELECT dimensions, tags, notes, thumbnail FROM files WHERE id = ?').get(identity.id) as Record<string, string>;
+    assert.deepEqual(row, { dimensions: measurement, tags: 'keep', notes: 'note', thumbnail: '/cache/a.png' });
+  } finally { db.close(); }
+});
+
 test('same-path delete and recreate cannot be pruned by an earlier scan candidate', () => {
   const db = createRepositoryDatabase();
   try {

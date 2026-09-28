@@ -19,10 +19,27 @@ test("metadata worker client starts lazily and resolves only the matching reques
   assert.equal(starts, 1);
   await new Promise((resolve) => setImmediate(resolve));
   child.emit("message", { requestId: "other", summary: { vertexCount: 0, faceCount: 0, dimensions: null } });
-  child.emit("message", { requestId: request.requestId, summary: { vertexCount: 8, faceCount: 6, dimensions: { x: 1, y: 1, z: 1 } } });
-  assert.deepEqual(await extraction, { vertexCount: 8, faceCount: 6, dimensions: { x: 1, y: 1, z: 1 } });
+  const summary = { vertexCount: 8, faceCount: 6, dimensions: { version: 1, x: 1, y: 1, z: 1, unit: 'model-unit', basis: 'source-build', status: 'available' } };
+  child.emit("message", { requestId: request.requestId, summary });
+  assert.deepEqual(await extraction, summary);
   await client.shutdown();
   assert.equal(child.killed, true);
+});
+
+test('metadata worker client accepts versioned source-build measurements over the utility boundary', async () => {
+  const child = new FakeUtility();
+  const client = new MetadataWorkerClient({ spawn: () => { setImmediate(() => child.emit('spawn')); return child as never; } });
+  const request = { requestId: 'measurement-1', fileId: 17, contentRevision: 4, filePath: '/tmp/model.3mf', extension: '3mf' };
+  const extraction = client.extract(request);
+  await new Promise((resolve) => setImmediate(resolve));
+  const summary = {
+    vertexCount: 3,
+    faceCount: 1,
+    dimensions: { version: 1, x: null, y: null, z: null, unit: 'mm', basis: 'source-build', status: 'unavailable', reason: 'Unsupported external reference' },
+  };
+  child.emit('message', { requestId: request.requestId, summary });
+  assert.deepEqual(await extraction, summary);
+  await client.shutdown();
 });
 
 test("metadata worker cancellation settles the request and terminates its owned process", async () => {
@@ -97,6 +114,7 @@ test("metadata worker rejects malformed summaries and leaves the caller settled 
     { vertexCount: 1, faceCount: Number.NaN, dimensions: null },
     { vertexCount: 1, faceCount: 1, dimensions: { x: 1, y: Number.POSITIVE_INFINITY, z: 0 } },
     { vertexCount: 1, faceCount: 1, dimensions: { x: 1, y: 2 } },
+    { vertexCount: 1, faceCount: 1, dimensions: { x: 1, y: 1, z: 1 } },
   ];
   const child = new FakeUtility();
   const client = new MetadataWorkerClient({ spawn: () => { setImmediate(() => child.emit("spawn")); return child as never; } });

@@ -4,8 +4,21 @@ import { Readable } from "stream";
 import * as unzipper from "unzipper";
 import type { ModelDimensions } from "../shared/types";
 import { parseArchiveEntryPath } from "../shared/archivePaths";
+import {
+  createAvailableMeasurement,
+  createUnavailableMeasurement,
+  type MeasurementUnit,
+  type StoredMeasurement,
+} from '../shared/model/measurement';
+import { measureFast3mfBuild } from '../shared/model/fast3mfGeometry';
 
 export interface MetadataSummary {
+  vertexCount: number;
+  faceCount: number;
+  dimensions: StoredMeasurement | null;
+}
+
+interface RawMetadataSummary {
   vertexCount: number;
   faceCount: number;
   dimensions: ModelDimensions | null;
@@ -33,27 +46,39 @@ export async function extractMetadata(
   if (options.signal?.aborted) throw new Error("Metadata extraction cancelled");
   const archiveEntry = parseArchiveEntryPath(filePath);
   if (archiveEntry) {
-    if (ext.toLowerCase() === "3mf") {
-      const buffer = await readArchiveEntryBuffer(archiveEntry.archivePath, archiveEntry.entryPath);
-      return buffer ? extractMetadataFromBuffer(buffer, ext) : { vertexCount: 0, faceCount: 0, dimensions: null };
+    try {
+      if (ext.toLowerCase() === "3mf") {
+        const buffer = await readArchiveEntryBuffer(archiveEntry.archivePath, archiveEntry.entryPath);
+        return buffer ? extractMetadataFromBuffer(buffer, ext) : unavailableSummary('3mf', '3MF archive entry is missing');
+      }
+      const entryStream = await openArchiveEntryStream(archiveEntry.archivePath, archiveEntry.entryPath);
+      if (!entryStream) {
+        return unavailableSummary(ext, 'Archive model entry is missing');
+      }
+      try { return convertRawSummary(await extractMetadataFromStream(entryStream.stream, ext, options.signal, entryStream.size), ext); }
+      finally { await entryStream.close(); }
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      const reason = error instanceof Error ? error.message : String(error);
+      return unavailableSummary(ext, `Archive metadata extraction failed: ${reason}`);
     }
-    const entryStream = await openArchiveEntryStream(archiveEntry.archivePath, archiveEntry.entryPath);
-    if (!entryStream) {
-      return { vertexCount: 0, faceCount: 0, dimensions: null };
-    }
-    try { return await extractMetadataFromStream(entryStream.stream, ext, options.signal, entryStream.size); }
-    finally { await entryStream.close(); }
   }
 
-  switch (ext.toLowerCase()) {
-    case "stl":
-      return extractSTL(filePath, options.signal);
-    case "obj":
-      return extractOBJ(filePath, options.signal);
-    case "3mf":
-      return extract3MF(filePath);
-    default:
-      return { vertexCount: 0, faceCount: 0, dimensions: null };
+  try {
+    switch (ext.toLowerCase()) {
+      case "stl":
+        return convertRawSummary(await extractSTL(filePath, options.signal), ext);
+      case "obj":
+        return convertRawSummary(await extractOBJ(filePath, options.signal), ext);
+      case "3mf":
+        return extract3MF(filePath);
+      default:
+        return unavailableSummary(ext, `Unsupported model format: ${ext}`);
+    }
+  } catch (error) {
+    if (options.signal?.aborted) throw error;
+    const reason = error instanceof Error ? error.message : String(error);
+    return unavailableSummary(ext, `Metadata extraction failed: ${reason}`);
   }
 }
 
@@ -61,15 +86,20 @@ export async function extractMetadataFromBuffer(
   buffer: Buffer,
   ext: string,
 ): Promise<MetadataSummary> {
-  switch (ext.toLowerCase()) {
-    case "stl":
-      return extractSTLFromBuffer(buffer);
-    case "obj":
-      return extractOBJFromText(buffer.toString("utf8"));
-    case "3mf":
-      return extract3MFFromBuffer(buffer);
-    default:
-      return { vertexCount: 0, faceCount: 0, dimensions: null };
+  try {
+    switch (ext.toLowerCase()) {
+      case "stl":
+        return convertRawSummary(extractSTLFromBuffer(buffer), ext);
+      case "obj":
+        return convertRawSummary(extractOBJFromText(buffer.toString("utf8")), ext);
+      case "3mf":
+        return extract3MFFromBuffer(buffer);
+      default:
+        return unavailableSummary(ext, `Unsupported model format: ${ext}`);
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return unavailableSummary(ext, `Metadata extraction failed: ${reason}`);
   }
 }
 
@@ -120,7 +150,7 @@ async function readArchiveEntryBuffer(archivePath: string, entryPath: string): P
 /**
  * Parse STL file — supports both binary and ASCII formats.
  */
-async function extractSTL(filePath: string, signal?: AbortSignal): Promise<MetadataSummary> {
+async function extractSTL(filePath: string, signal?: AbortSignal): Promise<RawMetadataSummary> {
   const handle = await fs.promises.open(filePath, "r");
   try {
     const stat = await handle.stat();
@@ -143,7 +173,7 @@ async function extractSTL(filePath: string, signal?: AbortSignal): Promise<Metad
   }
 }
 
-function extractSTLFromBuffer(buffer: Buffer): MetadataSummary {
+function extractSTLFromBuffer(buffer: Buffer): RawMetadataSummary {
   if (buffer.length < 80) return { vertexCount: 0, faceCount: 0, dimensions: null };
 
   const header = buffer.slice(0, 80).toString("ascii").trim().toLowerCase();
@@ -161,11 +191,11 @@ function extractSTLFromBuffer(buffer: Buffer): MetadataSummary {
   return extractSTLBinaryFromBuffer(buffer, faceCount);
 }
 
-async function streamBinarySTL(filePath: string, faceCount: number, signal?: AbortSignal): Promise<MetadataSummary> {
+async function streamBinarySTL(filePath: string, faceCount: number, signal?: AbortSignal): Promise<RawMetadataSummary> {
   return streamBinarySTLRecords(fs.createReadStream(filePath, { start: 84 }), faceCount, signal);
 }
 
-async function streamBinarySTLRecords(input: NodeJS.ReadableStream, faceCount: number, signal?: AbortSignal): Promise<MetadataSummary> {
+async function streamBinarySTLRecords(input: NodeJS.ReadableStream, faceCount: number, signal?: AbortSignal): Promise<RawMetadataSummary> {
   if (signal?.aborted) { destroyReadable(input); throw new Error("Metadata extraction cancelled"); }
   const bounds = createBounds();
   let carry: Buffer<ArrayBufferLike> = Buffer.alloc(0);
@@ -194,7 +224,7 @@ async function streamBinarySTLRecords(input: NodeJS.ReadableStream, faceCount: n
   }
 }
 
-async function streamSTLAscii(input: NodeJS.ReadableStream, signal?: AbortSignal): Promise<MetadataSummary> {
+async function streamSTLAscii(input: NodeJS.ReadableStream, signal?: AbortSignal): Promise<RawMetadataSummary> {
   if (signal?.aborted) { destroyReadable(input); throw new Error("Metadata extraction cancelled"); }
   let faceCount = 0;
   const bounds = createBounds();
@@ -220,11 +250,11 @@ async function streamSTLAscii(input: NodeJS.ReadableStream, signal?: AbortSignal
   }
 }
 
-function extractSTLAsciiFromText(text: string): MetadataSummary {
+function extractSTLAsciiFromText(text: string): RawMetadataSummary {
   return extractSTLAsciiFromLines(text.split(/\r?\n/));
 }
 
-function extractSTLAsciiFromLines(lines: Iterable<string>): MetadataSummary {
+function extractSTLAsciiFromLines(lines: Iterable<string>): RawMetadataSummary {
   let faceCount = 0;
   const bounds = createBounds();
 
@@ -247,7 +277,7 @@ function extractSTLAsciiFromLines(lines: Iterable<string>): MetadataSummary {
   };
 }
 
-function extractSTLBinaryFromBuffer(buffer: Buffer, faceCount: number): MetadataSummary {
+function extractSTLBinaryFromBuffer(buffer: Buffer, faceCount: number): RawMetadataSummary {
   const bounds = createBounds();
 
   let offset = 84;
@@ -270,7 +300,7 @@ function extractSTLBinaryFromBuffer(buffer: Buffer, faceCount: number): Metadata
   };
 }
 
-async function extractOBJ(filePath: string, signal?: AbortSignal): Promise<MetadataSummary> {
+async function extractOBJ(filePath: string, signal?: AbortSignal): Promise<RawMetadataSummary> {
   const fileStream = fs.createReadStream(filePath, { encoding: "utf8" });
   const rl = readline.createInterface({
     input: fileStream,
@@ -280,7 +310,7 @@ async function extractOBJ(filePath: string, signal?: AbortSignal): Promise<Metad
   return extractOBJFromLineSource(rl, fileStream, signal);
 }
 
-async function extractMetadataFromStream(input: NodeJS.ReadableStream, ext: string, signal?: AbortSignal, expectedSize?: number): Promise<MetadataSummary> {
+async function extractMetadataFromStream(input: NodeJS.ReadableStream, ext: string, signal?: AbortSignal, expectedSize?: number): Promise<RawMetadataSummary> {
   if (signal?.aborted) { destroyReadable(input); throw new Error("Metadata extraction cancelled"); }
   if (ext.toLowerCase() === "obj") return extractOBJFromLineSource(readline.createInterface({ input, crlfDelay: Infinity }), input, signal);
   if (ext.toLowerCase() === "stl") {
@@ -314,7 +344,7 @@ async function extractMetadataFromStream(input: NodeJS.ReadableStream, ext: stri
   return { vertexCount: 0, faceCount: 0, dimensions: null };
 }
 
-async function extractOBJFromLineSource(rl: AsyncIterable<string>, stream: NodeJS.ReadableStream, signal?: AbortSignal): Promise<MetadataSummary> {
+async function extractOBJFromLineSource(rl: AsyncIterable<string>, stream: NodeJS.ReadableStream, signal?: AbortSignal): Promise<RawMetadataSummary> {
   if (signal?.aborted) { destroyReadable(stream); throw new Error("Metadata extraction cancelled"); }
   let vertexCount = 0;
   let faceCount = 0;
@@ -340,7 +370,7 @@ async function extractOBJFromLineSource(rl: AsyncIterable<string>, stream: NodeJ
   }
 }
 
-function extractOBJFromText(text: string): MetadataSummary {
+function extractOBJFromText(text: string): RawMetadataSummary {
   let vertexCount = 0;
   let faceCount = 0;
   const bounds = createBounds();
@@ -364,26 +394,41 @@ function extractOBJFromText(text: string): MetadataSummary {
 async function extract3MF(filePath: string): Promise<MetadataSummary> {
   try {
     const directory = await unzipper.Open.file(filePath);
-    return extract3MFFromDirectory(directory);
+    const raw = await extract3MFFromDirectory(directory);
+    const bytes = await fs.promises.readFile(filePath);
+    return combine3mfMeasurement(raw, bytes);
   } catch (e: unknown) {
-    console.warn(`[Streaming] extract3MF failed for ${filePath}: ${(e as Error).message}`);
-    return { vertexCount: 0, faceCount: 0, dimensions: null };
+    const reason = e instanceof Error ? e.message : String(e);
+    return unavailableSummary('3mf', `3MF archive could not be read: ${reason}`);
   }
 }
 
 async function extract3MFFromBuffer(buffer: Buffer): Promise<MetadataSummary> {
   try {
     const directory = await unzipper.Open.buffer(buffer);
-    return extract3MFFromDirectory(directory);
+    const raw = await extract3MFFromDirectory(directory);
+    return combine3mfMeasurement(raw, buffer);
   } catch (e: unknown) {
-    console.warn(`[Streaming] extract3MF failed from buffer: ${(e as Error).message}`);
-    return { vertexCount: 0, faceCount: 0, dimensions: null };
+    const reason = e instanceof Error ? e.message : String(e);
+    return unavailableSummary('3mf', `3MF archive could not be read: ${reason}`);
   }
+}
+
+async function combine3mfMeasurement(raw: RawMetadataSummary, bytes: Buffer): Promise<MetadataSummary> {
+  const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const result = await measureFast3mfBuild(arrayBuffer);
+  return {
+    vertexCount: raw.vertexCount,
+    faceCount: raw.faceCount,
+    dimensions: result.status === 'available'
+      ? (createAvailableMeasurement(result.dimensions, 'mm') ?? createUnavailableMeasurement('mm', '3MF build produced invalid dimensions'))
+      : result.measurement,
+  };
 }
 
 async function extract3MFFromDirectory(
   directory: unzipper.CentralDirectory,
-): Promise<MetadataSummary> {
+): Promise<RawMetadataSummary> {
   let vertexCount = 0;
   let faceCount = 0;
   const bounds = createBounds();
@@ -435,7 +480,7 @@ function destroyReadable(stream: NodeJS.ReadableStream) {
 }
 
 function updateBounds(bounds: Bounds, x: number, y: number, z: number) {
-  if (![x, y, z].every(Number.isFinite)) return;
+  if (![x, y, z].every(Number.isFinite)) throw new Error('Model geometry contains a nonfinite vertex coordinate');
   bounds.minX = Math.min(bounds.minX, x);
   bounds.minY = Math.min(bounds.minY, y);
   bounds.minZ = Math.min(bounds.minZ, z);
@@ -449,10 +494,33 @@ function boundsToDimensions(bounds: Bounds): ModelDimensions | null {
     return null;
   }
 
+  const axes = [bounds.maxX - bounds.minX, bounds.maxY - bounds.minY, bounds.maxZ - bounds.minZ];
+  if (!axes.every((value) => Number.isFinite(value) && value >= 0)) return null;
   const round = (value: number) => Math.round(value * 1000) / 1000;
   return {
-    x: round(bounds.maxX - bounds.minX),
-    y: round(bounds.maxY - bounds.minY),
-    z: round(bounds.maxZ - bounds.minZ),
+    x: round(axes[0]!),
+    y: round(axes[1]!),
+    z: round(axes[2]!),
+  };
+}
+
+function convertRawSummary(raw: RawMetadataSummary, extension: string): MetadataSummary {
+  const unit: MeasurementUnit = extension.toLowerCase() === '3mf' ? 'mm' : 'model-unit';
+  const dimensions = raw.dimensions
+    ? createAvailableMeasurement(raw.dimensions, unit)
+    : null;
+  return {
+    vertexCount: raw.vertexCount,
+    faceCount: raw.faceCount,
+    dimensions: dimensions ?? createUnavailableMeasurement(unit, 'No finite model bounds could be measured'),
+  };
+}
+
+function unavailableSummary(extension: string, reason: string): MetadataSummary {
+  const unit: MeasurementUnit = extension.toLowerCase() === '3mf' ? 'mm' : 'model-unit';
+  return {
+    vertexCount: 0,
+    faceCount: 0,
+    dimensions: createUnavailableMeasurement(unit, reason),
   };
 }

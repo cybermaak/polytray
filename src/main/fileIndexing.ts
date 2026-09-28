@@ -1,5 +1,6 @@
 import type { Database } from 'better-sqlite3';
-import type { FileRecord, ModelDimensions } from '../shared/types';
+import type { FileRecord } from '../shared/types';
+import type { StoredMeasurement } from '../shared/model/measurement';
 import type {
   IndexBatch,
   IndexBatchResult,
@@ -26,7 +27,7 @@ export interface IndexedFileRecord {
   modifiedAt: number;
   vertexCount: number;
   faceCount: number;
-  dimensions: ModelDimensions | null;
+  dimensions: StoredMeasurement | null;
   thumbnailPath: string | null;
   thumbnailFailed: number;
   indexedAt: number;
@@ -40,7 +41,7 @@ interface BaseFileInput {
   size: number;
   vertexCount: number;
   faceCount: number;
-  dimensions: ModelDimensions | null;
+  dimensions: StoredMeasurement | null;
   indexedAt: number;
 }
 

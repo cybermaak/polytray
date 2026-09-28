@@ -11,6 +11,7 @@ import { filterContainedPaths } from './pathContainment';
 import { pruneScanSnapshotPaths, captureScanPruneSnapshot } from './scanPruner';
 import { streamDiscoverFolder } from './scanner';
 import type { ScanScope, ScanTerminalState } from './scanCoverage';
+import { hasCurrentStoredMeasurement } from '../shared/model/measurement';
 
 export interface ScanJobResult {
   jobId: string;
@@ -379,7 +380,9 @@ export class ScanService {
         const file = fileByPath.get(filePath)!;
         const starting = snapshotByPath.get(filePath);
         const contentChanged = !starting || starting.modified_at !== file.modifiedAt || starting.size_bytes !== file.sizeBytes;
-        if (contentChanged) await metadataQueue.enqueue({ identity, file });
+        if (contentChanged || !hasCurrentStoredMeasurement(starting?.dimensions)) {
+          await metadataQueue.enqueue({ identity, file });
+        }
       }
       const lastCommitted = result.committed[result.committed.length - 1]?.path;
       const boundary = !firstBatchPublished || terminal;

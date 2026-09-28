@@ -14,6 +14,7 @@ import { MetadataWorkerClient, type MetadataWorkerRequest } from '../../../../sr
 import type { DiscoveryEvent } from '../../../../src/shared/backgroundJobs';
 import type { ScanProgressData } from '../../../../src/shared/types';
 import { streamDiscoverFolder } from '../../../../src/main/scanner';
+import { createAvailableMeasurement } from '../../../../src/shared/model/measurement';
 
 function createTestDb() {
   const fixture = createDbAtVersion(5);
@@ -89,6 +90,45 @@ test('commits a completed subtree while discovery of a later subtree is blocked'
   } finally {
     unsubscribe();
     service.dispose();
+    fixture.cleanup();
+    fs.rmSync(rootPath, { recursive: true, force: true });
+  }
+});
+
+test('unchanged legacy dimensions are re-enriched without clearing annotations or thumbnail state', async () => {
+  const fixture = createTestDb();
+  const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-measurement-refresh-'));
+  const filePath = path.join(rootPath, 'same.stl');
+  const repository = createFileIndexRepository(fixture.db);
+  repository.applyIndexBatch({ scanGeneration: 1, records: [{
+    path: filePath, name: 'same', extension: 'stl', directory: rootPath,
+    sizeBytes: 10, modifiedAt: 20, scanGeneration: 1,
+  }] });
+  fixture.db.prepare('UPDATE files SET dimensions = ?, tags = ?, notes = ?, thumbnail = ? WHERE path = ?')
+    .run('{"x":1,"y":1,"z":1}', '["kept"]', 'keep this note', '/cache/stable.png', filePath);
+  let extractions = 0;
+  const measurement = createAvailableMeasurement({ x: 1, y: 1, z: 0 }, 'model-unit')!;
+  const service = createScanService({
+    db: fixture.db,
+    discover: async function* (_root, _signal, generation) {
+      yield discovered(rootPath, filePath);
+      yield { type: 'scope-complete', rootPath, scopePath: rootPath, generation, kind: 'directory' };
+      yield { type: 'discovery-complete', rootPath, cancelled: false };
+    },
+    extractMetadata: async () => { extractions++; return { vertexCount: 3, faceCount: 1, dimensions: measurement }; },
+  });
+  try {
+    const result = await service.scan(rootPath, { batchSize: 1 });
+    const row = fixture.db.prepare('SELECT dimensions, tags, notes, thumbnail, modified_at, size_bytes FROM files WHERE path = ?').get(filePath) as Record<string, unknown>;
+    assert.equal(result.state, 'completed');
+    assert.equal(extractions, 1);
+    assert.deepEqual(JSON.parse(row.dimensions as string), measurement);
+    assert.deepEqual(row, {
+      dimensions: JSON.stringify(measurement), tags: '["kept"]', notes: 'keep this note',
+      thumbnail: '/cache/stable.png', modified_at: 20, size_bytes: 10,
+    });
+  } finally {
+    await service.dispose();
     fixture.cleanup();
     fs.rmSync(rootPath, { recursive: true, force: true });
   }
