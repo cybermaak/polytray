@@ -105,7 +105,10 @@ export const App: React.FC = () => {
   const [directories, setDirectories] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [searchDraft, setSearchDraft] = useState("");
+  const [resultCountAnnouncement, setResultCountAnnouncement] = useState("");
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
+  const previewFocusReturnRef = useRef<HTMLElement | null>(null);
+  const compareFocusReturnRef = useRef<HTMLElement | null>(null);
   const [comparisonFiles, setComparisonFiles] = useState<FileRecord[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collectionsState, setCollectionsState] = useState<CollectionsState>(
@@ -173,6 +176,10 @@ export const App: React.FC = () => {
     : resultTotalItems === resultTotalModels
       ? `${resultTotalModels} ${resultTotalModels === 1 ? "model" : "models"}`
       : `${resultTotalItems} items / ${resultTotalModels} models`;
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setResultCountAnnouncement(`${resultCountLabel} available`), 250);
+    return () => window.clearTimeout(timeout);
+  }, [resultCountLabel]);
   const comparisonActive = comparisonFiles.length === 2;
 
   // Refs to get latest state in IPC callbacks
@@ -942,6 +949,7 @@ export const App: React.FC = () => {
   }, [batchCollectionId, handleAddFilesToCollection, selectedFiles]);
 
   const handleSelectLibraryItem = useCallback((item: DisplayFileRecord) => {
+    if (document.activeElement instanceof HTMLElement) previewFocusReturnRef.current = document.activeElement;
     setComparisonFiles([]);
     if (isLibraryArchiveDisplayRecord(item)) {
       setPreviewTarget({ kind: "archive", archive: item.source, query: pageQuery });
@@ -959,16 +967,42 @@ export const App: React.FC = () => {
   }, [clearSelection]);
 
   const handleCompareSelected = useCallback(() => {
+    compareFocusReturnRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setPreviewTarget(null);
     setComparisonFiles(selectedFiles.slice(0, 2));
   }, [selectedFiles]);
 
   const handleOpenComparedFile = useCallback((file: FileRecord) => {
+    if (document.activeElement instanceof HTMLElement) previewFocusReturnRef.current = document.activeElement;
     setComparisonFiles([]);
     setPreviewTarget({ kind: "file", file });
   }, []);
 
-  const handleClosePreview = useCallback(() => setPreviewTarget(null), []);
+  const handleCloseCompare = useCallback(() => {
+    const invokingElement = compareFocusReturnRef.current;
+    compareFocusReturnRef.current = null;
+    setComparisonFiles([]);
+    requestAnimationFrame(() => {
+      if (invokingElement?.isConnected) {
+        invokingElement.focus();
+        return;
+      }
+      document.querySelector<HTMLElement>("#file-grid [data-item-key]")?.focus();
+    });
+  }, []);
+
+  const handleClosePreview = useCallback(() => {
+    setPreviewTarget(null);
+    const returnFocus = previewFocusReturnRef.current;
+    previewFocusReturnRef.current = null;
+    requestAnimationFrame(() => {
+      if (returnFocus?.isConnected) {
+        returnFocus.focus();
+        return;
+      }
+      document.querySelector<HTMLElement>("#file-grid [data-item-key][tabindex='0']")?.focus();
+    });
+  }, []);
   const handleLoadNextPage = useCallback(() => { void libraryPages.loadNext(); }, [libraryPages.loadNext]);
   const handleRetryPage = useCallback(() => { void libraryPages.retry(); }, [libraryPages.retry]);
 
@@ -1035,20 +1069,6 @@ export const App: React.FC = () => {
     });
   }, [clearSelection]);
 
-  // Keyboard: Escape
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setSettingsOpen((open) => {
-          if (open) return false;
-          return open;
-        });
-      }
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, []);
-
   // ── Render ──────────────────────────────────────────────────────
   // CRITICAL: #file-grid and #empty-state must be DIRECT children of
   // #content (not wrapped in fragments) because the CSS flex layout
@@ -1106,11 +1126,13 @@ export const App: React.FC = () => {
           />
           <div
             id="library-result-total"
-            role="status"
-            aria-live="polite"
+            aria-live="off"
             style={{ padding: "0 var(--space-4) var(--space-2)", color: "var(--text-muted)", fontSize: "var(--font-size-xs)" }}
           >
             {resultCountLabel}
+          </div>
+          <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+            {resultCountAnnouncement}
           </div>
           <BatchActionsBar
             selectedCount={selectedFiles.length}
@@ -1145,6 +1167,7 @@ export const App: React.FC = () => {
             hasMore={libraryPages.nextOffset !== null}
             onEndReached={handleLoadNextPage}
             onRetry={handleRetryPage}
+            resultCount={resultTotalItems}
           />
           <EmptyState hidden={displayFiles.length > 0 || !libraryReady || libraryPages.loading || libraryPages.refreshing || libraryPages.error !== null} />
           <ScanProgress
@@ -1156,7 +1179,7 @@ export const App: React.FC = () => {
         </main>
         <ComparePanel
           files={comparisonFiles}
-          onClose={() => setComparisonFiles([])}
+          onClose={handleCloseCompare}
           onOpenPreview={handleOpenComparedFile}
         />
         <PreviewPanel

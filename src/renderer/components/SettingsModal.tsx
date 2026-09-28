@@ -1,4 +1,5 @@
 import React from "react";
+import { useOverlayFocus } from "../hooks/useOverlayFocus";
 import {
   applySettingsPreset,
   DEFAULT_APP_SETTINGS,
@@ -20,6 +21,8 @@ export const SettingsModal: React.FC<Props> = ({
   onSettingsChange,
 }) => {
   const [advancedExpanded, setAdvancedExpanded] = React.useState(false);
+  const modalRef = React.useRef<HTMLDivElement>(null);
+  useOverlayFocus(modalRef, open, onClose);
   const renderColorSetting = (
     id: string,
     label: string,
@@ -68,12 +71,21 @@ export const SettingsModal: React.FC<Props> = ({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="settings-modal">
+      <div
+        ref={modalRef}
+        className="settings-modal"
+        role="dialog"
+        aria-modal={open ? "true" : undefined}
+        aria-labelledby="settings-title"
+        tabIndex={-1}
+      >
         <div className="settings-header">
-          <h2>Settings</h2>
+          <h2 id="settings-title">Settings</h2>
           <button
+            type="button"
             id="settings-close"
             className="settings-close"
+            aria-label="Close settings"
             onClick={onClose}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">

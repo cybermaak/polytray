@@ -218,6 +218,18 @@ body {
 }
 
 /* Add Folder Button */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .btn-primary {
   width: 100%;
   display: flex;
@@ -272,6 +284,25 @@ body {
 .library-folder-item.active {
   background: var(--bg-hover);
 }
+
+.library-folder-item:focus-visible,
+.file-card:focus-visible,
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.folder-toggle {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
 .library-folder-item.active {
   color: var(--text-primary);
   font-weight: 500;
@@ -324,6 +355,19 @@ body {
   border: 1px solid var(--border-subtle);
   background: var(--bg-elevated);
   color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.collection-item-select {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  font: inherit;
   cursor: pointer;
 }
 

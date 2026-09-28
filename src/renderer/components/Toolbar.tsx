@@ -133,14 +133,17 @@ export const Toolbar: React.FC<Props> = ({
           <input
             type="text"
             id="search-input"
+            aria-label="Search files"
             placeholder="Search files..."
             autoComplete="off"
             value={searchDraft}
             onChange={(e) => onSearchDraftChange(e.target.value)}
           />
           <button
+            type="button"
             id="search-clear"
             className={`search-clear${searchDraft ? "" : " hidden"}`}
+            aria-label="Clear search"
             onClick={clearSearch}
           >
             ×
@@ -150,6 +153,7 @@ export const Toolbar: React.FC<Props> = ({
         <div className="toolbar-controls">
           <select
             id="sort-select"
+            aria-label="Sort files by"
             value={sort}
             onChange={(e) => onSortChange(e.target.value)}
           >
@@ -161,27 +165,33 @@ export const Toolbar: React.FC<Props> = ({
           </select>
 
         <button
+          type="button"
           id="sort-order"
             className={`btn-icon${order === "DESC" ? " desc" : ""}`}
             title="Toggle sort order"
+            aria-label={`Sort ${order === "ASC" ? "descending" : "ascending"}`}
             onClick={onOrderToggle}
         >
           <AppIcon name="sortOrder" />
         </button>
 
           <button
+            type="button"
             id="btn-rescan"
             className="btn-icon"
             title="Rescan folders"
+            aria-label="Rescan folders"
             onClick={onRescan}
         >
           <AppIcon name="rescan" />
         </button>
 
           <button
+            type="button"
             id="btn-clear-thumbnails"
             className="btn-icon"
             title="Regenerate Thumbnails"
+            aria-label="Regenerate thumbnails"
             onClick={onClearThumbnails}
         >
           <AppIcon name="thumbnailRefresh" />
@@ -198,9 +208,11 @@ export const Toolbar: React.FC<Props> = ({
             {chip.label}
             {chip.onDismiss && (
               <button
+                type="button"
                 className="context-chip-dismiss"
                 onClick={chip.onDismiss}
                 title={`Remove ${chip.key} filter`}
+                aria-label={`Remove ${chip.key} filter`}
               >
                 ×
               </button>

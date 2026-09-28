@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { VirtuosoGrid } from "react-virtuoso";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { VirtuosoGrid, type VirtuosoGridHandle } from "react-virtuoso";
 import { formatSize, formatTimestamp, formatVertices } from "../lib/formatters";
 import type { FileRecord } from "../../shared/types";
 import { isArchiveEntryPath } from "../../shared/archivePaths";
 import { ThumbnailImage } from "./ThumbnailImage";
+import { getGridColumnCount, getGridMoveIndex, getGridPageEdgeTarget, getGridTabStopKey, reconcileGridFocus, sameGridKeys } from "../lib/gridNavigation";
 import {
   type DisplayFileRecord,
   isLibraryArchiveDisplayRecord,
@@ -26,6 +27,7 @@ interface Props {
   hasMore: boolean;
   onEndReached: () => void;
   onRetry: () => void;
+  resultCount: number;
 }
 
 function isArchiveDisplay(file: DisplayFileRecord): file is Extract<DisplayFileRecord, { kind: "archive-summary" }> {
@@ -65,7 +67,11 @@ const FileCard: React.FC<{
   onToggleSelect: (file: FileRecord) => void;
   onClick: (file: DisplayFileRecord) => void;
   onDoubleClick: (archivePath: string) => void;
-}> = ({ file, selected, selectedForBatch, onToggleSelect, onClick, onDoubleClick }) => {
+  focusKey: string;
+  tabIndex: number;
+  onFocus: (key: string) => void;
+  onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+}> = ({ file, selected, selectedForBatch, onToggleSelect, onClick, onDoubleClick, focusKey, tabIndex, onFocus, onKeyDown }) => {
   const isArchiveSummary = isArchiveDisplay(file);
   const fileRecord = isArchiveSummary ? null : file as FileRecord;
   const extClass = file.extension === "3mf" ? "threemf" : file.extension;
@@ -81,7 +87,8 @@ const FileCard: React.FC<{
     };
   }, []);
 
-  const handleCardClick = () => {
+  const handleCardClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.currentTarget.focus();
     if (!isArchiveSummary) {
       onClick(file);
       return;
@@ -109,6 +116,15 @@ const FileCard: React.FC<{
     <div
       className={`file-card${selected ? " selected" : ""}${isArchiveSummary ? " archive-summary" : ""}`}
       data-item-key={displayItemKey(file)}
+      role="gridcell"
+      aria-selected={selectedForBatch}
+      aria-current={selected ? "true" : undefined}
+      aria-label={isArchiveSummary
+        ? `${file.name}, archive with ${archiveModelCount(file)} models`
+        : `${file.name}.${file.extension}${selectedForBatch ? ", selected for batch actions" : ""}`}
+      tabIndex={tabIndex}
+      onFocus={() => onFocus(focusKey)}
+      onKeyDown={onKeyDown}
       {...(fileRecord ? { "data-file-id": fileRecord.id } : {})}
       title={itemPath}
       onClick={handleCardClick}
@@ -132,6 +148,8 @@ const FileCard: React.FC<{
         <button
           type="button"
           className={`file-select-toggle${selectedForBatch ? " active" : ""}`}
+          aria-label={`${selectedForBatch ? "Remove" : "Add"} ${file.name}.${file.extension} ${selectedForBatch ? "from" : "to"} batch selection`}
+          aria-pressed={selectedForBatch}
           onClick={(e) => {
             e.stopPropagation();
             if (fileRecord) onToggleSelect(fileRecord);
@@ -217,6 +235,9 @@ interface GridContext {
   pageError: string | null;
   hasMore: boolean;
   onRetry: () => void;
+  resultCount: number;
+  rovingKey: string | null;
+  tabStopKey: string | null;
 }
 
 const GridFooter: React.FC<{ context?: GridContext }> = ({ context }) => {
@@ -244,6 +265,11 @@ const GridList = React.forwardRef<
       {...props}
       id="file-grid"
       className={`file-grid size-${context?.gridSize || "medium"}`}
+      role="grid"
+      aria-label={`Library files, ${context?.resultCount ?? 0} results`}
+      aria-describedby="library-result-total"
+      data-roving-key={context?.rovingKey ?? ""}
+      data-tab-stop-key={context?.tabStopKey ?? ""}
       style={{
         ...style,
         display: "grid",
@@ -258,7 +284,7 @@ const GridList = React.forwardRef<
 });
 
 const GridItem = ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div {...props} style={{ display: "flex", flexDirection: "column" }}>
+  <div {...props} role="presentation" style={{ display: "flex", flexDirection: "column" }}>
     {children}
   </div>
 );
@@ -279,7 +305,131 @@ export const FileGrid: React.FC<Props> = ({
   hasMore,
   onEndReached,
   onRetry,
+  resultCount,
 }) => {
+  const gridRef = useRef<VirtuosoGridHandle>(null);
+  const previousKeysRef = useRef<string[]>([]);
+  const pendingPageFocusRef = useRef<number | null>(null);
+  const gridHadFocusRef = useRef(false);
+  const focusSequenceRef = useRef(0);
+  const [rovingKey, setRovingKey] = useState<string | null>(null);
+  const [renderedKeys, setRenderedKeys] = useState<string[]>([]);
+  const keys = useMemo(() => files.map(displayItemKey), [files]);
+  const tabStopKey = getGridTabStopKey(rovingKey, renderedKeys);
+  const markFocusedKey = useCallback((key: string) => {
+    gridHadFocusRef.current = true;
+    setRovingKey(key);
+  }, []);
+  const focusItem = useCallback((index: number) => {
+    if (index < 0 || index >= files.length) return;
+    const sequence = ++focusSequenceRef.current;
+    const key = keys[index];
+    gridHadFocusRef.current = true;
+    setRovingKey(key);
+    gridRef.current?.scrollToIndex({ index, align: "center" });
+    let attempts = 0;
+    const focusRenderedItem = () => {
+      if (focusSequenceRef.current !== sequence || attempts++ > 60) return;
+      const target = Array.from(document.querySelectorAll<HTMLElement>("#file-grid [data-item-key]"))
+        .find((element) => element.dataset.itemKey === key);
+      if (target && target.getClientRects().length > 0) {
+        target.focus({ preventScroll: true });
+      } else {
+        requestAnimationFrame(focusRenderedItem);
+      }
+    };
+    requestAnimationFrame(focusRenderedItem);
+  }, [files.length, keys]);
+
+  useEffect(() => {
+    const onFocusIn = (event: FocusEvent) => {
+      gridHadFocusRef.current = event.target instanceof Element && Boolean(event.target.closest("#file-grid"));
+    };
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, []);
+
+  useEffect(() => {
+    const grid = document.querySelector("#file-grid");
+    if (!grid) {
+      setRenderedKeys([]);
+      return;
+    }
+    const updateRenderedKeys = () => {
+      const nextKeys = Array.from(grid.querySelectorAll<HTMLElement>("[data-item-key]"))
+        .map((element) => element.dataset.itemKey)
+        .filter((key): key is string => Boolean(key));
+      setRenderedKeys((previous) => sameGridKeys(previous, nextKeys) ? previous : nextKeys);
+    };
+    const observer = new MutationObserver(updateRenderedKeys);
+    observer.observe(grid, { childList: true, subtree: true });
+    updateRenderedKeys();
+    return () => observer.disconnect();
+  }, [files.length > 0]);
+
+  useEffect(() => {
+    const priorKeys = previousKeysRef.current;
+    const hadPriorItems = priorKeys.length > 0;
+    if (pendingPageFocusRef.current !== null && files.length > pendingPageFocusRef.current) {
+      const targetIndex = pendingPageFocusRef.current;
+      pendingPageFocusRef.current = null;
+      focusItem(targetIndex);
+    } else if (!hadPriorItems && keys.length > 0 && rovingKey === null) {
+      setRovingKey(keys[0]);
+    } else if (hadPriorItems && keys.length === 0 && gridHadFocusRef.current) {
+      setRovingKey(null);
+      requestAnimationFrame(() => document.querySelector<HTMLElement>("#search-input")?.focus());
+    } else if (hadPriorItems && !sameGridKeys(priorKeys, keys)) {
+      const reconciled = reconcileGridFocus(priorKeys, keys, rovingKey);
+      if (reconciled.key !== rovingKey) setRovingKey(reconciled.key);
+      if (gridHadFocusRef.current && reconciled.key) {
+        focusItem(reconciled.index);
+      }
+    }
+    previousKeysRef.current = keys;
+  }, [files, focusItem, keys, rovingKey]);
+
+  const handleCardKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target !== event.currentTarget || target.isContentEditable) return;
+    const key = event.key;
+    const itemKey = event.currentTarget.dataset.itemKey;
+    const currentIndex = itemKey ? keys.indexOf(itemKey) : -1;
+    if (currentIndex < 0) return;
+
+    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(key)) {
+      event.preventDefault();
+      const list = document.querySelector<HTMLElement>("#file-grid");
+      const columns = list ? getGridColumnCount(getComputedStyle(list).gridTemplateColumns) : 1;
+      let pageSize = columns;
+      const scroller = document.querySelector<HTMLElement>("[data-virtuoso-scroller]");
+      const card = list?.querySelector<HTMLElement>("[data-item-key]");
+      if (scroller && card) {
+        const rows = Math.max(1, Math.floor(scroller.clientHeight / Math.max(1, card.getBoundingClientRect().height)));
+        pageSize = rows * columns;
+      }
+      const nextIndex = getGridMoveIndex(currentIndex, keys.length, columns, key as Parameters<typeof getGridMoveIndex>[3], pageSize);
+      const pageEdgeTarget = getGridPageEdgeTarget(currentIndex, keys.length, columns, key as Parameters<typeof getGridPageEdgeTarget>[3], pageSize, hasMore);
+      if (pageEdgeTarget !== null) {
+        pendingPageFocusRef.current = pageEdgeTarget;
+        onEndReached();
+      } else if (nextIndex !== currentIndex) {
+        focusItem(nextIndex);
+      }
+      return;
+    }
+
+    if (key === "Enter" || key === " ") {
+      event.preventDefault();
+      const file = files[currentIndex];
+      if (!isArchiveDisplay(file) && key === " " && selectedFileIds.size > 0) {
+        onToggleFileSelection(file as FileRecord);
+      } else {
+        onSelectFile(file);
+      }
+    }
+  }, [files, focusItem, hasMore, keys, onEndReached, onSelectFile, onToggleFileSelection, selectedFileIds.size]);
+
   const context = useMemo(() => ({
     gridSize,
     pageRefreshing,
@@ -287,18 +437,25 @@ export const FileGrid: React.FC<Props> = ({
     pageError,
     hasMore,
     onRetry,
-  }), [gridSize, pageRefreshing, pageLoadingNext, pageError, hasMore, onRetry]);
+    resultCount,
+    rovingKey,
+    tabStopKey,
+  }), [gridSize, pageRefreshing, pageLoadingNext, pageError, hasMore, onRetry, resultCount, rovingKey, tabStopKey]);
   const computeItemKey = useCallback((_index: number, item: DisplayFileRecord) => displayItemKey(item), []);
   const itemContent = useCallback((_index: number, file: DisplayFileRecord) => (
-    <FileCardMemo
+      <FileCardMemo
       file={file}
       selected={activeItemKey === displayItemKey(file) || comparisonItemKeys.has(displayItemKey(file))}
       selectedForBatch={!isArchiveDisplay(file) && selectedFileIds.has(file.id)}
       onToggleSelect={onToggleFileSelection}
       onClick={onSelectFile}
-      onDoubleClick={onOpenArchive}
+        onDoubleClick={onOpenArchive}
+        focusKey={displayItemKey(file)}
+        tabIndex={tabStopKey === displayItemKey(file) ? 0 : -1}
+        onFocus={markFocusedKey}
+        onKeyDown={handleCardKeyDown}
     />
-  ), [activeItemKey, comparisonItemKeys, onOpenArchive, onSelectFile, onToggleFileSelection, selectedFileIds]);
+  ), [activeItemKey, comparisonItemKeys, handleCardKeyDown, markFocusedKey, onOpenArchive, onSelectFile, onToggleFileSelection, selectedFileIds, tabStopKey]);
 
   if (files.length === 0) {
     if (pageError) {
@@ -317,6 +474,7 @@ export const FileGrid: React.FC<Props> = ({
 
   return (
     <VirtuosoGrid
+      ref={gridRef}
       style={{ flex: 1, minHeight: 0 }}
       data={files}
       context={context}

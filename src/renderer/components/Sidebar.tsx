@@ -235,16 +235,63 @@ const FolderTreeNode: React.FC<{
   onRemove: (path: string) => void;
   onRescan: (path: string) => void;
   onRefreshThumbnails: (path: string) => void;
-}> = ({ node, level, activeFolder, onSelect, onRemove, onRescan, onRefreshThumbnails }) => {
+  focusedPath: string | null;
+  onFocusPath: (path: string) => void;
+}> = ({ node, level, activeFolder, onSelect, onRemove, onRescan, onRefreshThumbnails, focusedPath, onFocusPath }) => {
   const [expanded, setExpanded] = React.useState(false);
   const hasChildren = node.children.length > 0;
   const isActive = activeFolder === node.path;
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    const tree = event.currentTarget.closest<HTMLElement>("[role='tree']");
+    if (!tree) return;
+    const visibleItems = Array.from(tree.querySelectorAll<HTMLElement>("[role='treeitem']"))
+      .filter((item) => item.getClientRects().length > 0);
+    const focusItem = (item: HTMLElement | null | undefined) => {
+      if (!item) return;
+      const path = item.dataset.folderPath;
+      if (path) onFocusPath(path);
+      item.focus();
+    };
+    const currentIndex = visibleItems.indexOf(event.currentTarget);
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusItem(visibleItems[currentIndex + 1]);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusItem(visibleItems[currentIndex - 1]);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      focusItem(visibleItems[0]);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      focusItem(visibleItems[visibleItems.length - 1]);
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      if (expanded) setExpanded(false);
+      else focusItem(event.currentTarget.parentElement?.closest<HTMLElement>("[role='treeitem']"));
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      if (hasChildren && !expanded) setExpanded(true);
+      else focusItem(event.currentTarget.querySelector<HTMLElement>(".folder-children [role='treeitem']") ?? undefined);
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onSelect(isActive ? null : node.path);
+    }
+  };
 
   return (
     <div className="folder-tree-node">
       <div 
         className={`library-folder-item ${isActive ? 'active' : ''}`}
         data-folder-path={node.path}
+        role="treeitem"
+        aria-label={getFolderNodeLabel(node)}
+        aria-selected={isActive}
+        aria-expanded={hasChildren ? expanded : undefined}
+        tabIndex={focusedPath === node.path ? 0 : -1}
+        onFocus={() => onFocusPath(node.path)}
+        onKeyDown={handleKeyDown}
         style={{ paddingLeft: `${level * 12 + 8}px`, cursor: 'pointer' }}
         onClick={(e) => {
           if ((e.target as HTMLElement).classList.contains('folder-toggle')) return;
@@ -256,18 +303,22 @@ const FolderTreeNode: React.FC<{
         }}
       >
         {hasChildren ? (
-          <span 
-            className="folder-toggle" 
+          <button
+            type="button"
+            className="folder-toggle"
+            tabIndex={-1}
+            aria-label={`${expanded ? "Collapse" : "Expand"} ${getFolderNodeLabel(node)}`}
+            aria-expanded={expanded}
             onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
             style={{ width: 14, display: 'inline-block', textAlign: 'center', marginRight: 4, fontSize: '10px', opacity: 0.6 }}
           >
             {expanded ? '▼' : '▶'}
-          </span>
+          </button>
         ) : (
           <span style={{ width: 14, display: 'inline-block', marginRight: 4 }} />
         )}
         <FolderNodeIcon node={node} />
-        <span
+          <span
           className="library-folder-name"
           title={node.path}
           style={{ flex: 1, whiteSpace: 'nowrap' }}
@@ -282,8 +333,10 @@ const FolderTreeNode: React.FC<{
         {node.isLibraryRoot && (
            <div className="folder-actions hide-on-idle">
              <button
+               type="button"
                className="library-folder-remove"
                title="Remove from library"
+               aria-label={`Remove ${getFolderNodeLabel(node)} from library`}
                onClick={(e) => { e.stopPropagation(); onRemove(node.path); }}
              >
                ×
@@ -303,7 +356,9 @@ const FolderTreeNode: React.FC<{
               onSelect={onSelect}
               onRemove={onRemove}
               onRescan={onRescan}
-              onRefreshThumbnails={onRefreshThumbnails}
+             onRefreshThumbnails={onRefreshThumbnails}
+              focusedPath={focusedPath}
+              onFocusPath={onFocusPath}
             />
           ))}
         </div>
@@ -371,6 +426,24 @@ export const Sidebar: React.FC<Props> = ({
 }) => {
   const { sidebarRef, isDragging: sidebarDragging, handleMouseDown: handleSidebarMouseDown } = useSidebarResize(effectiveWidth, onPreferredWidthChange);
   const tree = React.useMemo(() => buildFolderTree(folders, directories), [folders, directories]);
+  const folderPaths = React.useMemo(() => {
+    const paths: string[] = [];
+    const visit = (node: FolderNode) => {
+      paths.push(node.path);
+      node.children.forEach(visit);
+    };
+    tree.forEach(visit);
+    return paths;
+  }, [tree]);
+  const [focusedFolderPath, setFocusedFolderPath] = React.useState<string | null>(
+    () => activeFolder ?? tree[0]?.path ?? null,
+  );
+  React.useEffect(() => {
+    if (activeFolder && folderPaths.includes(activeFolder)) setFocusedFolderPath(activeFolder);
+    else if (focusedFolderPath && !folderPaths.includes(focusedFolderPath)) {
+      setFocusedFolderPath(tree[0]?.path ?? null);
+    }
+  }, [activeFolder, focusedFolderPath, folderPaths, tree]);
   const filters = [
     { label: "All", ext: null, dataExt: "", count: stats.total, statId: "stat-total" },
     { label: "STL", ext: "stl", dataExt: "stl", count: stats.stl, statId: "stat-stl" },
@@ -406,7 +479,7 @@ export const Sidebar: React.FC<Props> = ({
             </svg>
             Add Folder
           </button>
-          <div id="library-folders" className="library-folders sidebar-scrollable" style={{ marginTop: 8, flex: 1, overflowY: "auto", overflowX: "auto", paddingBottom: 16 }}>
+         <div id="library-folders" className="library-folders sidebar-scrollable" role="tree" aria-label="Library folders" style={{ marginTop: 8, flex: 1, overflowY: "auto", overflowX: "auto", paddingBottom: 16 }}>
             {tree.map((node) => (
                <FolderTreeNode
                  key={node.path}
@@ -417,6 +490,8 @@ export const Sidebar: React.FC<Props> = ({
                  onRemove={onRemoveFolder}
                  onRescan={onRescanFolder}
                  onRefreshThumbnails={onRefreshFolderThumbnails}
+                 focusedPath={focusedFolderPath}
+                 onFocusPath={setFocusedFolderPath}
                />
             ))}
           </div>
@@ -433,15 +508,21 @@ export const Sidebar: React.FC<Props> = ({
                 <div
                   key={collection.id}
                   className={`collection-item${activeCollectionId === collection.id ? " active" : ""}`}
-                  onClick={() =>
-                    onCollectionSelect(
-                      activeCollectionId === collection.id ? null : collection.id,
-                    )
-                  }
                 >
-                  <span className="collection-name">{collection.name}</span>
                   <button
+                    type="button"
+                    className="collection-item-select"
+                    aria-pressed={activeCollectionId === collection.id}
+                    onClick={() => onCollectionSelect(activeCollectionId === collection.id ? null : collection.id)}
+                  >
+                    <span className="collection-name">{collection.name}</span>
+                  </button>
+                  <button
+                    type="button"
                     className="library-folder-remove"
+                    aria-label={activeCollectionId === collection.id
+                      ? "Clear collection filter"
+                      : `Delete collection ${collection.name}`}
                     title={
                       activeCollectionId === collection.id
                         ? "Clear collection filter"
@@ -473,9 +554,11 @@ export const Sidebar: React.FC<Props> = ({
           <div className="filter-buttons filter-buttons-stats">
             {filters.map((f) => (
               <button
+                type="button"
                 key={f.label}
                 className={`filter-btn${activeFilter === f.ext ? " active" : ""}`}
                 data-ext={f.dataExt}
+                aria-pressed={activeFilter === f.ext}
                 onClick={() => onFilterChange(f.ext)}
               >
                 <span className="filter-label">{f.label}</span>
@@ -502,6 +585,7 @@ export const Sidebar: React.FC<Props> = ({
       >
         <div className="sidebar-actions-row">
           <button
+            type="button"
             id="btn-theme-toggle"
             className="btn-primary"
             style={{
@@ -517,6 +601,7 @@ export const Sidebar: React.FC<Props> = ({
           </button>
 
           <button
+            type="button"
             id="btn-settings"
             className="btn-primary"
             style={{

@@ -15,6 +15,7 @@ import {
 } from "../lib/archiveDisplay";
 import { AppIcon } from "./AppIcon";
 import { ThumbnailImage } from "./ThumbnailImage";
+import { useOverlayFocus } from "../hooks/useOverlayFocus";
 import { createPreviewGeometryIdentity, previewStateReducer } from "../lib/previewState";
 import { createArchivePreviewPages, type ArchivePreviewPage } from "../lib/archivePreviewPages";
 import {
@@ -443,6 +444,8 @@ export const PreviewPanel: React.FC<Props> = ({
     session?.dispose();
     onClose();
   }, [onClose]);
+  const modalPreview = previewIsActive && (overlay || expanded);
+  useOverlayFocus(panelRef, modalPreview, handleClose);
 
   const handleSaveTags = useCallback(async () => {
     if (!currentFile) return;
@@ -588,6 +591,10 @@ export const PreviewPanel: React.FC<Props> = ({
       id="preview-panel"
       ref={panelRef}
       className={panelClasses}
+      role={modalPreview ? "dialog" : undefined}
+      aria-modal={modalPreview ? true : undefined}
+      aria-label={modalPreview ? "Model preview" : undefined}
+      tabIndex={modalPreview ? -1 : undefined}
       style={!expanded ? { width: effectiveWidth } : undefined}
     >
       {!expanded && (
@@ -599,33 +606,41 @@ export const PreviewPanel: React.FC<Props> = ({
       <div className="viewer-header" style={{ justifyContent: "flex-end" }}>
         <div className="viewer-controls">
           <button
+            type="button"
             id="btn-wireframe"
             className={`btn-viewer${wireframe ? " active" : ""}`}
             title="Toggle wireframe"
+            aria-label={`Turn ${wireframe ? "off" : "on"} wireframe`}
             onClick={handleWireframe}
           >
             <AppIcon name="wireframe" />
           </button>
           <button
+            type="button"
             id="btn-reset-camera"
             className="btn-viewer"
             title="Reset camera"
+            aria-label="Reset preview camera"
             onClick={resetCamera}
           >
             <AppIcon name="preview" />
           </button>
           <button
+            type="button"
             id="btn-expand-viewer"
             className="btn-viewer"
             title="Expand/Collapse"
+            aria-label={expanded ? "Exit expanded preview" : "Expand preview"}
             onClick={() => setExpanded((e) => !e)}
           >
             <AppIcon name="expand" />
           </button>
           <button
+            type="button"
             id="btn-close-viewer"
             className="btn-viewer btn-close"
             title="Close viewer"
+            aria-label="Close preview"
             onClick={handleClose}
           >
             <AppIcon name="close" />
