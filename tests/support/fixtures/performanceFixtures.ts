@@ -45,6 +45,18 @@ export function createPerformanceDatabase(options: { root?: string; count: numbe
     }
   });
   insertBatch();
+  // Match D02's reference shape: one fifth of the rows belong to ZIP summaries,
+  // spread across twelve archives. This makes the production page query pay
+  // the archive count/grouping and representative-sample costs.
+  const archiveUpdate = db.prepare('UPDATE files SET archive_path = ? WHERE id = ?');
+  const archiveRoot = path.join(root, 'library', 'archives');
+  const markArchives = db.transaction(() => {
+    for (let i = 0; i < options.count / 5; i++) {
+      const archiveIndex = i % 12;
+      archiveUpdate.run(path.join(archiveRoot, `archive-${String(archiveIndex).padStart(2, '0')}.zip`), i + 1);
+    }
+  });
+  markArchives();
   db.close();
   const collections: CollectionsState = { activeCollectionId: 'performance-collection', collections: [{
     id: 'performance-collection', name: `Performance ${options.count}`, filePaths: paths,

@@ -15,6 +15,8 @@ test('performance database creates deterministic rows, folders, sort ties, and c
       assert.equal((db.prepare('SELECT COUNT(*) AS count FROM files').get() as { count: number }).count, 600);
       assert.equal(db.prepare('SELECT * FROM files ORDER BY name COLLATE NOCASE ASC LIMIT 500').all().length, 500);
       assert.equal((db.prepare('SELECT COUNT(DISTINCT directory) AS count FROM files').get() as { count: number }).count, 40);
+      assert.equal((db.prepare('SELECT COUNT(*) AS count FROM files WHERE archive_path IS NOT NULL').get() as { count: number }).count, 120);
+      assert.equal((db.prepare('SELECT COUNT(DISTINCT archive_path) AS count FROM files WHERE archive_path IS NOT NULL').get() as { count: number }).count, 12);
       assert.ok((db.prepare('SELECT COUNT(*) AS count FROM files GROUP BY size_bytes ORDER BY count DESC LIMIT 1').get() as { count: number }).count > 1);
       assert.equal(fixture.collections.collections[0].filePaths.length, 600);
       assert.equal(fixture.lastOnlyCollection.collections[0].filePaths.length, 1);

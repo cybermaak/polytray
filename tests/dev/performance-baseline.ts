@@ -3,10 +3,10 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { launchIsolatedApp } from '../support/helpers/isolatedApp';
 import { createProbeRecorder } from '../support/helpers/performanceProbe';
+import type { LibraryPageResult } from '../../src/shared/libraryQuery';
 
-interface QueryResult { files: Array<{ path: string }>; total: number; }
 interface PerformanceBridge extends Window {
-  polytray: { getFiles(options: { folder: string; sort: string; order: string; limit: number; offset: number }): Promise<QueryResult> };
+  polytray: { getLibraryPage(query: { sort: 'name'; direction: 'ASC'; extension: null; folder: string; search: ''; collectionPaths: string[] | null; limit: number; offset: number }): Promise<LibraryPageResult> };
 }
 
 function summarize(values: number[]) {
@@ -39,8 +39,8 @@ async function runAppQueryBenchmark(count: number) {
     for (let i = 0; i < 25; i++) {
       const sample = await window.evaluate(async (folderPath) => {
         const started = performance.now();
-        const page = await (window as unknown as PerformanceBridge).polytray.getFiles({ folder: folderPath, sort: 'name', order: 'ASC', limit: 500, offset: 0 });
-        return { elapsedMs: performance.now() - started, total: page.total, pageCount: page.files.length, lastPath: page.files.at(-1)?.path };
+        const page = await (window as unknown as PerformanceBridge).polytray.getLibraryPage({ sort: 'name', direction: 'ASC', extension: null, folder: folderPath, search: '', collectionPaths: null, limit: 500, offset: 0 });
+        return { elapsedMs: performance.now() - started, total: page.status === 'ok' ? page.totalModels : 0, pageCount: page.status === 'ok' ? page.items.length : 0, totalItems: page.status === 'ok' ? page.totalItems : 0, archiveGroups: page.status === 'ok' ? page.items.filter((item) => item.kind === 'archive').length : 0 };
       }, folder);
       finalPage = sample;
       if (i >= 5) samples.push(sample.elapsedMs);
@@ -51,8 +51,8 @@ async function runAppQueryBenchmark(count: number) {
     for (let i = 0; i < 25; i++) {
       const sample = await window.evaluate(async ({ folderPath, collectionPaths }) => {
         const started = performance.now();
-        const page = await (window as unknown as PerformanceBridge).polytray.getFiles({ folder: folderPath, sort: 'name', order: 'ASC', limit: 500, offset: 0 });
-        return { elapsedMs: performance.now() - started, filteredCount: page.files.filter((file) => collectionPaths.includes(file.path)).length };
+        const page = await (window as unknown as PerformanceBridge).polytray.getLibraryPage({ sort: 'name', direction: 'ASC', extension: null, folder: folderPath, search: '', collectionPaths, limit: 500, offset: 0 });
+        return { elapsedMs: performance.now() - started, filteredCount: page.status === 'ok' ? page.totalModels : 0 };
       }, { folderPath: folder, collectionPaths });
       filteredCount = sample.filteredCount;
       if (i >= 5) collectionSamples.push(sample.elapsedMs);
@@ -62,14 +62,16 @@ async function runAppQueryBenchmark(count: number) {
     recorder.record('query-total', finalPage?.total ?? null);
     recorder.record('first-page-count', finalPage?.pageCount ?? null);
     recorder.record('last-only-membership-in-first-page', filteredCount);
+    const planDiagnostics = JSON.parse(runInElectronNode('tests/dev/analyze-performance-query.ts', [isolated.userDataDir]));
     return {
       fixture: {
-        records: count, folders: 40, folderFilter: true,
-        queryFolder: folder, matchingRows: finalPage?.total ?? 0,
+        records: count, folders: 40, folderFilter: true, archiveMemberShare: 0.2, archiveGroups: 12,
+        queryFolder: folder, matchingRows: finalPage?.total ?? 0, matchingDisplayItems: finalPage?.totalItems ?? 0,
         order: 'name ASC', pageSize: 500, sortTiePattern: '7 sizes, 9 timestamps, 11 vertex-counts, 13 face-counts',
       },
       folderQuery: { timingClock: 'renderer performance.now around the awaited production IPC call', warmups: 5, samples: 20, ...summarize(samples) },
       lastOnlyCollection: { memberCount: 1, firstPageMatches: filteredCount, queryAndMembership: { warmups: 5, samples: 20, ...summarize(collectionSamples) } },
+      productionQueryDiagnostic: planDiagnostics,
       ...(count === 600 ? { displayedPageCount: pageFiveHundred, totalCount: finalPage?.total, lastRecordPath: lastOnlyPath } : {}),
     };
   } finally { await isolated.close(); }
@@ -85,8 +87,8 @@ async function main() {
     sqlite: process.versions.sqlite ?? 'Electron bundled SQLite',
   }, methodology: {
     warmups: 5, measuredSamples: 20,
-    query: 'Electron renderer -> preload IPC -> production GET_FILES folder branch -> 500 row page; includes folder containment and JavaScript sort.',
-    collection: 'Same first page plus the renderer active-collection file-path membership predicate, using the last-only collection fixture.',
+    query: 'Electron renderer -> preload IPC -> production GET_LIBRARY_PAGE scoped 500-item page; includes filtered model count, archive-summary grouping/counts, ordering, representative samples, and page selection.',
+    collection: 'Production GET_LIBRARY_PAGE with last-only collectionPaths membership in SQLite.',
     idleHeartbeat: 'Not measured by this query benchmark; main heartbeat, renderer long tasks and actual viewer-frame hooks are separate probes.',
     viewerFrames: 'Unavailable in this run. installRendererProbe counts only explicit markViewerFrame calls after a real viewer render; it does not schedule animation frames. Draw calls are not treated as frame counts.',
   }, denseDiagnostic, results }, null, 2));
