@@ -24,19 +24,6 @@ function writeModel(filename: string, valid = true) {
     : 'not a valid STL model');
 }
 
-function waitForFile(filename: string) {
-  if (fs.existsSync(filename)) return Promise.resolve();
-  return new Promise<void>((resolve, reject) => {
-    const watcher = fs.watch(path.dirname(filename), (_event, changed) => {
-      if (changed?.toString() === path.basename(filename) && fs.existsSync(filename)) {
-        watcher.close();
-        resolve();
-      }
-    });
-    watcher.on('error', reject);
-  });
-}
-
 test.beforeAll(async () => {
   scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-controls-'));
   controlRoot = path.join(scratch, 'cancel-library');
@@ -80,7 +67,7 @@ test('scan pause keeps browsing responsive and cancel never prunes committed row
   await page.evaluate(({ rootPath, runtimeSettings }) => {
     (window as Window & { __scanPromise?: Promise<{ state: string; discovered: number }> }).__scanPromise = window.polytray.scanFolder(rootPath, runtimeSettings);
   }, { rootPath: controlRoot, runtimeSettings: settings });
-  await waitForFile(reachedPath);
+  await expect.poll(() => fs.existsSync(reachedPath), { timeout: 20_000 }).toBe(true);
   const pauseJobId = await page.evaluate(async () => {
     const state = window as Window & { __pausePromise?: Promise<{ ok: boolean }> };
     const bridge = window.polytray as unknown as {
