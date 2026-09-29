@@ -28,6 +28,7 @@ test('clearing thumbnails fences an active generation before it can publish stal
   let holdPath = '';
   let reachedPath = '';
   let releasePath = '';
+  let finishedPath = '';
   const isolated = await launchIsolatedApp({
     mainEntry: path.join(process.cwd(), 'out/main/index.js'),
     env,
@@ -39,6 +40,7 @@ test('clearing thumbnails fences an active generation before it can publish stal
       holdPath = path.join(scratchDir, 'thumbnail-generation-hold');
       reachedPath = path.join(scratchDir, 'thumbnail-generation-reached');
       releasePath = path.join(scratchDir, 'thumbnail-generation-release');
+      finishedPath = path.join(scratchDir, 'thumbnail-generation-finished');
       env.POLYTRAY_THUMBNAIL_TEST_TARGET_PATH = modelPath;
     },
   });
@@ -97,17 +99,24 @@ test('clearing thumbnails fences an active generation before it can publish stal
       }));
       throw new Error(`Thumbnail gate did not engage; hold=${fs.existsSync(holdPath)} race=${JSON.stringify(diagnostic)}`, { cause: error });
     }
+    expect(fs.readFileSync(reachedPath, 'utf8')).toContain('thumbnail generation reached isolated test gate');
     expect(await page.evaluate(() => (window as Window & { __thumbnailRace?: { settled: boolean } }).__thumbnailRace?.settled)).toBe(false);
 
     await page.evaluate(options => window.polytray.clearThumbnails(options), clearSettings);
     expect(await page.evaluate(({ targetPath, folder }) => window.polytray.getFiles({ folder, limit: 10, offset: 0 })
       .then(result => result.files.find(file => file.path === targetPath)?.thumbnail ?? null), { targetPath: modelPath, folder: library })).toBeNull();
-    fs.writeFileSync(releasePath, 'release');
-
     await expect.poll(() => page.evaluate(() => (window as Window & { __thumbnailRace?: { settled: boolean } }).__thumbnailRace?.settled), { timeout: 20_000 }).toBe(true);
     const oldRequest = await page.evaluate(() => (window as Window & { __thumbnailRace?: { result: string | null; error: string | null } }).__thumbnailRace);
     expect(oldRequest?.result).toBeNull();
-    expect(oldRequest?.error).toContain('ThumbnailJobCancelledError');
+    expect(oldRequest?.error).toContain('Thumbnail job cancelled');
+    fs.writeFileSync(releasePath, 'release');
+    await expect.poll(() => fs.existsSync(finishedPath), { timeout: 20_000 }).toBe(true);
+    expect(fs.readFileSync(finishedPath, 'utf8')).toContain('stale thumbnail response passed cache write guard');
+    expect(fs.existsSync(staleColorPath)).toBe(false);
+    const afterStaleResponse = await page.evaluate(({ targetPath, folder }) => window.polytray.getFiles({ folder, limit: 10, offset: 0 })
+      .then(rows => rows.files.find(file => file.path === targetPath)?.thumbnail ?? null), { targetPath: modelPath, folder: library });
+    expect(afterStaleResponse).not.toBe(staleColorPath);
+
     await expect.poll(async () => {
       const result = await page.evaluate(({ targetPath, folder }) => window.polytray.getFiles({ folder, limit: 10, offset: 0 })
         .then(rows => rows.files.find(file => file.path === targetPath)?.thumbnail ?? null), { targetPath: modelPath, folder: library });
@@ -117,6 +126,7 @@ test('clearing thumbnails fences an active generation before it can publish stal
       .then(rows => rows.files.find(file => file.path === targetPath)?.thumbnail ?? null), { targetPath: modelPath, folder: library });
     expect(latest).toBeTruthy();
     expect(latest).not.toBe(initialBluePath);
+    expect(latest).not.toBe(staleColorPath);
     expect(fs.existsSync(latest!)).toBe(true);
     expect(fs.existsSync(initialBluePath!)).toBe(false);
     expect(fs.existsSync(staleColorPath)).toBe(false);
