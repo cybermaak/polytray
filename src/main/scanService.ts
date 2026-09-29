@@ -39,7 +39,7 @@ export interface ScanServiceOptions {
   onThrottle?: (queuedDiscoveryEvents: number, queuedMetadata: number) => void;
 }
 
-export interface ScanRequestOptions { batchSize?: number; }
+export interface ScanRequestOptions { batchSize?: number; signal?: AbortSignal; }
 
 interface ActiveJob {
   jobId: string;
@@ -227,6 +227,9 @@ export class ScanService {
       acknowledgePause: () => acknowledgePause(),
     };
     job.pauseAcknowledged = new Promise<void>((resolve) => { acknowledgePause = resolve; });
+    const abortFromParent = () => job.controller.abort(request.signal?.reason);
+    if (request.signal?.aborted) abortFromParent();
+    else request.signal?.addEventListener('abort', abortFromParent, { once: true });
     const blockers = [...this.jobs.values()].filter((active) =>
       path.resolve(active.rootPath) !== canonicalRoot &&
       (filterContainedPaths(active.rootPath, [canonicalRoot]).length > 0 || filterContainedPaths(canonicalRoot, [active.rootPath]).length > 0));
@@ -251,6 +254,7 @@ export class ScanService {
         return this.run(job, normalizeBatchSize(request.batchSize));
       })
       .finally(() => {
+        request.signal?.removeEventListener('abort', abortFromParent);
         if (this.jobs.get(canonicalRoot) === job) this.jobs.delete(canonicalRoot);
       });
     this.jobs.set(canonicalRoot, job);
@@ -261,7 +265,11 @@ export class ScanService {
   cancel(jobId: string) {
     const job = [...this.jobs.values()].find((active) => active.jobId === jobId) ?? this.terminalJobRecords.get(jobId);
     if (!job || ['completed', 'partial', 'failed', 'cancelled'].includes(job.state)) return false;
-    job.state = 'cancelling'; job.updatedAt = Date.now(); job.controller.abort(); job.retryController?.abort(); job.releaseResume(); this.publish(job); return true;
+    job.state = 'cancelling'; job.updatedAt = Date.now(); job.controller.abort(); job.retryController?.abort();
+    job.releaseResume();
+    job.acknowledgePause();
+    this.publish(job);
+    return true;
   }
 
   async pause(jobId: string): Promise<boolean> {
@@ -302,6 +310,7 @@ export class ScanService {
     job.state = 'running';
     this.publish(job);
     for (const error of retryable) {
+      if (retryController.signal.aborted) break;
       if (!error.path) continue;
       if (error.phase === 'metadata') {
         const identity = this.repository.getFileIdentityByPath(error.path);
@@ -311,6 +320,7 @@ export class ScanService {
           const extract = this.options.extractMetadata ?? ((filePath, fileExtension, context) =>
             extractMetadata(filePath, fileExtension, { signal: context.signal }));
           const metadata = await extract(identity.path, extension, { identity, requestId: randomUUID(), signal: retryController.signal });
+          if (retryController.signal.aborted) break;
           const result = this.repository.applyMetadataResult({ fileId: identity.id, path: identity.path,
             expectedContentRevision: identity.contentRevision, vertexCount: metadata.vertexCount,
             faceCount: metadata.faceCount, dimensions: metadata.dimensions ? JSON.stringify(metadata.dimensions) : null });
@@ -320,11 +330,13 @@ export class ScanService {
             job.errors = job.errors.filter((item) => !(item.path === error.path && item.phase === error.phase && item.code === error.code));
           }
         } catch (cause) {
+          if (retryController.signal.aborted) break;
           error.message = cause instanceof Error ? cause.message : String(cause);
         }
       } else if (error.phase === 'discovery') {
         const retryRoot = error.code === 'ARCHIVE_FAILED' ? `${error.path}${ARCHIVE_ENTRY_SEPARATOR}` : error.path;
-        const scopeRetry = await this.scan(retryRoot).catch(() => null);
+        const scopeRetry = await this.scan(retryRoot, { signal: retryController.signal }).catch(() => null);
+        if (retryController.signal.aborted) break;
         if (scopeRetry?.state === 'completed') {
           job.errors = job.errors.filter((item) => !(item.path === error.path && item.phase === error.phase && item.code === error.code));
         }
