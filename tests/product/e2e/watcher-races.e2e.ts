@@ -50,9 +50,11 @@ test('utility watcher indexes before enrichment, fences scan churn, and recovers
   let releasePath = '';
   let reachedPath = '';
   let rootStatusReleasePath = '';
+  let rootStatusReachedPath = '';
   let outsidePath = '';
   let offlineRoot = '';
   let isolated: Awaited<ReturnType<typeof launchIsolatedApp>> | null = null;
+  let mainPage: import('@playwright/test').Page | null = null;
 
   try {
     isolated = await launchIsolatedApp({
@@ -65,6 +67,7 @@ test('utility watcher indexes before enrichment, fences scan churn, and recovers
         releasePath = path.join(scratchDir, 'release-scan');
         reachedPath = path.join(scratchDir, 'scan-held');
         rootStatusReleasePath = path.join(scratchDir, 'release-watcher-root-check');
+        rootStatusReachedPath = path.join(scratchDir, 'watcher-root-check-held');
         outsidePath = path.join(scratchDir, 'outside.stl');
         offlineRoot = `${root}-offline`;
         fs.mkdirSync(beforeScan, { recursive: true });
@@ -76,9 +79,11 @@ test('utility watcher indexes before enrichment, fences scan churn, and recovers
         env.POLYTRAY_SCAN_TEST_REACHED_PATH = reachedPath;
         env.POLYTRAY_WATCHER_TEST_ROOT_PATH = root;
         env.POLYTRAY_WATCHER_TEST_ROOT_RELEASE_PATH = rootStatusReleasePath;
+        env.POLYTRAY_WATCHER_TEST_ROOT_REACHED_PATH = rootStatusReachedPath;
       },
     });
-    const page = await findMainWindow(isolated.app);
+    mainPage = await findMainWindow(isolated.app);
+    const page = mainPage;
 
     await page.evaluate(() => {
       const state = window as Window & {
@@ -175,8 +180,11 @@ test('utility watcher indexes before enrichment, fences scan churn, and recovers
     fs.rmSync(releasePath, { force: true });
     fs.rmSync(reachedPath, { force: true });
     fs.rmSync(rootStatusReleasePath, { force: true });
+    fs.rmSync(rootStatusReachedPath, { force: true });
     await page.evaluate(() => window.polytray.stopWatching());
     await page.evaluate(({ folder, runtime }) => window.polytray.startWatching([folder], runtime), { folder: root, runtime: settings });
+    await expect.poll(() => fs.existsSync(rootStatusReachedPath), { timeout: 15_000 }).toBe(true);
+    fs.rmSync(rootStatusReachedPath, { force: true });
     fs.renameSync(offlineRoot, root);
     fs.writeFileSync(rootStatusReleasePath, 'release');
     await expect.poll(() => page.evaluate(({ folder, after }) =>
@@ -234,6 +242,9 @@ test('utility watcher indexes before enrichment, fences scan churn, and recovers
     if (offlineRoot && fs.existsSync(offlineRoot) && root && !fs.existsSync(root)) fs.renameSync(offlineRoot, root);
     if (isolated && rootStatusReleasePath && !fs.existsSync(rootStatusReleasePath)) fs.writeFileSync(rootStatusReleasePath, 'release');
     if (isolated && releasePath && !fs.existsSync(releasePath)) fs.writeFileSync(releasePath, 'release');
+    if (mainPage) await mainPage.evaluate(() => window.polytray.stopWatching()).catch(() => undefined);
+    if (isolated && rootStatusReachedPath) fs.rmSync(rootStatusReachedPath, { force: true });
+    if (isolated && rootStatusReleasePath) fs.rmSync(rootStatusReleasePath, { force: true });
     await isolated?.close();
   }
 });

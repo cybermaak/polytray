@@ -32,13 +32,19 @@ async function waitForIsolatedRootStartRelease(roots: string[], generationAtStar
   if (process.env.POLYTRAY_ISOLATED_TEST !== '1') return;
   const rootPath = process.env.POLYTRAY_WATCHER_TEST_ROOT_PATH;
   const releasePath = process.env.POLYTRAY_WATCHER_TEST_ROOT_RELEASE_PATH;
+  const reachedPath = process.env.POLYTRAY_WATCHER_TEST_ROOT_REACHED_PATH;
   const scratchDir = process.env.POLYTRAY_PERF_SCRATCH;
-  if (!rootPath || !releasePath || !scratchDir || !path.isAbsolute(rootPath) ||
-      !path.isAbsolute(releasePath) || !path.isAbsolute(scratchDir) ||
+  if (!rootPath || !releasePath || !reachedPath || !scratchDir || !path.isAbsolute(rootPath) ||
+      !path.isAbsolute(releasePath) || !path.isAbsolute(reachedPath) || !path.isAbsolute(scratchDir) ||
       !roots.includes(path.resolve(rootPath))) return;
+  const relativeRootPath = path.relative(path.resolve(scratchDir), path.resolve(rootPath));
   const relativeReleasePath = path.relative(path.resolve(scratchDir), path.resolve(releasePath));
-  if (!relativeReleasePath || relativeReleasePath === '..' || relativeReleasePath.startsWith(`..${path.sep}`) ||
-      path.isAbsolute(relativeReleasePath)) return;
+  const relativeReachedPath = path.relative(path.resolve(scratchDir), path.resolve(reachedPath));
+  const isScratchPath = (relativePath: string) => relativePath.length > 0 && relativePath !== '..' &&
+    !relativePath.startsWith(`..${path.sep}`) && !path.isAbsolute(relativePath);
+  if (!isScratchPath(relativeRootPath) || !isScratchPath(relativeReleasePath) || !isScratchPath(relativeReachedPath)) return;
+
+  await fs.writeFile(reachedPath, 'held');
 
   while (generationAtStart === generation) {
     try {
