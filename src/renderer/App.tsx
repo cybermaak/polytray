@@ -71,6 +71,7 @@ import {
   invalidateThumbnailImages,
 } from "./lib/thumbnailInvalidation";
 import { patchPreviewTargetFile, preferCurrentFileRevision } from "./lib/fileRevision";
+import { advanceOfflineRootRevision, canClearOfflineRootAfterScan, getOfflineRootRevision } from "./lib/offlineRootRevision";
 
 interface LibraryStats {
   total: number;
@@ -93,6 +94,7 @@ export const App: React.FC = () => {
   // ── State ───────────────────────────────────────────────────────
   const [folders, setFolders] = useState<string[]>([]);
   const [offlineRoots, setOfflineRoots] = useState<Map<string, string>>(() => new Map());
+  const offlineRootRevisionsRef = useRef(new Map<string, number>());
   const [watcherError, setWatcherError] = useState<WatcherErrorData | null>(null);
   const [watcherRetryRevision, setWatcherRetryRevision] = useState(0);
   const [stats, setStats] = useState<LibraryStats>({
@@ -311,27 +313,37 @@ export const App: React.FC = () => {
     [],
   );
 
-  const clearOfflineRoot = useCallback((folderPath: string) => {
+  const clearOfflineRoot = useCallback((folderPath: string, expectedRevision?: number, advanceRevision = true) => {
     const rootKey = canonicalRootKey(folderPath);
+    const currentRevision = getOfflineRootRevision(offlineRootRevisionsRef.current, rootKey);
+    if (expectedRevision !== undefined && !canClearOfflineRootAfterScan(expectedRevision, currentRevision)) return false;
+    if (advanceRevision) advanceOfflineRootRevision(offlineRootRevisionsRef.current, rootKey);
     setOfflineRoots((current) => {
       if (!current.has(rootKey)) return current;
       const next = new Map(current);
       next.delete(rootKey);
       return next;
     });
+    return true;
   }, []);
 
   const scanLibraryFolder = useCallback(async (folderPath: string) => {
+    const rootKey = canonicalRootKey(folderPath);
+    const scanStartedAt = getOfflineRootRevision(offlineRootRevisionsRef.current, rootKey);
     const result = await window.polytray.scanFolder(folderPath, getRuntimeSettings());
-    if (result.state === "completed" || result.state === "partial") clearOfflineRoot(folderPath);
+    if (result.state === "completed" || result.state === "partial") clearOfflineRoot(folderPath, scanStartedAt);
     return result;
   }, [clearOfflineRoot, getRuntimeSettings]);
 
   const applyLibraryState = useCallback((nextState: LibraryState) => {
+    const previousRootKeys = new Set(foldersRef.current.map(canonicalRootKey));
+    const configuredRootKeys = new Set(nextState.libraryFolders.map(canonicalRootKey));
+    for (const rootKey of previousRootKeys) {
+      if (!configuredRootKeys.has(rootKey)) advanceOfflineRootRevision(offlineRootRevisionsRef.current, rootKey);
+    }
     libraryStateRef.current = nextState;
     setFolders(nextState.libraryFolders);
     foldersRef.current = nextState.libraryFolders;
-    const configuredRootKeys = new Set(nextState.libraryFolders.map(canonicalRootKey));
     setOfflineRoots((current) => new Map([...current].filter(([key]) => configuredRootKeys.has(key))));
   }, []);
 
@@ -731,11 +743,17 @@ export const App: React.FC = () => {
     cleanups.push(
       window.polytray.onFilesUpdated(async (notice) => {
         if (notice.type === "root-available") {
-          clearOfflineRoot(notice.filePath);
+          const rootKey = canonicalRootKey(notice.filePath);
+          const configuredRoot = foldersRef.current.find((folder) => canonicalRootKey(folder) === rootKey);
+          if (configuredRoot) {
+            advanceOfflineRootRevision(offlineRootRevisionsRef.current, rootKey);
+            clearOfflineRoot(configuredRoot, undefined, false);
+          }
         } else if (notice.type === "root-unavailable") {
           const rootKey = canonicalRootKey(notice.filePath);
           const configuredRoot = foldersRef.current.find((folder) => canonicalRootKey(folder) === rootKey);
           if (configuredRoot) {
+            advanceOfflineRootRevision(offlineRootRevisionsRef.current, rootKey);
             setOfflineRoots((current) => {
               const next = new Map(current);
               next.set(rootKey, configuredRoot);
