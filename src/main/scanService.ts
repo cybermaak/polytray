@@ -9,7 +9,8 @@ import { createFileIndexRepository, subscribeToFileIndexMutations, type FileInde
 import { extractMetadata, type MetadataSummary } from './metadata';
 import { filterContainedPaths } from './pathContainment';
 import { pruneScanSnapshotPaths, captureScanPruneSnapshot } from './scanPruner';
-import { streamDiscoverFolder } from './scanner';
+import { streamDiscoverArchive, streamDiscoverFolder } from './scanner';
+import { ARCHIVE_ENTRY_SEPARATOR } from '../shared/archivePaths';
 import type { ScanScope, ScanTerminalState } from './scanCoverage';
 import { hasCurrentStoredMeasurement } from '../shared/model/measurement';
 
@@ -52,6 +53,12 @@ interface ActiveJob {
   updatedAt: number;
   lastPublishedAt: number;
   promise: Promise<ScanJobResult>;
+  pauseRequested: boolean;
+  resumeWait: Promise<void>;
+  releaseResume: () => void;
+  pauseAcknowledged: Promise<void>;
+  acknowledgePause: () => void;
+  retryController?: AbortController;
 }
 
 type DiscoveredRecord = DiscoveredModel;
@@ -185,13 +192,18 @@ function mapScopeError(event: Extract<DiscoveryEvent, { type: 'scope-error' }>):
 
 export class ScanService {
   private readonly jobs = new Map<string, ActiveJob>();
+  private readonly recentJobs: BackgroundJob[] = [];
+  private readonly terminalJobRecords = new Map<string, ActiveJob>();
+  private readonly jobListeners = new Set<(job: BackgroundJob) => void>();
   private generation = Date.now();
   private disposed = false;
   private readonly repository: FileIndexRepository;
   private readonly discover: NonNullable<ScanServiceOptions['discover']>;
   constructor(private readonly options: ScanServiceOptions) {
     this.repository = options.repository ?? createFileIndexRepository(options.db);
-    this.discover = options.discover ?? ((rootPath, signal, generation) => streamDiscoverFolder(rootPath, signal, generation));
+    this.discover = options.discover ?? ((rootPath, signal, generation) => rootPath.endsWith(ARCHIVE_ENTRY_SEPARATOR)
+      ? streamDiscoverArchive(rootPath.slice(0, -ARCHIVE_ENTRY_SEPARATOR.length), rootPath, signal, generation)
+      : streamDiscoverFolder(rootPath, signal, generation));
   }
 
   scan(rootPath: string, request: ScanRequestOptions = {}): Promise<ScanJobResult> {
@@ -199,6 +211,8 @@ export class ScanService {
     const canonicalRoot = path.resolve(rootPath);
     const existing = this.jobs.get(canonicalRoot);
     if (existing) return existing.promise;
+    let releaseResume!: () => void;
+    let acknowledgePause!: () => void;
     const job: ActiveJob = {
       jobId: createJobId(), rootPath: canonicalRoot, generation: ++this.generation,
       controller: new AbortController(), state: 'queued',
@@ -206,7 +220,13 @@ export class ScanService {
         metadataCompleted: 0, metadataFailed: 0 },
       errors: [], startedAt: Date.now(), updatedAt: Date.now(), lastPublishedAt: 0,
       promise: Promise.resolve(null as unknown as ScanJobResult),
+      pauseRequested: false,
+      resumeWait: new Promise<void>((resolve) => { releaseResume = resolve; }),
+      releaseResume: () => releaseResume(),
+      pauseAcknowledged: Promise.resolve(),
+      acknowledgePause: () => acknowledgePause(),
     };
+    job.pauseAcknowledged = new Promise<void>((resolve) => { acknowledgePause = resolve; });
     const blockers = [...this.jobs.values()].filter((active) =>
       path.resolve(active.rootPath) !== canonicalRoot &&
       (filterContainedPaths(active.rootPath, [canonicalRoot]).length > 0 || filterContainedPaths(canonicalRoot, [active.rootPath]).length > 0));
@@ -230,25 +250,111 @@ export class ScanService {
         }
         return this.run(job, normalizeBatchSize(request.batchSize));
       })
-      .finally(() => { if (this.jobs.get(canonicalRoot) === job) this.jobs.delete(canonicalRoot); });
+      .finally(() => {
+        if (this.jobs.get(canonicalRoot) === job) this.jobs.delete(canonicalRoot);
+      });
     this.jobs.set(canonicalRoot, job);
     this.publish(job);
     return job.promise;
   }
 
   cancel(jobId: string) {
-    const job = [...this.jobs.values()].find((active) => active.jobId === jobId);
+    const job = [...this.jobs.values()].find((active) => active.jobId === jobId) ?? this.terminalJobRecords.get(jobId);
     if (!job || ['completed', 'partial', 'failed', 'cancelled'].includes(job.state)) return false;
-    job.state = 'cancelling'; job.updatedAt = Date.now(); job.controller.abort(); this.publish(job); return true;
+    job.state = 'cancelling'; job.updatedAt = Date.now(); job.controller.abort(); job.retryController?.abort(); job.releaseResume(); this.publish(job); return true;
   }
 
-  getBackgroundJobs(): BackgroundJob[] { return [...this.jobs.values()].map((job) => this.snapshot(job)); }
+  async pause(jobId: string): Promise<boolean> {
+    const job = [...this.jobs.values()].find((active) => active.jobId === jobId);
+    if (job?.state === 'pausing') {
+      await job.pauseAcknowledged;
+      return (job.state as BackgroundJobState) === 'paused';
+    }
+    if (!job || !['queued', 'running'].includes(job.state)) return false;
+    job.pauseRequested = true;
+    job.state = 'pausing';
+    job.pauseAcknowledged = new Promise<void>((resolve) => { job.acknowledgePause = resolve; });
+    this.publish(job);
+    await job.pauseAcknowledged;
+    return (job.state as BackgroundJobState) === 'paused';
+  }
+
+  resume(jobId: string) {
+    const job = [...this.jobs.values()].find((active) => active.jobId === jobId);
+    if (!job || job.state !== 'paused') return false;
+    job.pauseRequested = false;
+    job.state = 'running';
+    job.updatedAt = Date.now();
+    this.publish(job);
+    job.releaseResume();
+    job.resumeWait = new Promise<void>((resolve) => { job.releaseResume = resolve; });
+    return true;
+  }
+
+  async retryFailures(jobId: string) {
+    const job = this.terminalJobRecords.get(jobId);
+    if (!job || !['partial', 'failed'].includes(job.state)) return false;
+    const retryable = job.errors.filter((error) => error.retryable);
+    if (!retryable.length) return false;
+    await job.promise.catch(() => undefined);
+    const retryController = new AbortController();
+    job.retryController = retryController;
+    job.state = 'running';
+    this.publish(job);
+    for (const error of retryable) {
+      if (!error.path) continue;
+      if (error.phase === 'metadata') {
+        const identity = this.repository.getFileIdentityByPath(error.path);
+        if (!identity) continue;
+        try {
+          const extension = path.extname(identity.path).slice(1).toLowerCase();
+          const extract = this.options.extractMetadata ?? ((filePath, fileExtension, context) =>
+            extractMetadata(filePath, fileExtension, { signal: context.signal }));
+          const metadata = await extract(identity.path, extension, { identity, requestId: randomUUID(), signal: retryController.signal });
+          const result = this.repository.applyMetadataResult({ fileId: identity.id, path: identity.path,
+            expectedContentRevision: identity.contentRevision, vertexCount: metadata.vertexCount,
+            faceCount: metadata.faceCount, dimensions: metadata.dimensions ? JSON.stringify(metadata.dimensions) : null });
+          if (result.status === 'updated') {
+            job.counts.metadataCompleted++;
+            job.counts.metadataFailed = Math.max(0, job.counts.metadataFailed - 1);
+            job.errors = job.errors.filter((item) => !(item.path === error.path && item.phase === error.phase && item.code === error.code));
+          }
+        } catch (cause) {
+          error.message = cause instanceof Error ? cause.message : String(cause);
+        }
+      } else if (error.phase === 'discovery') {
+        const retryRoot = error.code === 'ARCHIVE_FAILED' ? `${error.path}${ARCHIVE_ENTRY_SEPARATOR}` : error.path;
+        const scopeRetry = await this.scan(retryRoot).catch(() => null);
+        if (scopeRetry?.state === 'completed') {
+          job.errors = job.errors.filter((item) => !(item.path === error.path && item.phase === error.phase && item.code === error.code));
+        }
+      }
+    }
+    job.state = retryController.signal.aborted ? 'cancelled' : job.errors.some((error) => error.retryable) ? 'partial' : 'completed';
+    job.retryController = undefined;
+    this.bump(job, true);
+    const prior = this.recentJobs.findIndex((item) => item.jobId === jobId);
+    if (prior >= 0) this.recentJobs[prior] = this.snapshot(job);
+    return true;
+  }
+
+  onJobChanged(callback: (job: BackgroundJob) => void) {
+    this.jobListeners.add(callback);
+    return () => this.jobListeners.delete(callback);
+  }
+
+  getBackgroundJobs(): BackgroundJob[] {
+    const jobs = new Map(this.recentJobs.map((job) => [job.jobId, job]));
+    for (const job of this.jobs.values()) jobs.set(job.jobId, this.snapshot(job));
+    return [...jobs.values()];
+  }
 
   async dispose() {
     if (this.disposed) return;
     this.disposed = true;
-    for (const job of this.jobs.values()) job.controller.abort();
+    for (const job of this.jobs.values()) { job.controller.abort(); job.releaseResume(); }
     await Promise.all([...this.jobs.values()].map((job) => job.promise.catch(() => undefined)));
+    this.jobListeners.clear();
   }
 
   private snapshot(job: ActiveJob): BackgroundJob {
@@ -261,11 +367,38 @@ export class ScanService {
 
   private publish(job: ActiveJob) {
     job.lastPublishedAt = Date.now();
-    this.options.onJobChanged?.(this.snapshot(job));
+    const snapshot = this.snapshot(job);
+    if (['completed', 'partial', 'failed', 'cancelled'].includes(job.state)) {
+      this.terminalJobRecords.set(job.jobId, job);
+      const prior = this.recentJobs.findIndex((item) => item.jobId === job.jobId);
+      if (prior >= 0) this.recentJobs.splice(prior, 1);
+      this.recentJobs.unshift(snapshot);
+      this.recentJobs.splice(20);
+      for (const oldId of this.terminalJobRecords.keys()) if (!this.recentJobs.some((item) => item.jobId === oldId)) this.terminalJobRecords.delete(oldId);
+    } else {
+      const prior = this.recentJobs.findIndex((item) => item.jobId === job.jobId);
+      if (prior >= 0) this.recentJobs[prior] = snapshot;
+    }
+    this.options.onJobChanged?.(snapshot);
+    for (const listener of this.jobListeners) listener(snapshot);
   }
 
   private async run(job: ActiveJob, batchSize: number): Promise<ScanJobResult> {
     job.state = 'running'; job.updatedAt = Date.now(); this.publish(job);
+    if (job.pauseRequested && !job.controller.signal.aborted) {
+      job.state = 'paused';
+      this.publish(job);
+      job.acknowledgePause();
+      await job.resumeWait;
+      if (job.controller.signal.aborted) {
+        job.state = 'cancelled';
+        this.bump(job, true);
+        return { jobId: job.jobId, totalFiles: 0, state: 'cancelled', affectedScopes: [], errors: [], retainedCount: 0,
+          deletedCount: 0, discovered: 0, indexed: 0, metadataCompleted: 0, metadataFailed: 0 };
+      }
+      job.state = 'running';
+      this.publish(job);
+    }
     let stopHeartbeatProbe = () => {};
     const rootPath = job.rootPath;
     const discoveredPaths = new Set<string>();
@@ -311,8 +444,14 @@ export class ScanService {
     }, (depth) => this.options.onThrottle?.(discoveryQueue.size, depth));
 
     const producer = (async () => {
+      let iterator: AsyncIterator<DiscoveryEvent> | undefined;
       try {
-        for await (const event of this.discover(rootPath, job.controller.signal, job.generation)) {
+        iterator = this.discover(rootPath, job.controller.signal, job.generation)[Symbol.asyncIterator]();
+        while (!job.controller.signal.aborted) {
+          if (job.pauseRequested) await job.resumeWait;
+          const item = await iterator.next();
+          if (item.done) break;
+          const event = item.value;
           if (job.controller.signal.aborted || !(await discoveryQueue.push(event))) break;
         }
       } catch (error: unknown) {
@@ -322,7 +461,10 @@ export class ScanService {
           await discoveryQueue.push(event);
           await discoveryQueue.push({ type: 'discovery-complete', rootPath, cancelled: false });
         }
-      } finally { discoveryQueue.close(job.controller.signal.aborted); }
+      } finally {
+        await iterator?.return?.();
+        discoveryQueue.close(job.controller.signal.aborted);
+      }
     })();
     stopHeartbeatProbe = startIsolatedScanHeartbeatProbe();
 
@@ -437,6 +579,17 @@ export class ScanService {
           discoveryCancelled = event.cancelled;
           if (!event.cancelled) await flush(true); else pending = [];
           break;
+        }
+        if (job.pauseRequested && !job.controller.signal.aborted) {
+          await metadataQueue.drain();
+          if (!job.controller.signal.aborted) {
+            job.state = 'paused';
+            job.updatedAt = Date.now();
+            this.publish(job);
+            job.acknowledgePause();
+            await job.resumeWait;
+            if (!job.controller.signal.aborted) { job.state = 'running'; this.bump(job, true); }
+          }
         }
       }
       await producer;

@@ -73,11 +73,15 @@ export type ThumbnailJobResult =
 export interface ScanJobs {
   getBackgroundJobs(): Promise<BackgroundJob[]>;
   onBackgroundJobChanged(callback: (job: BackgroundJob) => void): () => void;
-  pauseJob(jobId: string): Promise<void>;
-  resumeJob(jobId: string): Promise<void>;
-  cancelJob(jobId: string): Promise<void>;
-  retryJobFailures(jobId: string): Promise<void>;
+  pauseJob(jobId: string): Promise<BackgroundJobCommandResult>;
+  resumeJob(jobId: string): Promise<BackgroundJobCommandResult>;
+  cancelJob(jobId: string): Promise<BackgroundJobCommandResult>;
+  retryJobFailures(jobId: string): Promise<BackgroundJobCommandResult>;
 }
+
+export type BackgroundJobCommandResult =
+  | { ok: true; jobId: string; state: BackgroundJobState }
+  | { ok: false; reason: 'not-found' | 'invalid-state' | 'no-retryable-failures' };
 
 export interface BackgroundJobControls {
   getBackgroundJobs(): Promise<BackgroundJob[]>;

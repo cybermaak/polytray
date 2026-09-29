@@ -5,6 +5,7 @@ import { EXT_SET } from "../shared/types";
 import type { DiscoveryEvent, DiscoveredModel } from "../shared/backgroundJobs";
 import {
   ARCHIVE_EXT_SET,
+  ARCHIVE_ENTRY_SEPARATOR,
   createArchiveEntryPath,
   getArchiveEntryBaseName,
   getArchiveEntryDirectory,
@@ -242,6 +243,44 @@ export async function* streamDiscoverFolder(
   }
 
   yield* walkDir(rootPath);
+  yield { type: 'discovery-complete', rootPath, cancelled: cancelled() };
+}
+
+/** Reopens one archive scope without enumerating its containing directory. */
+export async function* streamDiscoverArchive(
+  archivePath: string,
+  rootPath = `${archivePath}${ARCHIVE_ENTRY_SEPARATOR}`,
+  signal?: AbortSignal,
+  generation = Date.now(),
+): AsyncGenerator<DiscoveryEvent> {
+  const cancelled = () => Boolean(signal?.aborted);
+  let closeArchive: (() => Promise<void>) | undefined;
+  try {
+    const opened = await openArchiveDirectory(archivePath);
+    closeArchive = opened.close;
+    const { directory } = opened;
+    if (!cancelled()) {
+      const stat = await fs.promises.stat(archivePath);
+      for (const entry of directory.files) {
+        if (cancelled()) break;
+        if (entry.type !== 'File' || !isSupportedArchiveEntry(entry.path)) continue;
+        const virtualPath = createArchiveEntryPath(archivePath, entry.path);
+        const file: DiscoveredModel = {
+          path: virtualPath, name: getArchiveEntryBaseName(entry.path),
+          extension: getArchiveEntryExtension(entry.path),
+          directory: getArchiveEntryDirectory(virtualPath) || path.dirname(archivePath),
+          archivePath, sizeBytes: entry.uncompressedSize, modifiedAt: Math.floor(stat.mtimeMs),
+        };
+        yield { type: 'file', rootPath, scopePath: archivePath, file };
+      }
+      if (!cancelled()) yield { type: 'scope-complete', rootPath, scopePath: archivePath, generation, kind: 'archive' };
+    }
+  } catch (error: unknown) {
+    if (!cancelled()) yield { type: 'scope-error', rootPath, scopePath: archivePath, phase: 'discovery',
+      code: 'ARCHIVE_FAILED', reason: error instanceof Error ? error.message : String(error), kind: 'archive' };
+  } finally {
+    await closeArchive?.();
+  }
   yield { type: 'discovery-complete', rootPath, cancelled: cancelled() };
 }
 

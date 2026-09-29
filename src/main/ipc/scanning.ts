@@ -17,6 +17,7 @@ import { MetadataWorkerClient } from "../metadataWorkerClient";
 import { parseFolderPath, parseRuntimeSettings } from "./runtimeValidation";
 import { getThumbnailBackgroundJobs, onThumbnailBackgroundJobChanged, pauseThumbnailJob, resumeThumbnailJob, cancelThumbnailJob, retryThumbnailJobFailures } from "../thumbnails";
 import type { BackgroundJob } from "../../shared/backgroundJobs";
+import { ScanJobsController } from "../scanJobs";
 
 interface ScanningMutationOptions {
   runMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
@@ -47,6 +48,14 @@ export function registerScanningHandlers(
       const mainWindow = getMainWindow();
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.BACKGROUND_JOB_CHANGED, job);
     },
+  });
+  const scanJobs = new ScanJobsController({
+    getJobs: () => scanService.getBackgroundJobs(),
+    onChanged: (callback) => scanService.onJobChanged(callback),
+    pause: async (jobId) => scanService.pause(jobId),
+    resume: async (jobId) => scanService.resume(jobId),
+    cancel: async (jobId) => scanService.cancel(jobId),
+    retryFailures: async (jobId) => scanService.retryFailures(jobId),
   });
 
   const stopThumbnailJobEvents = onThumbnailBackgroundJobChanged((job) => {
@@ -93,7 +102,7 @@ export function registerScanningHandlers(
     }
 
     // ── Pass 2: Generate thumbnails in the background (fire-and-forget) ──
-    queueThumbnailGeneration(folderPath, getMainWindow, settings);
+    if (result.state !== 'cancelled') queueThumbnailGeneration(folderPath, getMainWindow, settings);
 
     return result;
   }
@@ -142,5 +151,5 @@ export function registerScanningHandlers(
     return true;
   });
 
-  return { dispose: async () => { stopThumbnailJobEvents(); await scanService.dispose(); await metadataWorker.shutdown(); } };
+  return { scanJobs, dispose: async () => { stopThumbnailJobEvents(); await scanService.dispose(); await metadataWorker.shutdown(); } };
 }

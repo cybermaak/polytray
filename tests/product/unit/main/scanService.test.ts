@@ -95,6 +95,151 @@ test('commits a completed subtree while discovery of a later subtree is blocked'
   }
 });
 
+test('pause acknowledges after the current metadata unit and resume continues the same scan', async () => {
+  const fixture = createTestDb();
+  const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-pause-'));
+  const firstPath = path.join(rootPath, 'first.stl');
+  const secondPath = path.join(rootPath, 'second.stl');
+  const firstMetadataStarted = createBarrier<void>();
+  const releaseMetadata = createBarrier<void>();
+  const discoveredSecond = createBarrier<void>();
+  const states: string[] = [];
+  const service = createScanService({
+    db: fixture.db,
+    discover: async function* (_root, _signal, generation) {
+      yield discovered(rootPath, firstPath);
+      yield discovered(rootPath, secondPath);
+      discoveredSecond.release();
+      yield { type: 'scope-complete', rootPath, scopePath: rootPath, generation, kind: 'directory' };
+      yield { type: 'discovery-complete', rootPath, cancelled: false };
+    },
+    extractMetadata: async (_path, _extension, { identity }) => {
+      if (identity.path === firstPath) { firstMetadataStarted.release(); await releaseMetadata.wait(); }
+      return { vertexCount: 1, faceCount: 1, dimensions: null };
+    },
+    onJobChanged: (job) => states.push(job.state),
+  });
+  try {
+    const scan = service.scan(rootPath, { batchSize: 1 });
+    await firstMetadataStarted.wait();
+    const job = service.getBackgroundJobs().find((item) => item.rootPath === rootPath)!;
+    const pause = service.pause(job.jobId);
+    releaseMetadata.release();
+    assert.equal(await pause, true);
+    const pausedJob = service.getBackgroundJobs().find((item) => item.jobId === job.jobId)!;
+    assert.equal(pausedJob.state, 'paused');
+    assert.equal(pausedJob.counts.discovered, 1);
+    assert.equal(pausedJob.counts.indexed, 1);
+    assert.equal(fixture.db.prepare('SELECT path FROM files WHERE path = ?').get(firstPath) !== undefined, true);
+    assert.equal(fixture.db.prepare('SELECT path FROM files WHERE path = ?').get(secondPath), undefined);
+    assert.equal(service.resume(job.jobId), true);
+    assert.equal((await scan).state, 'completed');
+    for (const state of ['queued', 'running', 'pausing', 'paused', 'completed']) assert.equal(states.includes(state), true, `missing ${state}`);
+    await discoveredSecond.wait();
+  } finally {
+    await service.dispose();
+    fixture.cleanup();
+    fs.rmSync(rootPath, { recursive: true, force: true });
+  }
+});
+
+test('terminal jobs publish once and recent history remains bounded to twenty', async () => {
+  const fixture = createTestDb();
+  const roots = Array.from({ length: 21 }, () => fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-history-')));
+  const terminalEvents = new Map<string, number>();
+  const service = createScanService({
+    db: fixture.db,
+    discover: async function* (rootPath, _signal, generation) {
+      yield { type: 'scope-complete', rootPath, scopePath: rootPath, generation, kind: 'directory' };
+      yield { type: 'discovery-complete', rootPath, cancelled: false };
+    },
+    onJobChanged: (job) => {
+      if (['completed', 'partial', 'failed', 'cancelled'].includes(job.state)) terminalEvents.set(job.jobId, (terminalEvents.get(job.jobId) ?? 0) + 1);
+    },
+  });
+  try {
+    for (const root of roots) await service.scan(root);
+    const jobs = service.getBackgroundJobs();
+    assert.equal(jobs.length, 20);
+    assert.equal(terminalEvents.size, 21);
+    assert.equal([...terminalEvents.values()].every((count) => count === 1), true);
+    const newest = jobs[0];
+    assert.equal(service.cancel(newest.jobId), false);
+    assert.equal(service.resume(newest.jobId), false);
+  } finally {
+    await service.dispose();
+    fixture.cleanup();
+    for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('retryFailures re-extracts only failed metadata files and leaves healthy files untouched', async () => {
+  const fixture = createTestDb();
+  const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-retry-'));
+  const failedPath = path.join(rootPath, 'failed.stl');
+  const healthyPath = path.join(rootPath, 'healthy.stl');
+  const attempts = new Map<string, number>();
+  const service = createScanService({
+    db: fixture.db,
+    discover: async function* (_root, _signal, generation) {
+      yield discovered(rootPath, failedPath);
+      yield discovered(rootPath, healthyPath);
+      yield { type: 'scope-complete', rootPath, scopePath: rootPath, generation, kind: 'directory' };
+      yield { type: 'discovery-complete', rootPath, cancelled: false };
+    },
+    extractMetadata: async (filePath) => {
+      const count = (attempts.get(filePath) ?? 0) + 1;
+      attempts.set(filePath, count);
+      if (filePath === failedPath && count === 1) throw new Error('temporary extraction failure');
+      return { vertexCount: 1, faceCount: 1, dimensions: null };
+    },
+  });
+  try {
+    const result = await service.scan(rootPath, { batchSize: 2 });
+    assert.equal(result.state, 'partial');
+    assert.equal(await service.retryFailures(result.jobId), true);
+    assert.deepEqual([...attempts.entries()].sort(), [[failedPath, 2], [healthyPath, 1]]);
+    assert.equal(service.getBackgroundJobs().find((job) => job.jobId === result.jobId)?.state, 'completed');
+  } finally {
+    await service.dispose();
+    fixture.cleanup();
+    fs.rmSync(rootPath, { recursive: true, force: true });
+  }
+});
+
+test('retryFailures reopens only the failed archive scope and preserves healthy siblings', async () => {
+  const fixture = createTestDb();
+  const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-archive-retry-'));
+  const archivePath = path.join(rootPath, 'broken.zip');
+  const healthyPath = path.join(rootPath, 'healthy.stl');
+  fs.writeFileSync(archivePath, 'broken archive');
+  fs.writeFileSync(healthyPath, 'solid healthy\nendsolid healthy\n');
+  let healthyMetadataRuns = 0;
+  const service = createScanService({
+    db: fixture.db,
+    extractMetadata: async (filePath) => {
+      if (filePath === healthyPath) healthyMetadataRuns++;
+      return { vertexCount: 1, faceCount: 1, dimensions: null };
+    },
+  });
+  try {
+    const initial = await service.scan(rootPath, { batchSize: 1 });
+    assert.equal(initial.state, 'partial');
+    const archive = new JSZip();
+    archive.file('nested/recovered.stl', 'solid recovered\nendsolid recovered\n');
+    fs.writeFileSync(archivePath, await archive.generateAsync({ type: 'nodebuffer' }));
+    assert.equal(await service.retryFailures(initial.jobId), true);
+    assert.equal(healthyMetadataRuns, 1);
+    assert.equal(fixture.db.prepare('SELECT path FROM files WHERE path = ?').get(healthyPath) !== undefined, true);
+    assert.equal(fixture.db.prepare('SELECT path FROM files WHERE path = ?').get(`${archivePath}::entry::nested/recovered.stl`) !== undefined, true);
+    assert.equal(service.getBackgroundJobs().find((job) => job.jobId === initial.jobId)?.state, 'completed');
+  } finally {
+    await service.dispose();
+    fixture.cleanup();
+    fs.rmSync(rootPath, { recursive: true, force: true });
+  }
+});
+
 test('unchanged legacy dimensions are re-enriched without clearing annotations or thumbnail state', async () => {
   const fixture = createTestDb();
   const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-measurement-refresh-'));
@@ -347,9 +492,10 @@ test('cancellation retains starting rows and drops an uncommitted discovered rec
   }] });
   const entered = createBarrier<void>();
   const jobs: string[] = [];
+  const states: string[] = [];
   const service = createScanService({
     db: fixture.db,
-    onJobChanged: (job) => { if (job.state === 'running') jobs.push(job.jobId); },
+    onJobChanged: (job) => { states.push(job.state); if (job.state === 'running') jobs.push(job.jobId); },
     discover: async function* (_root, signal, generation): AsyncGenerator<DiscoveryEvent> {
       yield discovered(rootPath, newPath);
       await entered.wait(signal);
@@ -367,6 +513,8 @@ test('cancellation retains starting rows and drops an uncommitted discovered rec
     assert.equal(repository.getFileIdentityByPath(oldPath) !== null, true);
     assert.equal(repository.getFileIdentityByPath(newPath), null);
     assert.equal(result.deletedCount, 0);
+    assert.equal(states.includes('cancelling'), true);
+    assert.equal(states.includes('cancelled'), true);
   } finally {
     await service.dispose();
     fixture.cleanup();
