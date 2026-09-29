@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, net } from "electron";
-import { join, relative, resolve } from "path";
+import { basename, join, relative, resolve } from "path";
 import { randomUUID } from "node:crypto";
 import { getDb, initDatabase } from "./database";
 import { stopWatcher } from "./watcher";
@@ -136,9 +136,18 @@ function getIsolatedNativeTestAdapters() {
   const launchRelease = containedPath("slicer-launch-release");
   const restoreAckFailure = containedPath("metadata-restore-ack-failure");
   const restoreCancelFailure = containedPath("metadata-restore-cancel-failure");
+  const restoreCommitHold = containedPath("metadata-restore-commit-hold");
+  const restoreCommitReached = containedPath("metadata-restore-commit-reached");
+  const restoreCommitRelease = containedPath("metadata-restore-commit-release");
+  const restoreCommitFailure = containedPath("metadata-restore-commit-failure");
   return {
     restoreAckFailure,
     restoreCancelFailure,
+    restoreCommitHold,
+    restoreCommitReached,
+    restoreCommitRelease,
+    restoreCommitFailure,
+    scratchRoot,
     dialog: {
       showSaveDialog: async () => ({ canceled: false, filePath: containedPath("metadata-backup.json") }),
     },
@@ -175,6 +184,31 @@ function getIsolatedNativeTestAdapters() {
       },
     },
   };
+}
+
+function waitForIsolatedScratchFile(scratchRoot: string, filePath: string): Promise<void> {
+  if (fs.existsSync(filePath)) return Promise.resolve();
+  return new Promise((resolveWait, rejectWait) => {
+    let watcher: fs.FSWatcher | null = null;
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      watcher?.close();
+      if (error) rejectWait(error);
+      else resolveWait();
+    };
+    const check = () => { if (fs.existsSync(filePath)) finish(); };
+    try {
+      watcher = fs.watch(scratchRoot, (_event, filename) => {
+        if (filename?.toString() === basename(filePath)) check();
+      });
+      watcher.on("error", error => finish(error));
+      check();
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
 }
 let thumbnailWindow: BrowserWindow | null = null;
 let mainWindowVisibilityRevision = 0;
@@ -491,6 +525,17 @@ app.whenReady().then(() => {
       preferences: { ...rendererRestoreSnapshot.preferences },
     }),
     applyRendererState: applyRendererRestoreState,
+    afterPreparedJournal: async () => {
+      const adapters = getIsolatedNativeTestAdapters();
+      if (!adapters || !fs.existsSync(adapters.restoreCommitHold)) return;
+      fs.writeFileSync(adapters.restoreCommitReached, "prepared journal is waiting before database commit");
+      try { await waitForIsolatedScratchFile(adapters.scratchRoot, adapters.restoreCommitRelease); }
+      finally { fs.rmSync(adapters.restoreCommitReached, { force: true }); }
+      if (fs.existsSync(adapters.restoreCommitFailure)) {
+        fs.rmSync(adapters.restoreCommitFailure, { force: true });
+        throw new Error("Injected pre-marker commit failure");
+      }
+    },
     acquireMutationLease: async () => {
       const releaseReservation = await metadataRestoreLeaseReservation.acquire();
       let releaseGate: (() => Promise<void>) | null = null;

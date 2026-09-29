@@ -32,7 +32,7 @@ export interface MetadataRestoreDependencies {
   /** Synchronous gate shared with mutations during the SQLite commit itself. */
   withCommitBoundary?: <T>(commit: () => T) => T;
   now?: () => Date;
-  afterPreparedJournal?: () => void;
+  afterPreparedJournal?: () => void | Promise<void>;
 }
 
 interface IndexedRow { id: number; path: string; tags: string | null; notes: string | null; print_status: string | null; content_revision?: number }
@@ -277,7 +277,7 @@ export function createMetadataRestoreService(dependencies: MetadataRestoreDepend
         recoveryBackupPath, before, after, plan,
       };
       await dependencies.journal.write(record);
-      dependencies.afterPreparedJournal?.();
+      await dependencies.afterPreparedJournal?.();
 
       const committed = withBoundary(() => {
         checkFresh(plan);
@@ -289,7 +289,10 @@ export function createMetadataRestoreService(dependencies: MetadataRestoreDepend
       if (committed !== getBrowseRevision(db) || stored.rendererState.transactionId !== plan.transactionId) throw new Error('Restore transaction state did not commit consistently');
       return { status: 'staged', rendererState: stored.rendererState };
     } catch (error) {
-      if (!currentMarker(plan.transactionId)) await releaseMutationLease(plan.transactionId).catch(() => undefined);
+      if (!currentMarker(plan.transactionId)) {
+        await releaseMutationLease(plan.transactionId).catch(() => undefined);
+        plans.delete(plan.transactionId);
+      }
       unresolvedFailure = error instanceof Error ? error.message : String(error);
       return { status: 'failed', message: error instanceof Error ? error.message : String(error) };
     }

@@ -2,15 +2,16 @@ import React from "react";
 import type { MetadataBackupSnapshot, MetadataImportCancelResult, MetadataImportPlan, MetadataRestoreStatus, StagedMetadataRestore } from "../../shared/backupContracts";
 import type { MetadataRestoreAcknowledgeResult } from "../../shared/backupContracts";
 import { subscribeToRestoreStatusRefresh } from "../lib/restoreStatusSubscription";
-import { formatMetadataImportCancelFailure, formatMetadataRestoreAcknowledgmentFailure, shouldCancelPreviewOnUnmount } from "../lib/metadataRestoreFeedback";
+import { formatMetadataImportCancelFailure, formatMetadataRestoreAcknowledgmentFailure, formatMetadataRestoreCommitRecoveryFailure, isCommittedMetadataRestoreState, shouldCancelPreviewOnUnmount } from "../lib/metadataRestoreFeedback";
 
 interface Props {
   getSnapshot: () => MetadataBackupSnapshot & { preferences: Record<string, unknown> };
   disabled?: boolean;
   onRecoveryError: (message: string | null) => void;
+  onImportNotice: (message: string | null) => void;
 }
 
-export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = false, onRecoveryError }) => {
+export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = false, onRecoveryError, onImportNotice }) => {
   const [plan, setPlan] = React.useState<MetadataImportPlan | null>(null);
   const [replaceSettings, setReplaceSettings] = React.useState(false);
   const [replaceRoots, setReplaceRoots] = React.useState(false);
@@ -32,12 +33,12 @@ export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = f
   const refreshStatus = React.useCallback(async (): Promise<MetadataRestoreStatus | null> => {
     try {
       const next = await window.polytray.getMetadataRestoreStatus();
-      setStatus(next);
+      if (mountedRef.current) setStatus(next);
       const latestBackup = next.transactions.at(-1)?.recoveryBackupPath;
-      if (latestBackup) setRecoveryBackupPath(latestBackup);
+      if (latestBackup && mountedRef.current) setRecoveryBackupPath(latestBackup);
       return next;
     }
-    catch (error) { setMessage(error instanceof Error ? error.message : String(error)); return null; }
+    catch (error) { if (mountedRef.current) setMessage(error instanceof Error ? error.message : String(error)); return null; }
   }, []);
   React.useEffect(() => { void refreshStatus(); }, [refreshStatus]);
   React.useEffect(() => subscribeToRestoreStatusRefresh(window.polytray.onLibraryChanged, refreshStatus), [refreshStatus]);
@@ -92,14 +93,59 @@ export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = f
     finally { if (mountedRef.current) setBusy(false); }
   };
 
+  const handleCommitFailure = async (transactionId: string, message: string) => {
+    let current = await refreshStatus();
+    let transaction = current?.transactions.find(candidate => candidate.transactionId === transactionId);
+    if (transaction && isCommittedMetadataRestoreState(transaction.state)) {
+      committedTransactionIdRef.current = transactionId;
+      setRecoveryBackupPath(transaction.recoveryBackupPath);
+      const failure = formatMetadataRestoreCommitRecoveryFailure(message, transaction.recoveryBackupPath);
+      if (mountedRef.current) { setRecoveryError(failure); setMessage(failure); }
+      onRecoveryError(failure);
+      return;
+    }
+
+    const cancel = await window.polytray.cancelMetadataRestore(transactionId);
+    if (cancel.status === "failed") {
+      current = await refreshStatus();
+      transaction = current?.transactions.find(candidate => candidate.transactionId === transactionId);
+      if (transaction && isCommittedMetadataRestoreState(transaction.state)) {
+        committedTransactionIdRef.current = transactionId;
+        setRecoveryBackupPath(transaction.recoveryBackupPath);
+        const failure = formatMetadataRestoreCommitRecoveryFailure(message, transaction.recoveryBackupPath);
+        if (mountedRef.current) { setRecoveryError(failure); setMessage(failure); }
+        onRecoveryError(failure);
+        return;
+      }
+      const failure = formatMetadataImportCancelFailure(cancel.message, transaction?.recoveryBackupPath);
+      if (mountedRef.current) { setRecoveryError(failure); setMessage(failure); }
+      onRecoveryError(failure);
+      return;
+    }
+
+    previewPlanRef.current = null;
+    committedTransactionIdRef.current = null;
+    const notice = `The import did not reach SQLite: ${message}. The preview was removed; open Settings and choose the backup again to retry.`;
+    if (mountedRef.current) {
+      setPlan(null);
+      setRecoveryError(null);
+      setMessage(notice);
+    }
+    onImportNotice(notice);
+  };
+
   const applyImport = async () => {
     if (!plan) return;
+    onImportNotice(null);
     commitInProgressRef.current = true;
     setBusy(true); setMessage("Applying metadata and local settings…");
     let committedState: StagedMetadataRestore | null = null;
     try {
       const result = await window.polytray.commitMetadataRestore(plan.transactionId);
-      if (result.status === "failed") throw new Error(result.message);
+      if (result.status === "failed") {
+        await handleCommitFailure(plan.transactionId, result.message);
+        return;
+      }
       if (result.status === "cancelled") { setMessage("Import cancelled; nothing changed."); updatePlan(null); return; }
       committedState = result.rendererState;
       committedTransactionIdRef.current = plan.transactionId;
@@ -116,6 +162,7 @@ export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = f
       }
       setRecoveryError(null);
       onRecoveryError(null);
+      onImportNotice(null);
       updatePlan(null);
       committedTransactionIdRef.current = null;
       await refreshStatus();
@@ -128,9 +175,9 @@ export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = f
         setMessage(recoveryMessage);
         onRecoveryError(recoveryMessage);
         await refreshStatus();
-      } else setMessage(errorText);
+      } else await handleCommitFailure(plan.transactionId, errorText);
     }
-    finally { commitInProgressRef.current = false; setBusy(false); }
+    finally { commitInProgressRef.current = false; if (mountedRef.current) setBusy(false); }
   };
 
   const cancelPreview = async () => {
@@ -159,7 +206,7 @@ export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = f
       setRecoveryError(failure);
       setMessage(failure);
       if (recoveryPath) onRecoveryError(failure);
-    } finally { setBusy(false); }
+    } finally { if (mountedRef.current) setBusy(false); }
   };
 
   const retryPending = async () => {

@@ -48,6 +48,30 @@ test('successful acknowledgment releases the cached preview while preserving com
   } finally { db.close(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(fixture.dir, { recursive: true, force: true }); }
 });
 
+test('pre-marker commit failure releases its cached plan and can abort the prepared journal', async () => {
+  const { db, fixture } = createDb();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-restore-pre-marker-failure-'));
+  const journal = createMetadataRestoreJournal(dir);
+  const service = createMetadataRestoreService({
+    ...noMutationLease,
+    db, journal, recoveryDirectory: path.join(dir, 'backups'),
+    getRendererRevision: () => 7, getRendererState: () => rendererState, applyRendererState: async () => undefined,
+    afterPreparedJournal: () => { throw new Error('injected before marker'); },
+  });
+  try {
+    const plan = service.previewImport(backup(), rendererState);
+    assert.equal(service.getPreparedPlanCount(), 1);
+    const result = await service.commitImport(plan.transactionId);
+    assert.equal(result.status, 'failed');
+    assert.equal(service.getPreparedPlanCount(), 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM metadata_import_transactions').get()?.count, 0);
+    assert.equal((await journal.readPending()).length, 1);
+    await service.cancelImport(plan.transactionId);
+    assert.equal((await journal.readPending()).length, 0);
+    assert.equal((await fs.promises.readdir(dir)).some(name => name.endsWith('.json')), false);
+  } finally { db.close(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(fixture.dir, { recursive: true, force: true }); }
+});
+
 test('restore persists unmatched annotations and advances the durable browse revision once', async () => {
   const { db, fixture } = createDb();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-restore-'));

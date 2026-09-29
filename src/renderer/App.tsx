@@ -138,6 +138,7 @@ export const App: React.FC = () => {
   const [comparisonFiles, setComparisonFiles] = useState<FileRecord[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [restoreRecoveryError, setRestoreRecoveryError] = useState<string | null>(null);
+  const [metadataImportNotice, setMetadataImportNotice] = useState<string | null>(null);
   const [rendererStateLocked, setRendererStateLocked] = useState(false);
   const [collectionsState, setCollectionsState] = useState<CollectionsState>(
     DEFAULT_COLLECTIONS_STATE,
@@ -506,6 +507,7 @@ export const App: React.FC = () => {
     });
     const blockMutationEvent = (event: Event) => {
       if (!restoreMutationLockedRef.current && !rendererMutationGateRef.current.isLocked()) return;
+      if (event.target instanceof Element && event.target.closest("#close-settings-during-restore")) return;
       event.preventDefault();
       event.stopImmediatePropagation();
     };
@@ -1304,7 +1306,7 @@ export const App: React.FC = () => {
           onAddFolder={handleAddFolder}
           onRemoveFolder={handleRemoveFolder}
           onFilterChange={handleExtensionFilter}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={() => { setMetadataImportNotice(null); setSettingsOpen(true); }}
           lightMode={settings.lightMode}
           onSettingsChange={handleSettingsChange}
           onRefreshFolderThumbnails={handleRefreshFolderThumbnails}
@@ -1320,6 +1322,7 @@ export const App: React.FC = () => {
               Metadata restore recovery is blocked. Your saved metadata is protected; resolve this recovery issue before changing library settings. {restoreRecoveryError}
             </div>
           )}
+          {metadataImportNotice && <div role="status" aria-live="polite" className="scan-error">{metadataImportNotice}</div>}
           {watcherError && (
             <div className="watcher-error" role="alert">
               <div>
@@ -1456,13 +1459,14 @@ export const App: React.FC = () => {
       </div>
       {rendererStateLocked && (
         <div
-          role="status"
-          aria-live="assertive"
-          style={{ position: "fixed", inset: 0, zIndex: 9999, display: "grid", placeItems: "center", padding: 24, background: "rgba(0, 0, 0, 0.56)", color: "white", textAlign: "center" }}
+          style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: 24, background: "rgba(0, 0, 0, 0.56)", color: "white", textAlign: "center" }}
         >
-          {restoreRecoveryError
-            ? `Metadata restore recovery needs attention. ${restoreRecoveryError}`
-            : "Applying metadata restore. Please wait…"}
+          <div role="status" aria-live="assertive">
+            {restoreRecoveryError
+              ? `Metadata restore recovery needs attention. ${restoreRecoveryError}`
+              : "Applying metadata restore. Please wait…"}
+          </div>
+          {settingsOpen && <button type="button" id="close-settings-during-restore" onClick={() => setSettingsOpen(false)}>Close Settings</button>}
         </div>
       )}
       <SettingsModal
@@ -1471,6 +1475,7 @@ export const App: React.FC = () => {
         getBackupSnapshot={buildRendererRestoreSnapshot}
         restoreBlocked={!!restoreRecoveryError}
         onRecoveryError={setRestoreRecoveryError}
+        onImportNotice={setMetadataImportNotice}
         onSettingsChange={handleSettingsChange}
         onClose={() => setSettingsOpen(false)}
       />

@@ -17,6 +17,7 @@ test('settings rendering keeps backup snapshot creation lazy and omits the panel
     settings: DEFAULT_APP_SETTINGS,
     getBackupSnapshot,
     onRecoveryError: () => {},
+    onImportNotice: () => {},
     onSettingsChange: () => {},
   }));
 

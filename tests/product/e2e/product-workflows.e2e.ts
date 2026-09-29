@@ -17,6 +17,10 @@ let launchHoldPath = '';
 let launchReachedPath = '';
 let launchReleasePath = '';
 let restoreCancelFailurePath = '';
+let restoreCommitHoldPath = '';
+let restoreCommitReachedPath = '';
+let restoreCommitReleasePath = '';
+let restoreCommitFailurePath = '';
 
 async function launchWorkflowApp() {
   const args = buildElectronLaunchArgs(path.join(appRoot, 'out/main/index.js'), userData,
@@ -60,6 +64,10 @@ test.beforeAll(async () => {
   launchReachedPath = path.join(scratch, 'slicer-launch-reached');
   launchReleasePath = path.join(scratch, 'slicer-launch-release');
   restoreCancelFailurePath = path.join(scratch, 'metadata-restore-cancel-failure');
+  restoreCommitHoldPath = path.join(scratch, 'metadata-restore-commit-hold');
+  restoreCommitReachedPath = path.join(scratch, 'metadata-restore-commit-reached');
+  restoreCommitReleasePath = path.join(scratch, 'metadata-restore-commit-release');
+  restoreCommitFailurePath = path.join(scratch, 'metadata-restore-commit-failure');
   fs.mkdirSync(userData); fs.mkdirSync(library);
   writeStl(path.join(library, 'regular.stl'), 'regular');
   writeStl(path.join(library, 'second.stl'), 'second');
@@ -292,6 +300,40 @@ test('closing Settings cancels an uncommitted metadata preview', async () => {
   const commit = await page.evaluate(id => window.polytray.commitMetadataRestore(id), transactionId!);
   expect(commit.status).toBe('failed');
   expect(commit.status === 'failed' ? commit.message : '').toMatch(/not prepared/i);
+});
+
+test('closing Settings during a pre-marker commit clears its failed preview without recovery success', async () => {
+  await ensureSettingsOpen();
+  await page.locator('#choose-metadata-backup').click();
+  await page.locator('#metadata-backup-file').setInputFiles(writeMinimalMetadataBackup('pre-marker-failure-backup.json'));
+  await expect(page.locator('.metadata-restore-preview')).toBeVisible();
+  const transactionId = await page.locator('.metadata-restore-preview').getAttribute('data-transaction-id');
+  expect(transactionId).toBeTruthy();
+  fs.writeFileSync(restoreCommitHoldPath, 'hold after prepared journal');
+  fs.writeFileSync(restoreCommitFailurePath, 'fail before SQLite marker');
+  await page.locator('#apply-metadata-import').click();
+  try {
+    await expect.poll(() => fs.existsSync(restoreCommitReachedPath)).toBe(true);
+    await page.locator('#close-settings-during-restore').click();
+    fs.writeFileSync(restoreCommitReleasePath, 'release');
+    await expect.poll(async () => page.evaluate(async id => {
+      const status = await window.polytray.getMetadataRestoreStatus();
+      return status.transactions.some(transaction => transaction.transactionId === id);
+    }, transactionId!)).toBe(false);
+    await expect(page.getByRole('status').filter({ hasText: 'The import did not reach SQLite' })).toBeVisible();
+    const retry = await page.evaluate(id => window.polytray.commitMetadataRestore(id), transactionId!);
+    expect(retry.status).toBe('failed');
+    expect(retry.status === 'failed' ? retry.message : '').toMatch(/not prepared/i);
+    const status = await page.evaluate(() => window.polytray.getMetadataRestoreStatus());
+    expect(status.unresolved).toBe(false);
+    expect(status.transactions.some(transaction => transaction.transactionId === transactionId)).toBe(false);
+  } finally {
+    fs.writeFileSync(restoreCommitReleasePath, 'release');
+    fs.rmSync(restoreCommitHoldPath, { force: true });
+    fs.rmSync(restoreCommitReleasePath, { force: true });
+    fs.rmSync(restoreCommitReachedPath, { force: true });
+    fs.rmSync(restoreCommitFailurePath, { force: true });
+  }
 });
 
 test('startup rolls a committed restore forward when the renderer has not applied it yet', async () => {
