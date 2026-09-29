@@ -67,6 +67,9 @@ test('integrated 600-record library keeps paging and annotations through archive
         id: file.id, tags: ['integrated-seed'], notes: `annotation for ${file.name}`,
       })));
     }, indexed.files);
+    const allPreImportIdentities = indexed.files.map(file => ({
+      id: file.id, path: file.path, contentRevision: file.content_revision,
+    }));
     const collectionPaths = indexed.files.map(file => file.path);
     const collection = { id: 'integrated-600', name: 'Integrated 600', filePaths: collectionPaths };
     await page.evaluate(collectionState => localStorage.setItem('polytray-collections', JSON.stringify(collectionState)),
@@ -87,9 +90,6 @@ test('integrated 600-record library keeps paging and annotations through archive
     expect(tail.status).toBe('ok');
     expect(tail.items).toHaveLength(100);
     expect(collectionPaths).toContain(tail.items[0].file.path);
-    const preImportIdentities = before.items.map(item => ({
-      id: item.file.id, path: item.file.path, contentRevision: item.file.content_revision,
-    }));
     const archiveQuery = { sort: 'name', direction: 'ASC', extension: null, folder: null, search: '',
       collectionPaths: null, archivePath: fixture.archivePath, limit: 500, offset: 0 } as const;
     const archivePage = await page.evaluate(value => window.polytray.getLibraryPage(value), archiveQuery);
@@ -102,7 +102,36 @@ test('integrated 600-record library keeps paging and annotations through archive
     const searched = await page.evaluate(value => window.polytray.getLibraryPage(value), { ...query, search: 'regular-079' });
     expect(searched.totalModels).toBe(1);
 
+    await page.locator('#sort-select').selectOption('size');
+    await page.locator('#sort-order').click();
+    await expect.poll(async () => Number(await page.locator('.file-card:not(.archive-summary)').first().getAttribute('data-file-id')))
+      .toBe(sizeSorted.items[0].file.id);
+    await page.locator('#search-input').fill('regular-079');
+    await expect(page.locator('#library-result-total')).toContainText('1 model', { timeout: 15_000 });
+    await expect(page.locator('.file-card:not(.archive-summary)')).toHaveCount(1);
+    await page.locator('#search-clear').click();
+    await expect(page.locator('#library-result-total')).toContainText('600 models', { timeout: 15_000 });
+    await page.locator('#sort-select').selectOption('name');
+    await page.locator('#sort-order').click();
+    await expect.poll(async () => Number(await page.locator('.file-card:not(.archive-summary)').first().getAttribute('data-file-id')))
+      .toBe(before.items[0].file.id);
+
+    const tailCard = page.locator(`.file-card[data-file-id="${tail.items[0].file.id}"]`);
+    await page.locator('[data-virtuoso-scroller]').hover();
+    await expect.poll(async () => {
+      if (await tailCard.isVisible().catch(() => false)) return true;
+      await page.locator('[data-virtuoso-scroller]').evaluate(element => element.scrollTo({ top: element.scrollHeight, behavior: 'instant' }));
+      return false;
+    }, { timeout: 30_000, intervals: [100, 250, 500] }).toBe(true);
+    await expect(tailCard.locator('.card-name')).toBeVisible();
+    await tailCard.locator('.file-select-toggle').click();
+    await expect(page.locator('#batch-selection-count')).toHaveText('1 selected');
+    await tailCard.locator('.file-select-toggle').click();
+
     const visibleCards = page.locator('.file-card:not(.archive-summary)');
+    await page.locator('[data-virtuoso-scroller]').evaluate(element => element.scrollTo({ top: 0, behavior: 'instant' }));
+    await expect.poll(async () => page.locator('.file-card:not(.archive-summary)').first().getAttribute('data-file-id'))
+      .toBe(String(before.items[0].file.id));
     await visibleCards.nth(0).locator('.file-select-toggle').click();
     await visibleCards.nth(1).locator('.file-select-toggle').click();
     await page.locator('#compare-selected').click();
@@ -165,9 +194,11 @@ test('integrated 600-record library keeps paging and annotations through archive
     await expect(page.locator('#metadata-backup-title').locator('..')).toContainText('1 annotations waiting for matching files', { timeout: 30_000 });
     const afterImport = await page.evaluate(value => window.polytray.getLibraryPage(value), query);
     expect(afterImport.totalModels).toBe(before.totalModels);
-    expect(afterImport.items.map(item => ({
-      id: item.file.id, path: item.file.path, contentRevision: item.file.content_revision,
-    }))).toEqual(preImportIdentities);
+    const allAfterImport = await page.evaluate(() => window.polytray.getFiles({ limit: 700, offset: 0 }));
+    expect(allAfterImport.files).toHaveLength(600);
+    expect(allAfterImport.files.map(file => ({ id: file.id, path: file.path, contentRevision: file.content_revision })))
+      .toEqual(allPreImportIdentities);
+    for (const file of allAfterImport.files) expect(JSON.parse(file.tags || '[]')).toContain('integrated-seed');
     expect(backup.annotations).toHaveLength(exportedAnnotationCount);
     const importedConflict = await page.evaluate(filePath => window.polytray.getFiles({ limit: 700, offset: 0 })
       .then(result => result.files.find(file => file.path === filePath) ?? null), conflicting.path);
