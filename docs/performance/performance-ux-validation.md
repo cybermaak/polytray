@@ -45,14 +45,15 @@ Result: 6 passed, 0 failed in 32.6 seconds on macOS 25.6 / M3 Ultra.
 - The 5k delayed-subtree scan made its first indexed-subtree queryable batch in 5.7 ms while discovery remained held; main heartbeat max gap was 28.97 ms over 59 samples. This establishes first queryability, not that the first batch was painted visibly in the library UI.
 - Dense preview first-frame duration was 283.1 ms; multipart first-frame duration was 28.4 ms. First-frame measurement is separate from render-submit (19.3 / 9.3 ms). The multipart run observed a 107 ms renderer long task, exceeding C10's <=100 ms CPU long-task target. Dense observed 0 ms max long task. These are CPU observer results; they do not measure GPU upload. Bounded follow-up owner is V04 preview assembly: identify the multipart task segment and split/yield CPU work if warranted, then rerun dense and multipart fixtures without relaxing 100 ms.
 - Held preview replacement stopped its obsolete renderer in 21 ms; A/B were rejected and C resolved. The main and thumbnail renderer processes remained alive, and independent thumbnail work completed during the held parse.
+- `metadata-worker.e2e.ts` passed separately (1/1 in 1.5 s): one large OBJ metadata item completed; scan-plus-metadata elapsed 392 ms; the 25 ms main heartbeat had 13 samples and max gap 36.04 ms. This is a responsive background-worker/heartbeat result, not a measured browse-query latency during metadata extraction.
 - Thumbnail lifecycle, deletion/recovery, refresh, clear, revision, and cache invalidation E2Es passed. The dedicated 20-cycle test also passed its direct cache hit/regenerate-after-delete assertions.
 
-The suite does not expose scan discovery queue depth or identify boundary progress events, and this run did not capture progress publication rate. It also did not test metadata extraction responsiveness concurrently with the 5k scan or scope-index startup stall. Those requirements remain open for owner S; the <=4 Hz target remains unchanged.
+The suite does not expose scan discovery queue depth or identify boundary progress events, and this run did not capture progress publication rate. Metadata extraction has a passing worker/heartbeat check, but no browse-query latency measurement during concurrent metadata extraction. Scope-index startup stall is also unmeasured. Queue/progress and startup requirements remain open for owner S; the <=4 Hz target remains unchanged.
 
 ## Remaining gaps and owners
 
-- `scan-streaming.e2e.ts` passed for a synthetic 5k scan: first indexed subtree queryable in 5.7 ms and main heartbeat max gap 28.97 ms. The query run also recorded 186.88 ms max heartbeat while querying 50k. Tests do not establish visible paint, discovery queue depth, <=4 Hz progress rate plus boundaries, or concurrent metadata responsiveness. `BackgroundJob` exposes discovered/indexed/metadata counts but no queue depth; the scan progress event also omits depth. Owner S should add an isolated probe for peak bounded queue depth, timestamp progress including boundaries, and query/metadata responsiveness; startup/index stalls remain open.
-- `preview-preparation.e2e.ts` passed: dense/multipart first-frame 283.1/28.4 ms, render-submit 19.3/9.3 ms, with a 107 ms multipart CPU long task (misses <=100 ms). It verifies placeholders while multipart thumbnails are in flight and publication cleanup after replacement/close. GPU upload is not measured separately from render-submit; V04 owns the bounded CPU-slicing follow-up and should add GPU timer-query instrumentation where supported, otherwise keep upload unverified.
+- `scan-streaming.e2e.ts` passed for a synthetic 5k scan: first indexed subtree queryable in 5.7 ms and main heartbeat max gap 28.97 ms. The query run also recorded 186.88 ms max heartbeat while querying 50k. `metadata-worker.e2e.ts` passed for one large OBJ with 392 ms scan-plus-metadata completion and 36.04 ms max main heartbeat. Tests do not establish visible paint, discovery queue depth, <=4 Hz progress rate plus boundaries, browse latency during metadata work, or scope-index startup stall. `BackgroundJob` exposes discovered/indexed/metadata counts but no queue depth; scan progress omits depth. Owner S should add an isolated probe for peak bounded queue depth, timestamp progress including boundaries, and query latency during metadata work; startup/index stalls remain open.
+- `preview-preparation.e2e.ts` passed: dense/multipart first-frame 283.1/28.4 ms, render-submit 19.3/9.3 ms, with a 107 ms multipart CPU long task (misses <=100 ms). For multipart, the first viewer frame is present while part-image placeholders and in-flight image work remain, so first-frame-before-images passes. It also checks publication cleanup after replacement/close. GPU upload is not measured separately from render-submit; V04 owns the bounded CPU-slicing follow-up and should add GPU timer-query instrumentation where supported, otherwise keep upload unverified.
 - `preview-cancellation.e2e.ts` passed: obsolete renderer stopped in 21 ms, below 500 ms. One independent thumbnail request observed queue depth one then zero and completed, but this is not queue stress evidence. The E2E's BrowserWindow count and page PIDs do not expose utility worker processes; owner V/S needs a test-only process registry or operating-system child-process capture for worker-process inventory.
 - The test wraps visible renderer `MessageChannel` and `Worker` constructors, but transferred ports are created in preload/main/owned preview contexts. It observes no visible-renderer channels; it cannot claim all app ports are zero. Explicit EventTarget add/remove operation counts do not provide a complete active listener count because native/internal listeners and abort-signal removal are not observable through the wrapper. Owners V/U should add lifecycle counters at the resource-owning preview runtime boundary if exact port/listener counts are required.
 - Thumbnail PNG bytes are measured on disk, not in-memory image cache bytes. Owner T should expose a bounded cache byte/count diagnostic for image-memory accounting.
@@ -64,13 +65,13 @@ The suite does not expose scan discovery queue depth or identify boundary progre
 
 The following C10/resource areas were not measured in this capture and must remain open:
 
-- First visibly painted batch; scan queue depth, progress rate, concurrent metadata responsiveness, and startup stalls from temporary scope/membership indexes.
+- First visibly painted batch; scan queue depth, progress rate, browse-query latency during metadata extraction, and startup stalls from temporary scope/membership indexes.
 - Dense renderer mesh assembly CPU long tasks (multipart observed a 107 ms miss); GPU upload/driver timing.
-- Rapid preview replacement/cancel under the <=500 ms target; multipart first-frame-before-part-images; exact transferred port/listener and worker-process counts; in-memory image-cache bytes.
+- Exact transferred port and active-listener counts across preload/main/owned preview contexts; utility worker-process inventory; in-memory image-cache bytes. Visible-renderer Worker object counters and BrowserWindow counts do not substitute for these.
 - CI timing calibration and Windows/Linux app runtime evidence. The local app evidence in this report is macOS arm64 only.
 - Optional real `base.3mf` supplementary run. Its absence is not treated as a pass; portable dense and multipart renderer fixtures were run.
 
-Related coverage not included in the focused command includes [metadata-worker](../../tests/product/e2e/metadata-worker.e2e.ts) and [preview-state](../../tests/product/e2e/preview-state.e2e.ts); those tests are not cited as passing evidence here. The preview-preparation suite was run and passed its product assertions, with the separate 107 ms long-task budget miss reported above.
+Related coverage not included in the six-file command includes [preview-state](../../tests/product/e2e/preview-state.e2e.ts); it is not cited as passing evidence here. The metadata-worker suite passed separately and is reported above. The preview-preparation suite passed its product assertions, with the separate 107 ms long-task budget miss reported above.
 
 ## Reproduction
 
@@ -78,6 +79,7 @@ Run after Build and Electron native dependency rebuild:
 
 ```sh
 node --import tsx tests/dev/performance-baseline.ts
+npx playwright test tests/product/e2e/metadata-worker.e2e.ts
 node -e 'const {spawnSync}=require("node:child_process");const r=spawnSync(require("electron"),["--import","tsx","--test","tests/product/unit/main/performanceFixtures.test.ts"],{cwd:process.cwd(),stdio:"inherit",env:{...process.env,ELECTRON_RUN_AS_NODE:"1"}});process.exit(r.status??1)'
 ```
 
