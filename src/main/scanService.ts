@@ -210,7 +210,34 @@ export class ScanService {
     if (this.disposed) return Promise.reject(new Error('Scan service has been disposed'));
     const canonicalRoot = path.resolve(rootPath);
     const existing = this.jobs.get(canonicalRoot);
-    if (existing) return existing.promise;
+    if (existing) {
+      if (!request.signal) return existing.promise;
+      if (request.signal.aborted) return Promise.reject(request.signal.reason ?? new Error('Scan wait cancelled'));
+      return new Promise<ScanJobResult>((resolve, reject) => {
+        let settled = false;
+        const cleanup = () => request.signal?.removeEventListener('abort', onAbort);
+        const settle = (result: ScanJobResult) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve(result);
+        };
+        const onAbort = () => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(request.signal?.reason ?? new Error('Scan wait cancelled'));
+        };
+        request.signal!.addEventListener('abort', onAbort, { once: true });
+        existing.promise.then(settle, (error: unknown) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(error);
+        });
+        if (request.signal?.aborted) onAbort();
+      });
+    }
     let releaseResume!: () => void;
     let acknowledgePause!: () => void;
     const job: ActiveJob = {

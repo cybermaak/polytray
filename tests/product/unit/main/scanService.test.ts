@@ -898,3 +898,61 @@ test('cancelling scope retry aborts its nested discovery and prevents pruning', 
     fs.rmSync(rootPath, { recursive: true, force: true });
   }
 });
+
+test('cancelling a retry coalesced with an independent scope scan settles without cancelling the shared scan', async () => {
+  const fixture = createTestDb();
+  const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-retry-coalesce-cancel-'));
+  const failedScope = path.join(rootPath, 'offline');
+  const sharedStarted = createBarrier<void>();
+  const retryStarted = createBarrier<void>();
+  const sharedRelease = createBarrier<void>();
+  let activeSharedSignal: AbortSignal | undefined;
+  let awaitingRetryStart = false;
+  const service = createScanService({
+    db: fixture.db,
+    onJobChanged: (job) => {
+      if (awaitingRetryStart && job.rootPath === rootPath && job.state === 'running') retryStarted.release();
+    },
+    discover: async function* (root, signal, generation) {
+      if (root === rootPath) {
+        yield { type: 'scope-error', rootPath, scopePath: failedScope, phase: 'discovery', code: 'READDIR_FAILED', reason: 'offline', kind: 'directory' };
+        yield { type: 'scope-complete', rootPath, scopePath: rootPath, generation, kind: 'directory' };
+        yield { type: 'discovery-complete', rootPath, cancelled: false };
+        return;
+      }
+      activeSharedSignal = signal;
+      sharedStarted.release();
+      await sharedRelease.wait(signal);
+      yield { type: 'scope-complete', rootPath: root, scopePath: root, generation, kind: 'directory' };
+      yield { type: 'discovery-complete', rootPath: root, cancelled: false };
+    },
+  });
+  try {
+    const initial = await service.scan(rootPath);
+    assert.equal(initial.state, 'partial');
+    const sharedScan = service.scan(failedScope);
+    await sharedStarted.wait();
+    awaitingRetryStart = true;
+    const retry = service.retryFailures(initial.jobId);
+    await retryStarted.wait();
+    let retrySettled = false;
+    void retry.then(() => { retrySettled = true; });
+    assert.equal(service.cancel(initial.jobId), true);
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(retrySettled, true);
+    assert.equal(service.getBackgroundJobs().find((job) => job.jobId === initial.jobId)?.state, 'cancelled');
+    assert.equal(activeSharedSignal?.aborted, false);
+    assert.equal(service.getBackgroundJobs().some((job) => job.rootPath === failedScope && job.state === 'running'), true);
+
+    sharedRelease.release();
+    await sharedScan;
+  } finally {
+    sharedRelease.release();
+    await service.dispose();
+    fixture.cleanup();
+    fs.rmSync(rootPath, { recursive: true, force: true });
+  }
+});
