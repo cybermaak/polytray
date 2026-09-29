@@ -10,6 +10,7 @@ import { createDbAtVersion } from '../../../support/helpers/databaseFixtures';
 import { createBarrier } from '../../../support/helpers/performanceProbe';
 import { createFileIndexRepository, subscribeToFileIndexMutations } from '../../../../src/main/fileIndexing';
 import { createScanService } from '../../../../src/main/scanService';
+import { ScanJobsController } from '../../../../src/main/scanJobs';
 import { MetadataWorkerClient, type MetadataWorkerRequest } from '../../../../src/main/metadataWorkerClient';
 import type { DiscoveryEvent } from '../../../../src/shared/backgroundJobs';
 import type { ScanProgressData } from '../../../../src/shared/types';
@@ -161,20 +162,29 @@ test('cancelling a scan settles a concurrent pause request', async () => {
     },
     extractMetadata: async () => ({ vertexCount: 1, faceCount: 1, dimensions: null }),
   });
+  const controls = new ScanJobsController({
+    getJobs: () => service.getBackgroundJobs(),
+    onChanged: (callback) => service.onJobChanged(callback),
+    pause: async (jobId) => service.pause(jobId),
+    resume: async (jobId) => service.resume(jobId),
+    cancel: async (jobId) => service.cancel(jobId),
+    retryFailures: async (jobId) => service.retryFailures(jobId),
+  });
   try {
     const scan = service.scan(rootPath, { batchSize: 1 });
     await indexed.wait();
     await discoveryBlocked.reached;
     const jobId = service.getBackgroundJobs().find((job) => job.rootPath === rootPath)!.jobId;
     let pauseSettled = false;
-    const pause = service.pause(jobId).then((result) => { pauseSettled = true; return result; });
-    const cancelCommand = await Promise.resolve(service.cancel(jobId));
+    const pause = controls.pauseJob(jobId).then((result) => { pauseSettled = true; return result; });
+    const cancelCommand = controls.cancelJob(jobId);
+    const cancelResult = await cancelCommand;
     const scanResult = await scan;
     await Promise.resolve();
     assert.equal(pauseSettled, true);
     const pauseResult = pauseSettled ? await pause : null;
-    assert.equal(pauseResult, false);
-    assert.equal(cancelCommand, true);
+    assert.deepEqual(pauseResult, { ok: false, reason: 'invalid-state' });
+    assert.equal(cancelResult.ok, true);
     assert.equal(scanResult.state, 'cancelled');
   } finally {
     unsubscribe();
@@ -836,11 +846,16 @@ test('cancelling scope retry aborts its nested discovery and prevents pruning', 
   const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-scope-retry-cancel-'));
   const failedScope = path.join(rootPath, 'offline');
   const stalePath = path.join(failedScope, 'stale.stl');
+  const secondFailedScope = path.join(rootPath, 'offline-too');
+  const secondStalePath = path.join(secondFailedScope, 'stale-too.stl');
   const nestedDiscovery = createBarrier<void>();
   const nestedRelease = createBarrier<void>();
   const repository = createFileIndexRepository(fixture.db);
   repository.applyIndexBatch({ scanGeneration: 1, records: [{
     path: stalePath, name: 'stale', extension: 'stl', directory: failedScope,
+    sizeBytes: 10, modifiedAt: 20, scanGeneration: 1,
+  }, {
+    path: secondStalePath, name: 'stale-too', extension: 'stl', directory: secondFailedScope,
     sizeBytes: 10, modifiedAt: 20, scanGeneration: 1,
   }] });
   let nestedSignal: AbortSignal | undefined;
@@ -851,6 +866,7 @@ test('cancelling scope retry aborts its nested discovery and prevents pruning', 
       discoverCalls++;
       if (root === rootPath) {
         yield { type: 'scope-error', rootPath, scopePath: failedScope, phase: 'discovery', code: 'READDIR_FAILED', reason: 'offline', kind: 'directory' };
+        yield { type: 'scope-error', rootPath, scopePath: secondFailedScope, phase: 'discovery', code: 'READDIR_FAILED', reason: 'offline', kind: 'directory' };
         yield { type: 'scope-complete', rootPath, scopePath: rootPath, generation, kind: 'directory' };
         yield { type: 'discovery-complete', rootPath, cancelled: false };
         return;
@@ -873,6 +889,7 @@ test('cancelling scope retry aborts its nested discovery and prevents pruning', 
     assert.equal(retryAccepted, true);
     assert.equal(discoverCalls, 2);
     assert.equal(repository.getFileIdentityByPath(stalePath) !== null, true);
+    assert.equal(repository.getFileIdentityByPath(secondStalePath) !== null, true);
     assert.equal(service.getBackgroundJobs().find((job) => job.jobId === initial.jobId)?.state, 'cancelled');
   } finally {
     nestedRelease.release();
