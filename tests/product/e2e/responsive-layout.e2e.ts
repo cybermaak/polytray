@@ -309,11 +309,7 @@ test("responsive panels preserve browsing space across supported window sizes", 
                 return { x, y };
               });
               await mainWindow.mouse.move(exposedGridPoint.x, exposedGridPoint.y);
-              await mainWindow.mouse.wheel(0, -335);
-              await expect.poll(() => mainWindow.evaluate(() =>
-                document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,
-              )).not.toBe(scrollTopAtReopen);
-              const openerState = await mainWindow.evaluate(() => {
+              const readOpenerState = () => mainWindow.evaluate(() => {
                 const card = document.querySelector<HTMLElement>(
                   ".file-card .card-name[title='library model 38']",
                 )?.closest<HTMLElement>(".file-card");
@@ -330,6 +326,18 @@ test("responsive panels preserve browsing space across supported window sizes", 
                   scrollerBottom: scrollBounds.bottom,
                 };
               });
+              let openerState = await readOpenerState();
+              let observedScrollTop = scrollTopAtReopen;
+              for (let attempt = 0; attempt < 8 && openerState && !openerState.offscreen; attempt++) {
+                await mainWindow.mouse.wheel(0, -335);
+                await expect.poll(() => mainWindow.evaluate(() =>
+                  document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,
+                )).not.toBe(observedScrollTop);
+                observedScrollTop = await mainWindow.evaluate(() =>
+                  document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,
+                );
+                openerState = await readOpenerState();
+              }
               expect(openerState?.connected && openerState.offscreen).toBe(true);
               const scrollTopAtClose = await mainWindow.evaluate(() =>
                 document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,

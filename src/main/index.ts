@@ -3,7 +3,14 @@ import { join } from "path";
 import { randomUUID } from "node:crypto";
 import { getDb, initDatabase } from "./database";
 import { stopWatcher } from "./watcher";
-import { initThumbnailService } from "./thumbnails";
+import {
+  initThumbnailService,
+  getThumbnailBackgroundJobs,
+  pauseThumbnailJob,
+  resumeThumbnailJob,
+  cancelThumbnailJob,
+  retryThumbnailJobFailures,
+} from "./thumbnails";
 import fs from "fs";
 import { getThumbnailDir } from "./thumbnails";
 import { toAllowedLocalFileUrl } from "./localFileProtocol";
@@ -16,6 +23,7 @@ import { createLibraryMutationPublisher, type LibraryMutationPublisher } from ".
 // IPC handler modules
 import { registerLibraryHandlers } from "./ipc/library";
 import { registerScanningHandlers } from "./ipc/scanning";
+import { registerBackgroundJobCommandHandlers } from "./backgroundJobCommands";
 import { registerFileHandlers } from "./ipc/files";
 import { registerThumbnailHandlers } from "./ipc/thumbnails";
 import { registerSystemHandlers } from "./ipc/system";
@@ -324,6 +332,17 @@ function registerIpcHandlers() {
   });
   registerLibraryHandlers(getMainWindow, { runMutation: runMainMutation });
   scanningHandlers = registerScanningHandlers(getMainWindow, undefined, { runMutation: runMainMutation });
+  const scanJobs = scanningHandlers.scanJobs;
+  registerBackgroundJobCommandHandlers(ipcMain, {
+    getJobs: async () => [...await scanJobs.getBackgroundJobs(), ...await getThumbnailBackgroundJobs()],
+    scanJobs,
+    thumbnailJobs: {
+      pauseThumbnailJob,
+      resumeThumbnailJob,
+      cancelThumbnailJob,
+      retryThumbnailJobFailures,
+    },
+  });
   registerFileHandlers({
     isScopeIndexReady: () => fileIndexRuntime?.canUseScopeReader() === true,
     ensureScopeIndexReady: async () => {

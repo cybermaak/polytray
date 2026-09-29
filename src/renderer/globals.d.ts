@@ -24,6 +24,7 @@ import type {
   SlicerHandoffResult,
   SlicerConfiguration,
   BackgroundJob,
+  BackgroundJobCommandResult,
 } from "../shared/types";
 import type { PreparedPreview, PreviewParseRequest } from "../shared/previewContracts";
 import type {
@@ -54,6 +55,10 @@ interface PolytrayAPI {
   clearThumbnails: (settings: RuntimeSettingsData) => Promise<void>;
   refreshFolderThumbnails: (folderPath: string, settings: RuntimeSettingsData) => Promise<void>;
   getBackgroundJobs: () => Promise<BackgroundJob[]>;
+  pauseBackgroundJob: (jobId: string) => Promise<BackgroundJobCommandResult>;
+  resumeBackgroundJob: (jobId: string) => Promise<BackgroundJobCommandResult>;
+  cancelBackgroundJob: (jobId: string) => Promise<BackgroundJobCommandResult>;
+  retryBackgroundJobFailures: (jobId: string) => Promise<BackgroundJobCommandResult>;
   getThumbnailJobs: () => Promise<BackgroundJob[]>;
   pauseThumbnailJob: (jobId: string) => Promise<void>;
   resumeThumbnailJob: (jobId: string) => Promise<void>;

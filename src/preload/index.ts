@@ -23,6 +23,7 @@ import {
   SlicerHandoffResult,
   SlicerConfiguration,
   BackgroundJob,
+  BackgroundJobCommandResult,
   METADATA_RESTORE_IPC,
 } from "../shared/types";
 import type { MetadataBackupSnapshot, StagedMetadataRestore } from "../shared/backupContracts";
@@ -73,6 +74,10 @@ contextBridge.exposeInMainWorld("polytray", {
   refreshFolderThumbnails: (folderPath: string, settings: RuntimeSettingsData) =>
     ipcRenderer.invoke(IPC.REFRESH_FOLDER_THUMBNAILS, folderPath, settings),
   getBackgroundJobs: () => ipcRenderer.invoke(IPC.GET_BACKGROUND_JOBS) as Promise<BackgroundJob[]>,
+  pauseBackgroundJob: (jobId: string) => ipcRenderer.invoke(IPC.PAUSE_BACKGROUND_JOB, jobId) as Promise<BackgroundJobCommandResult>,
+  resumeBackgroundJob: (jobId: string) => ipcRenderer.invoke(IPC.RESUME_BACKGROUND_JOB, jobId) as Promise<BackgroundJobCommandResult>,
+  cancelBackgroundJob: (jobId: string) => ipcRenderer.invoke(IPC.CANCEL_BACKGROUND_JOB, jobId) as Promise<BackgroundJobCommandResult>,
+  retryBackgroundJobFailures: (jobId: string) => ipcRenderer.invoke(IPC.RETRY_BACKGROUND_JOB_FAILURES, jobId) as Promise<BackgroundJobCommandResult>,
   getThumbnailJobs: () => ipcRenderer.invoke(IPC.GET_THUMBNAIL_JOBS) as Promise<BackgroundJob[]>,
   pauseThumbnailJob: (jobId: string) => ipcRenderer.invoke(IPC.PAUSE_THUMBNAIL_JOB, jobId) as Promise<void>,
   resumeThumbnailJob: (jobId: string) => ipcRenderer.invoke(IPC.RESUME_THUMBNAIL_JOB, jobId) as Promise<void>,
