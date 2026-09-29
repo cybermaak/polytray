@@ -40,7 +40,7 @@
 
 **G02 integrated gate (2026-09-29):** Final baseline/resource probes passed spec and quality review. `npm run build` and full `PYTHON=/usr/bin/python3 npm run test:product` passed on the final probe tree: 478 unit passes/1 Windows-only skip; 69 E2E passes/1 optional real-model skip. Warm grouped 50k `GET_LIBRARY_PAGE` measured 100.4/105.8 ms in the worker capture and 101.5/115.0 ms in the integrated-primary capture; both meet C10. The first grouped 50k page after renderer readiness took 1,617.9 ms while the 25 ms heartbeat max gap was 121.74 ms over the combined cold/warm interval. The 5k scan exposed the first card before the held subtree was released at 213.6 ms; max regular progress was 4 per rolling second. Browse queries sampled while metadata remained outstanding measured 0.6/0.8 ms median/p95; active parser overlap was not proven. One focused multipart run observed a 107 ms long task; three repeats and the integrated run recorded 0 ms. G02 remains REVIEW with queue high-water, cold readiness follow-up, GPU timing, exact process/port/listener/cache-byte accounting, cross-platform calibration/runs, and optional `base.3mf` still open. The performance report records owners and limits; the fixture ZIP was restored to baseline SHA256.
 
-**Progress:** 31 / 33 DONE. Foundation 2/2; data 3/3; scanning 6/6; thumbnails 4/4; preview 5/5; browsing 6/6; product workflows 4/4; validation 1/3. Last accepted product source candidate: `b6074bd`.
+**Progress:** 31 / 33 DONE. Foundation 2/2; data 3/3; scanning 6/6; thumbnails 4/4; preview 5/5; browsing 6/6; product workflows 4/4; validation 1/3. Latest integrated G02 probe candidate passed Build and full Product: `6e7fb42`.
 
 ## Status and update rules
 
