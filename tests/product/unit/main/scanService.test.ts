@@ -194,6 +194,44 @@ test('cancelling a scan settles a concurrent pause request', async () => {
   }
 });
 
+test('pause requested at terminal discovery settles as invalid when the scan completes', async () => {
+  const fixture = createTestDb();
+  const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-pause-terminal-'));
+  const filePath = path.join(rootPath, 'terminal.stl');
+  const metadataStarted = createBarrier<void>();
+  const releaseMetadata = createBarrier<void>();
+  const service = createScanService({
+    db: fixture.db,
+    discover: async function* (_root) {
+      yield discovered(rootPath, filePath);
+      yield { type: 'discovery-complete', rootPath, cancelled: false };
+    },
+    extractMetadata: async () => {
+      metadataStarted.release();
+      await releaseMetadata.wait();
+      return { vertexCount: 1, faceCount: 1, dimensions: null };
+    },
+  });
+  try {
+    const scan = service.scan(rootPath, { batchSize: 2 });
+    await metadataStarted.wait();
+    const jobId = service.getBackgroundJobs().find((job) => job.rootPath === rootPath)!.jobId;
+    let pauseSettled = false;
+    const pause = service.pause(jobId).then((result) => { pauseSettled = true; return result; });
+    releaseMetadata.release();
+    const result = await scan;
+    await Promise.resolve();
+    assert.equal(result.state, 'completed');
+    assert.equal(pauseSettled, true);
+    assert.equal(await pause, false);
+  } finally {
+    releaseMetadata.release();
+    await service.dispose();
+    fixture.cleanup();
+    fs.rmSync(rootPath, { recursive: true, force: true });
+  }
+});
+
 test('terminal jobs publish once and recent history remains bounded to twenty', async () => {
   const fixture = createTestDb();
   const roots = Array.from({ length: 21 }, () => fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-history-')));
@@ -252,6 +290,96 @@ test('retryFailures re-extracts only failed metadata files and leaves healthy fi
     assert.deepEqual([...attempts.entries()].sort(), [[failedPath, 2], [healthyPath, 1]]);
     assert.equal(service.getBackgroundJobs().find((job) => job.jobId === result.jobId)?.state, 'completed');
   } finally {
+    await service.dispose();
+    fixture.cleanup();
+    fs.rmSync(rootPath, { recursive: true, force: true });
+  }
+});
+
+test('retry admission is atomic and can be cancelled before it starts extraction', async () => {
+  const fixture = createTestDb();
+  const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-retry-admission-'));
+  const failedPath = path.join(rootPath, 'failed.stl');
+  let attempts = 0;
+  const service = createScanService({
+    db: fixture.db,
+    discover: async function* (_root, _signal, generation) {
+      yield discovered(rootPath, failedPath);
+      yield { type: 'scope-complete', rootPath, scopePath: rootPath, generation, kind: 'directory' };
+      yield { type: 'discovery-complete', rootPath, cancelled: false };
+    },
+    extractMetadata: async () => {
+      attempts++;
+      if (attempts === 1) throw new Error('initial failure');
+      return { vertexCount: 1, faceCount: 1, dimensions: null };
+    },
+  });
+  try {
+    const initial = await service.scan(rootPath, { batchSize: 1 });
+    assert.equal(initial.state, 'partial');
+    const first = service.retryFailures(initial.jobId);
+    const duplicate = service.retryFailures(initial.jobId);
+    const cancelAccepted = service.cancel(initial.jobId);
+    const [firstResult, duplicateResult] = await Promise.all([first, duplicate]);
+    assert.equal(cancelAccepted, true);
+    assert.equal(firstResult, true);
+    assert.equal(duplicateResult, false);
+    assert.equal(attempts, 1);
+    assert.equal(service.getBackgroundJobs().find((job) => job.jobId === initial.jobId)?.state, 'cancelled');
+  } finally {
+    await service.dispose();
+    fixture.cleanup();
+    fs.rmSync(rootPath, { recursive: true, force: true });
+  }
+});
+
+test('dispose aborts and awaits a held metadata retry before returning', async () => {
+  const fixture = createTestDb();
+  const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-retry-dispose-'));
+  const filePath = path.join(rootPath, 'retry.stl');
+  const retryStarted = createBarrier<void>();
+  const releaseRetry = createBarrier<void>();
+  let retrySignal: AbortSignal | undefined;
+  const states: string[] = [];
+  let attempts = 0;
+  const service = createScanService({
+    db: fixture.db,
+    onJobChanged: (job) => states.push(job.state),
+    discover: async function* (_root, _signal, generation) {
+      yield discovered(rootPath, filePath);
+      yield { type: 'scope-complete', rootPath, scopePath: rootPath, generation, kind: 'directory' };
+      yield { type: 'discovery-complete', rootPath, cancelled: false };
+    },
+    extractMetadata: async (_path, _extension, context) => {
+      attempts++;
+      if (attempts === 1) throw new Error('initial failure');
+      retrySignal = context.signal;
+      retryStarted.release();
+      await releaseRetry.wait();
+      return { vertexCount: 7, faceCount: 2, dimensions: null };
+    },
+  });
+  try {
+    const initial = await service.scan(rootPath, { batchSize: 1 });
+    const retry = service.retryFailures(initial.jobId);
+    await retryStarted.wait();
+    let disposeSettled = false;
+    const disposalPromise = service.dispose();
+    const disposal = disposalPromise.then(() => { disposeSettled = true; });
+    assert.equal(service.dispose(), disposalPromise);
+    await Promise.resolve();
+    assert.equal(retrySignal?.aborted, true);
+    assert.equal(disposeSettled, false);
+    releaseRetry.release();
+    await Promise.all([disposal, retry]);
+    const eventCountAfterDispose = states.length;
+    await Promise.resolve();
+    assert.equal(states.length, eventCountAfterDispose);
+    const row = fixture.db.prepare('SELECT vertex_count, face_count FROM files WHERE path = ?').get(filePath) as { vertex_count: number; face_count: number };
+    assert.deepEqual(row, { vertex_count: 0, face_count: 0 });
+    assert.equal(states.at(-1), 'cancelled');
+  } finally {
+    releaseRetry.release();
     await service.dispose();
     fixture.cleanup();
     fs.rmSync(rootPath, { recursive: true, force: true });
@@ -905,6 +1033,7 @@ test('cancelling a retry coalesced with an independent scope scan settles withou
   const failedScope = path.join(rootPath, 'offline');
   const sharedStarted = createBarrier<void>();
   const retryStarted = createBarrier<void>();
+  const retryCancelled = createBarrier<void>();
   const sharedRelease = createBarrier<void>();
   let activeSharedSignal: AbortSignal | undefined;
   let awaitingRetryStart = false;
@@ -912,6 +1041,7 @@ test('cancelling a retry coalesced with an independent scope scan settles withou
     db: fixture.db,
     onJobChanged: (job) => {
       if (awaitingRetryStart && job.rootPath === rootPath && job.state === 'running') retryStarted.release();
+      if (awaitingRetryStart && job.rootPath === rootPath && job.state === 'cancelled') retryCancelled.release();
     },
     discover: async function* (root, signal, generation) {
       if (root === rootPath) {
@@ -939,9 +1069,8 @@ test('cancelling a retry coalesced with an independent scope scan settles withou
     void retry.then(() => { retrySettled = true; });
     assert.equal(service.cancel(initial.jobId), true);
 
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await retryCancelled.wait();
+    await retry;
     assert.equal(retrySettled, true);
     assert.equal(service.getBackgroundJobs().find((job) => job.jobId === initial.jobId)?.state, 'cancelled');
     assert.equal(activeSharedSignal?.aborted, false);

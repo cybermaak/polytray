@@ -59,6 +59,7 @@ interface ActiveJob {
   pauseAcknowledged: Promise<void>;
   acknowledgePause: () => void;
   retryController?: AbortController;
+  retryPromise?: Promise<boolean>;
 }
 
 type DiscoveredRecord = DiscoveredModel;
@@ -195,6 +196,9 @@ export class ScanService {
   private readonly recentJobs: BackgroundJob[] = [];
   private readonly terminalJobRecords = new Map<string, ActiveJob>();
   private readonly jobListeners = new Set<(job: BackgroundJob) => void>();
+  private readonly retryOperations = new Set<Promise<boolean>>();
+  private readonly retryControllers = new Set<AbortController>();
+  private disposePromise?: Promise<void>;
   private generation = Date.now();
   private disposed = false;
   private readonly repository: FileIndexRepository;
@@ -291,7 +295,7 @@ export class ScanService {
 
   cancel(jobId: string) {
     const job = [...this.jobs.values()].find((active) => active.jobId === jobId) ?? this.terminalJobRecords.get(jobId);
-    if (!job || ['completed', 'partial', 'failed', 'cancelled'].includes(job.state)) return false;
+    if (!job || (['completed', 'partial', 'failed', 'cancelled'].includes(job.state) && !job.retryPromise)) return false;
     job.state = 'cancelling'; job.updatedAt = Date.now(); job.controller.abort(); job.retryController?.abort();
     job.releaseResume();
     job.acknowledgePause();
@@ -326,14 +330,36 @@ export class ScanService {
     return true;
   }
 
-  async retryFailures(jobId: string) {
+  retryFailures(jobId: string) {
+    if (this.disposed) return Promise.resolve(false);
     const job = this.terminalJobRecords.get(jobId);
-    if (!job || !['partial', 'failed'].includes(job.state)) return false;
+    if (!job || !['partial', 'failed'].includes(job.state) || job.retryPromise) return Promise.resolve(false);
     const retryable = job.errors.filter((error) => error.retryable);
-    if (!retryable.length) return false;
-    await job.promise.catch(() => undefined);
+    if (!retryable.length) return Promise.resolve(false);
     const retryController = new AbortController();
     job.retryController = retryController;
+    this.retryControllers.add(retryController);
+    let operation!: Promise<boolean>;
+    operation = Promise.resolve()
+      .then(() => this.runRetryFailures(job, retryable, retryController))
+      .finally(() => {
+        if (job.retryPromise === operation) job.retryPromise = undefined;
+        if (job.retryController === retryController) job.retryController = undefined;
+        this.retryOperations.delete(operation);
+        this.retryControllers.delete(retryController);
+      });
+    job.retryPromise = operation;
+    this.retryOperations.add(operation);
+    return operation;
+  }
+
+  private async runRetryFailures(job: ActiveJob, retryable: BackgroundJobError[], retryController: AbortController) {
+    await job.promise.catch(() => undefined);
+    if (retryController.signal.aborted || this.disposed) {
+      job.state = 'cancelled';
+      this.bump(job, true);
+      return true;
+    }
     job.state = 'running';
     this.publish(job);
     for (const error of retryable) {
@@ -369,11 +395,8 @@ export class ScanService {
         }
       }
     }
-    job.state = retryController.signal.aborted ? 'cancelled' : job.errors.some((error) => error.retryable) ? 'partial' : 'completed';
-    job.retryController = undefined;
+    job.state = retryController.signal.aborted || this.disposed ? 'cancelled' : job.errors.some((error) => error.retryable) ? 'partial' : 'completed';
     this.bump(job, true);
-    const prior = this.recentJobs.findIndex((item) => item.jobId === jobId);
-    if (prior >= 0) this.recentJobs[prior] = this.snapshot(job);
     return true;
   }
 
@@ -388,12 +411,16 @@ export class ScanService {
     return [...jobs.values()];
   }
 
-  async dispose() {
-    if (this.disposed) return;
+  dispose() {
+    if (this.disposePromise) return this.disposePromise;
     this.disposed = true;
     for (const job of this.jobs.values()) { job.controller.abort(); job.releaseResume(); }
-    await Promise.all([...this.jobs.values()].map((job) => job.promise.catch(() => undefined)));
-    this.jobListeners.clear();
+    for (const controller of this.retryControllers) controller.abort();
+    this.disposePromise = Promise.all([
+      ...[...this.jobs.values()].map((job) => job.promise.catch(() => undefined)),
+      ...this.retryOperations,
+    ]).then(() => { this.jobListeners.clear(); });
+    return this.disposePromise;
   }
 
   private snapshot(job: ActiveJob): BackgroundJob {
@@ -408,6 +435,10 @@ export class ScanService {
     job.lastPublishedAt = Date.now();
     const snapshot = this.snapshot(job);
     if (['completed', 'partial', 'failed', 'cancelled'].includes(job.state)) {
+      if (job.pauseRequested) {
+        job.pauseRequested = false;
+        job.acknowledgePause();
+      }
       this.terminalJobRecords.set(job.jobId, job);
       const prior = this.recentJobs.findIndex((item) => item.jobId === job.jobId);
       if (prior >= 0) this.recentJobs.splice(prior, 1);
