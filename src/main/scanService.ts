@@ -395,6 +395,12 @@ export class ScanService {
         const retryRoot = error.code === 'ARCHIVE_FAILED' ? `${error.path}${ARCHIVE_ENTRY_SEPARATOR}` : error.path;
         const scopeRetry = await this.scan(retryRoot, { signal: retryController.signal }).catch(() => null);
         if (retryController.signal.aborted) break;
+        if (scopeRetry) {
+          job.counts.discovered += scopeRetry.discovered;
+          job.counts.indexed += scopeRetry.indexed;
+          job.counts.metadataCompleted += scopeRetry.metadataCompleted;
+          job.counts.metadataFailed += scopeRetry.metadataFailed;
+        }
         if (scopeRetry?.state === 'completed') {
           job.errors = job.errors.filter((item) => !(item.path === error.path && item.phase === error.phase && item.code === error.code));
         }

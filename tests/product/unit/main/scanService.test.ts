@@ -461,7 +461,11 @@ test('retryFailures reopens only the failed archive scope and preserves healthy 
     assert.equal(healthyMetadataRuns, 1);
     assert.equal(fixture.db.prepare('SELECT path FROM files WHERE path = ?').get(healthyPath) !== undefined, true);
     assert.equal(fixture.db.prepare('SELECT path FROM files WHERE path = ?').get(`${archivePath}::entry::nested/recovered.stl`) !== undefined, true);
-    assert.equal(service.getBackgroundJobs().find((job) => job.jobId === initial.jobId)?.state, 'completed');
+    const retriedJob = service.getBackgroundJobs().find((job) => job.jobId === initial.jobId)!;
+    assert.equal(retriedJob.state, 'completed');
+    assert.equal(retriedJob.counts.discovered, initial.discovered + 1);
+    assert.equal(retriedJob.counts.indexed, initial.indexed + 1);
+    assert.equal(retriedJob.counts.metadataCompleted, initial.metadataCompleted + 1);
   } finally {
     await service.dispose();
     fixture.cleanup();
