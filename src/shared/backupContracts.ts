@@ -107,6 +107,10 @@ export type MetadataImportCommitResult =
   | { status: "cancelled" }
   | { status: "failed"; message: string };
 
+export type MetadataRestoreAcknowledgeResult =
+  | { status: "acknowledged" }
+  | { status: "failed"; message: string };
+
 export type MetadataImportRecoveryResult =
   | { status: "none" }
   | { status: "aborted"; transactionId: string }

@@ -26,6 +26,7 @@ import type {
   SlicerConfiguration,
   BackgroundJob,
   BackgroundJobCommandResult,
+  MetadataRestoreAcknowledgeResult,
 } from "../shared/types";
 import type { PreparedPreview, PreviewParseRequest } from "../shared/previewContracts";
 import type {
@@ -116,7 +117,7 @@ interface PolytrayAPI {
   completeMetadataRestoreStartup: (snapshot: RendererRestoreSnapshot) => Promise<MetadataImportRecoveryResult>;
   previewMetadataRestore: (request: { backup: unknown; currentSnapshot: RendererRestoreSnapshot; options?: { replaceSettings?: boolean; replaceRoots?: boolean } }) => Promise<MetadataRestorePreviewResult>;
   commitMetadataRestore: (transactionId: string) => Promise<MetadataImportCommitResult>;
-  acknowledgeMetadataRestore: (transactionId: string, rendererRevision: number) => Promise<void>;
+  acknowledgeMetadataRestore: (transactionId: string, rendererRevision: number) => Promise<MetadataRestoreAcknowledgeResult>;
   cancelMetadataRestore: (transactionId: string) => Promise<void>;
   getMetadataRestoreStatus: () => Promise<MetadataRestoreStatus>;
   retryPendingMetadataAnnotations: () => Promise<{ appliedCount: number; conflictCount: number }>;

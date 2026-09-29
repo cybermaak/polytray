@@ -1461,15 +1461,16 @@ export const App: React.FC = () => {
           style={{ position: "fixed", inset: 0, zIndex: 9999, display: "grid", placeItems: "center", padding: 24, background: "rgba(0, 0, 0, 0.56)", color: "white", textAlign: "center" }}
         >
           {restoreRecoveryError
-            ? `Metadata restore recovery is blocked. ${restoreRecoveryError}`
+            ? `Metadata restore recovery needs attention. ${restoreRecoveryError}`
             : "Applying metadata restore. Please wait…"}
         </div>
       )}
       <SettingsModal
         open={settingsOpen}
         settings={settings}
-        backupSnapshot={buildRendererRestoreSnapshot()}
+        getBackupSnapshot={buildRendererRestoreSnapshot}
         restoreBlocked={!!restoreRecoveryError}
+        onRecoveryError={setRestoreRecoveryError}
         onSettingsChange={handleSettingsChange}
         onClose={() => setSettingsOpen(false)}
       />

@@ -288,3 +288,28 @@ test('startup rolls a committed restore forward when the renderer has not applie
   const status = await page.evaluate(() => window.polytray.getMetadataRestoreStatus());
   expect(status.error).toBeNull();
 });
+
+test('shows retained recovery after an acknowledgment failure and recovers on restart', async () => {
+  await page.locator('#btn-settings').click();
+  fs.writeFileSync(path.join(scratch, 'metadata-restore-ack-failure'), 'fail next acknowledgement');
+  await page.locator('#choose-metadata-backup').click();
+  await page.locator('#metadata-backup-file').setInputFiles(path.join(scratch, 'conflict-backup.json'));
+  await expect(page.locator('#apply-metadata-import')).toBeEnabled();
+  await page.locator('#apply-metadata-import').click();
+  const recoveryNotice = page.getByRole('status').filter({ hasText: 'Metadata restore recovery needs attention' });
+  await expect(recoveryNotice).toContainText('Injected acknowledgment mismatch');
+  await expect(recoveryNotice).toContainText('metadata-restore');
+  const unresolved = await page.evaluate(() => window.polytray.getMetadataRestoreStatus());
+  expect(unresolved.unresolved).toBe(true);
+  expect(unresolved.transactions.at(-1)?.state).toBe('database-applied');
+  expect(unresolved.transactions.at(-1)?.recoveryBackupPath).toContain('metadata-restore');
+  await expect(page.locator('.metadata-restore-preview')).toHaveCount(1);
+  await expect(page.getByRole('status').filter({ hasText: 'Metadata import applied. The library and local settings are in sync.' })).toHaveCount(0);
+
+  await app.close();
+  app = await launchWorkflowApp();
+  page = await app.firstWindow();
+  await page.waitForLoadState('domcontentloaded');
+  await expect(page.locator('#search-input')).toBeVisible({ timeout: 30000 });
+  await expect.poll(async () => page.evaluate(async () => (await window.polytray.getMetadataRestoreStatus()).unresolved), { timeout: 30000 }).toBe(false);
+});

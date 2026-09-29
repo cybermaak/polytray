@@ -1,9 +1,16 @@
 import React from "react";
-import type { MetadataBackupSnapshot, MetadataImportPlan, MetadataRestoreStatus } from "../../shared/backupContracts";
+import type { MetadataBackupSnapshot, MetadataImportPlan, MetadataRestoreStatus, StagedMetadataRestore } from "../../shared/backupContracts";
+import type { MetadataRestoreAcknowledgeResult } from "../../shared/backupContracts";
+import { subscribeToRestoreStatusRefresh } from "../lib/restoreStatusSubscription";
+import { formatMetadataRestoreAcknowledgmentFailure } from "../lib/metadataRestoreFeedback";
 
-interface Props { snapshot: MetadataBackupSnapshot; disabled?: boolean }
+interface Props {
+  getSnapshot: () => MetadataBackupSnapshot & { preferences: Record<string, unknown> };
+  disabled?: boolean;
+  onRecoveryError: (message: string | null) => void;
+}
 
-export const MetadataBackupPanel: React.FC<Props> = ({ snapshot, disabled = false }) => {
+export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = false, onRecoveryError }) => {
   const [plan, setPlan] = React.useState<MetadataImportPlan | null>(null);
   const [replaceSettings, setReplaceSettings] = React.useState(false);
   const [replaceRoots, setReplaceRoots] = React.useState(false);
@@ -11,6 +18,7 @@ export const MetadataBackupPanel: React.FC<Props> = ({ snapshot, disabled = fals
   const [busy, setBusy] = React.useState(false);
   const [status, setStatus] = React.useState<MetadataRestoreStatus | null>(null);
   const [recoveryBackupPath, setRecoveryBackupPath] = React.useState<string | null>(null);
+  const [recoveryError, setRecoveryError] = React.useState<string | null>(null);
   const fileInput = React.useRef<HTMLInputElement>(null);
 
   const refreshStatus = React.useCallback(async () => {
@@ -23,12 +31,12 @@ export const MetadataBackupPanel: React.FC<Props> = ({ snapshot, disabled = fals
     catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
   }, []);
   React.useEffect(() => { void refreshStatus(); }, [refreshStatus]);
-  React.useEffect(() => window.polytray.onLibraryChanged(() => { void refreshStatus(); }), [refreshStatus]);
+  React.useEffect(() => subscribeToRestoreStatusRefresh(window.polytray.onLibraryChanged, refreshStatus), [refreshStatus]);
 
   const exportBackup = async () => {
     setBusy(true); setMessage("");
     try {
-      const current = await window.polytray.getMetadataRestoreSnapshot(snapshot);
+      const current = await window.polytray.getMetadataRestoreSnapshot(getSnapshot());
       const result = await window.polytray.exportMetadataBackup(current);
       if (result.status === "exported") setMessage(`Metadata backup saved to ${result.location}. Source model files are not included.`);
       else if (result.status === "cancelled") setMessage("Export cancelled; no file was written.");
@@ -44,7 +52,7 @@ export const MetadataBackupPanel: React.FC<Props> = ({ snapshot, disabled = fals
     try {
       if (file.size > 50 * 1024 * 1024) throw new Error("Backup exceeds the 50 MiB import limit.");
       const backup: unknown = JSON.parse(await file.text());
-      const currentSnapshot = await window.polytray.getMetadataRestoreSnapshot(snapshot);
+      const currentSnapshot = await window.polytray.getMetadataRestoreSnapshot(getSnapshot());
       const result = await window.polytray.previewMetadataRestore({ backup, currentSnapshot, options: { replaceSettings, replaceRoots } });
       if (result.status === "failed") throw new Error(result.message);
       setPlan(result.plan);
@@ -56,17 +64,38 @@ export const MetadataBackupPanel: React.FC<Props> = ({ snapshot, disabled = fals
   const applyImport = async () => {
     if (!plan) return;
     setBusy(true); setMessage("Applying metadata and local settings…");
+    let committedState: StagedMetadataRestore | null = null;
     try {
       const result = await window.polytray.commitMetadataRestore(plan.transactionId);
       if (result.status === "failed") throw new Error(result.message);
       if (result.status === "cancelled") { setMessage("Import cancelled; nothing changed."); setPlan(null); return; }
-      setRecoveryBackupPath(result.rendererState.recoveryBackupPath);
+      committedState = result.rendererState;
+      setRecoveryBackupPath(committedState.recoveryBackupPath);
       await window.polytray.applyMetadataRestoreState(result.rendererState);
-      await window.polytray.acknowledgeMetadataRestore(plan.transactionId, result.rendererState.rendererRevision);
+      const acknowledgment: MetadataRestoreAcknowledgeResult = await window.polytray.acknowledgeMetadataRestore(plan.transactionId, result.rendererState.rendererRevision);
+      if (acknowledgment.status === "failed") {
+        const recoveryMessage = formatMetadataRestoreAcknowledgmentFailure(acknowledgment.message, committedState.recoveryBackupPath);
+        setRecoveryError(recoveryMessage);
+        setMessage(recoveryMessage);
+        onRecoveryError(recoveryMessage);
+        await refreshStatus();
+        return;
+      }
+      setRecoveryError(null);
+      onRecoveryError(null);
       setPlan(null);
       await refreshStatus();
       setMessage("Metadata import applied. The library and local settings are in sync.");
-    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : String(error);
+      if (committedState) {
+        const recoveryMessage = formatMetadataRestoreAcknowledgmentFailure(errorText, committedState.recoveryBackupPath);
+        setRecoveryError(recoveryMessage);
+        setMessage(recoveryMessage);
+        onRecoveryError(recoveryMessage);
+        await refreshStatus();
+      } else setMessage(errorText);
+    }
     finally { setBusy(false); }
   };
 
@@ -118,6 +147,7 @@ export const MetadataBackupPanel: React.FC<Props> = ({ snapshot, disabled = fals
       </div>
     </div>}
     {status?.error && <p role="alert">Metadata restore needs attention. Recovery data is retained. {status.error}</p>}
+    {recoveryError && <p role="alert">{recoveryError}</p>}
     {status && <p role="status">{status.pendingAnnotationCount} annotations waiting for matching files.</p>}
     {recoveryBackupPath && <p className="settings-row-desc">Recovery backup: <code>{recoveryBackupPath}</code>
       <button type="button" id="copy-recovery-backup-location" onClick={() => void navigator.clipboard.writeText(recoveryBackupPath)}>Copy location</button>

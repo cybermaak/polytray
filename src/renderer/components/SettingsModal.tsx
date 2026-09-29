@@ -14,8 +14,9 @@ interface Props {
   open: boolean;
   onClose: () => void;
   settings: AppSettings;
-  backupSnapshot: MetadataBackupSnapshot;
+  getBackupSnapshot: () => MetadataBackupSnapshot & { preferences: Record<string, unknown> };
   restoreBlocked?: boolean;
+  onRecoveryError: (message: string | null) => void;
   onSettingsChange: (newSettings: Partial<AppSettings>) => void;
 }
 
@@ -23,8 +24,9 @@ export const SettingsModal: React.FC<Props> = ({
   open,
   onClose,
   settings,
-  backupSnapshot,
+  getBackupSnapshot,
   restoreBlocked = false,
+  onRecoveryError,
   onSettingsChange,
 }) => {
   const [advancedExpanded, setAdvancedExpanded] = React.useState(false);
@@ -265,7 +267,7 @@ export const SettingsModal: React.FC<Props> = ({
             configuration={settings.slicerConfiguration}
             onChange={(slicerConfiguration) => onSettingsChange({ slicerConfiguration })}
           />
-          <MetadataBackupPanel snapshot={backupSnapshot} disabled={restoreBlocked} />
+          {open && <MetadataBackupPanel getSnapshot={getBackupSnapshot} disabled={restoreBlocked} onRecoveryError={onRecoveryError} />}
 
           {/* Advanced */}
           <div className="settings-group">

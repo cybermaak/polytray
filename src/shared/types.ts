@@ -431,5 +431,6 @@ export type {
   StagedMetadataRestore,
   MetadataImportCommitResult,
   MetadataImportRecoveryResult,
+  MetadataRestoreAcknowledgeResult,
   MetadataBackupService,
 } from "./backupContracts";

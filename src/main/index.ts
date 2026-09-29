@@ -134,7 +134,9 @@ function getIsolatedNativeTestAdapters() {
   const launchHold = containedPath("slicer-launch-hold");
   const launchReached = containedPath("slicer-launch-reached");
   const launchRelease = containedPath("slicer-launch-release");
+  const restoreAckFailure = containedPath("metadata-restore-ack-failure");
   return {
+    restoreAckFailure,
     dialog: {
       showSaveDialog: async () => ({ canceled: false, filePath: containedPath("metadata-backup.json") }),
     },
@@ -541,6 +543,14 @@ app.whenReady().then(() => {
   registerMetadataRestoreHandlers({
     ipcMain,
     service: metadataRestoreService,
+    acknowledgeImport: async (transactionId, rendererRevision) => {
+      const failureMarker = getIsolatedNativeTestAdapters()?.restoreAckFailure;
+      if (failureMarker && fs.existsSync(failureMarker)) {
+        fs.rmSync(failureMarker, { force: true });
+        throw new Error("Injected acknowledgment mismatch");
+      }
+      await metadataRestoreService!.acknowledgeImport(transactionId, rendererRevision);
+    },
     updateRendererSnapshot: updateRendererRestoreSnapshot,
     applyRendererState: applyRendererRestoreState,
     runMutation: runMainMutation,

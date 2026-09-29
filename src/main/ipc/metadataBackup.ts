@@ -1,7 +1,7 @@
 import type { Dialog, IpcMain, IpcMainInvokeEvent } from 'electron';
 import type { Database } from 'better-sqlite3';
 import type { MetadataBackupAnnotation } from '../../shared/metadataBackup';
-import type { MetadataBackupSnapshot, MetadataRestoreService, StagedMetadataRestore } from '../../shared/backupContracts';
+import type { MetadataBackupSnapshot, MetadataRestoreAcknowledgeResult, MetadataRestoreService, StagedMetadataRestore } from '../../shared/backupContracts';
 import { IPC, METADATA_RESTORE_IPC } from '../../shared/types';
 import { createMetadataBackupService } from '../metadataBackupService';
 
@@ -50,6 +50,7 @@ export function registerMetadataBackupHandlers(dependencies: MetadataBackupIpcDe
 export interface MetadataRestoreIpcDependencies {
   ipcMain: IpcMain;
   service: MetadataRestoreService;
+  acknowledgeImport?: (transactionId: string, rendererRevision: number) => Promise<void>;
   updateRendererSnapshot?: (snapshot: MetadataBackupSnapshot & { preferences: Record<string, unknown> }) => void;
   startAfterRecovery?: () => Promise<void>;
   applyRendererState?: (state: StagedMetadataRestore) => Promise<void>;
@@ -122,12 +123,12 @@ export function registerMetadataRestoreHandlers(dependencies: MetadataRestoreIpc
       return await service.commitImport(payload.transactionId);
     } catch (error) { return { status: 'failed', message: error instanceof Error ? error.message : String(error) }; }
   });
-  handle(METADATA_RESTORE_CHANNELS.acknowledge, async (_event, raw: unknown) => {
+  handle(METADATA_RESTORE_CHANNELS.acknowledge, async (_event, raw: unknown): Promise<MetadataRestoreAcknowledgeResult> => {
     try {
       const payload = recordPayload(raw);
       if (typeof payload.transactionId !== 'string' || !Number.isSafeInteger(payload.rendererRevision)) throw new Error('Invalid metadata restore acknowledgment');
       ensureStartupRecoveryReady();
-      await service.acknowledgeImport(payload.transactionId, payload.rendererRevision as number);
+      await (dependencies.acknowledgeImport ?? ((transactionId, revision) => service.acknowledgeImport(transactionId, revision)))(payload.transactionId, payload.rendererRevision as number);
       return { status: 'acknowledged' };
     } catch (error) { return { status: 'failed', message: error instanceof Error ? error.message : String(error) }; }
   });
