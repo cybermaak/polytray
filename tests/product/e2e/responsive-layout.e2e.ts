@@ -15,6 +15,27 @@ const WINDOW_CASES = [
   { width: 1920, height: 1080 },
 ];
 
+async function dismissTerminalBackgroundJobs(page) {
+  const activeStates = ["queued", "running", "pausing", "paused", "cancelling"];
+  await expect.poll(() => page.evaluate(async (active) =>
+    (await window.polytray.getBackgroundJobs()).every((job) => !active.includes(job.state)), activeStates,
+  ), { timeout: 60000 }).toBe(true);
+  const terminalJobIds = await page.evaluate(async (active) => (await window.polytray.getBackgroundJobs())
+    .filter((job) => !active.includes(job.state))
+    .map((job) => job.jobId), activeStates);
+  for (const jobId of terminalJobIds) {
+    const panel = page.locator(".background-work-details");
+    if (await panel.count()) await panel.evaluate((element) => { element.open = true; });
+    const card = page.locator(`.background-job[data-job-id="${jobId}"]`);
+    const dismiss = card.getByRole("button", { name: "Dismiss" });
+    if (await dismiss.count()) {
+      await dismiss.evaluate((button) => button.click());
+      await expect(card).toHaveCount(0);
+    }
+  }
+  await expect(page.locator("#scan-progress")).toHaveClass(/hidden/, { timeout: 30000 });
+}
+
 async function findMainWindow(app) {
   await app.firstWindow();
   for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -62,7 +83,7 @@ test("responsive panels preserve browsing space across supported window sizes", 
     await expect.poll(() => mainWindow.evaluate(async () =>
       (await window.polytray.getFiles({ limit: 500, offset: 0 })).total,
     ), { timeout: 30000 }).toBeGreaterThanOrEqual(40);
-    await expect(mainWindow.locator("#scan-progress")).toHaveClass(/hidden/, { timeout: 30000 });
+    await dismissTerminalBackgroundJobs(mainWindow);
     await expect.poll(() => mainWindow.evaluate(async () => {
       const result = await window.polytray.getFiles({ limit: 500, offset: 0 });
       return result.files.filter((file) => file.thumbnail || file.thumbnail_failed).length;
