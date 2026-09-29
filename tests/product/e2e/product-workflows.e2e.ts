@@ -309,6 +309,13 @@ test('closing Settings during a pre-marker commit clears its failed preview with
   await expect(page.locator('.metadata-restore-preview')).toBeVisible();
   const transactionId = await page.locator('.metadata-restore-preview').getAttribute('data-transaction-id');
   expect(transactionId).toBeTruthy();
+  const lifecycleWarnings: string[] = [];
+  const onConsole = (entry: import('@playwright/test').ConsoleMessage) => {
+    if (entry.type() === 'warning' || entry.type() === 'error') {
+      if (/state update.*unmounted|unmounted.*state update|component.*not mounted/i.test(entry.text())) lifecycleWarnings.push(entry.text());
+    }
+  };
+  page.on('console', onConsole);
   fs.writeFileSync(restoreCommitHoldPath, 'hold after prepared journal');
   fs.writeFileSync(restoreCommitFailurePath, 'fail before SQLite marker');
   await page.locator('#apply-metadata-import').click();
@@ -321,6 +328,7 @@ test('closing Settings during a pre-marker commit clears its failed preview with
       return status.transactions.some(transaction => transaction.transactionId === id);
     }, transactionId!)).toBe(false);
     await expect(page.getByRole('status').filter({ hasText: 'The import did not reach SQLite' })).toBeVisible();
+    expect(lifecycleWarnings).toEqual([]);
     const retry = await page.evaluate(id => window.polytray.commitMetadataRestore(id), transactionId!);
     expect(retry.status).toBe('failed');
     expect(retry.status === 'failed' ? retry.message : '').toMatch(/not prepared/i);
@@ -328,6 +336,7 @@ test('closing Settings during a pre-marker commit clears its failed preview with
     expect(status.unresolved).toBe(false);
     expect(status.transactions.some(transaction => transaction.transactionId === transactionId)).toBe(false);
   } finally {
+    page.off('console', onConsole);
     fs.writeFileSync(restoreCommitReleasePath, 'release');
     fs.rmSync(restoreCommitHoldPath, { force: true });
     fs.rmSync(restoreCommitReleasePath, { force: true });
