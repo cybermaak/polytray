@@ -123,6 +123,8 @@ export function createMetadataRestoreService(dependencies: MetadataRestoreDepend
   const repository = dependencies.repository ?? createFileIndexRepository(db);
   const pendingSelect = db.prepare('SELECT canonical_path, path, tags, notes, print_status, provenance FROM pending_annotations ORDER BY canonical_path');
   const plans = new Map<string, MetadataImportPlan>();
+  const commitOperations = new Map<string, Promise<MetadataImportCommitResult>>();
+  const cancelOperations = new Map<string, Promise<void>>();
   const withBoundary = dependencies.withCommitBoundary ?? ((commit) => commit());
   const mutationLeases = new Map<string, () => void | Promise<void>>();
   let unresolvedFailure: string | null = null;
@@ -251,9 +253,7 @@ export function createMetadataRestoreService(dependencies: MetadataRestoreDepend
     };
   }
 
-  async function commitImport(input: string | MetadataImportPlan): Promise<MetadataImportCommitResult> {
-    const plan = typeof input === 'string' ? plans.get(input) : plans.get(input.transactionId);
-    if (!plan || typeof input !== 'string' && JSON.stringify(plan) !== JSON.stringify(input)) return { status: 'failed', message: 'Metadata import plan was not prepared by this service; regenerate the preview' };
+  async function performCommitImport(plan: MetadataImportPlan): Promise<MetadataImportCommitResult> {
     try {
       const previous = completedOrStored(plan.transactionId);
       if (previous) {
@@ -293,6 +293,31 @@ export function createMetadataRestoreService(dependencies: MetadataRestoreDepend
       unresolvedFailure = error instanceof Error ? error.message : String(error);
       return { status: 'failed', message: error instanceof Error ? error.message : String(error) };
     }
+  }
+
+  async function commitImport(input: string | MetadataImportPlan): Promise<MetadataImportCommitResult> {
+    const transactionId = typeof input === 'string' ? input : input.transactionId;
+    const cancelling = cancelOperations.get(transactionId);
+    if (cancelling) {
+      try { await cancelling; }
+      catch (error) {
+        const committed = completedOrStored(transactionId);
+        if (committed) return committed;
+        return { status: 'failed', message: error instanceof Error ? error.message : String(error) };
+      }
+    }
+    const existing = commitOperations.get(transactionId);
+    if (existing) return existing;
+    const plan = plans.get(transactionId);
+    if (!plan || typeof input !== 'string' && JSON.stringify(plan) !== JSON.stringify(input)) {
+      return { status: 'failed', message: 'Metadata import plan was not prepared by this service; regenerate the preview' };
+    }
+    let tracked!: Promise<MetadataImportCommitResult>;
+    tracked = performCommitImport(plan).finally(() => {
+      if (commitOperations.get(transactionId) === tracked) commitOperations.delete(transactionId);
+    });
+    commitOperations.set(transactionId, tracked);
+    return tracked;
   }
 
   async function acknowledgeImport(transactionId: string, rendererRevision: number) {
@@ -446,7 +471,9 @@ export function createMetadataRestoreService(dependencies: MetadataRestoreDepend
     };
   }
 
-  async function cancelImport(transactionId: string) {
+  async function performCancelImport(transactionId: string) {
+    const committing = commitOperations.get(transactionId);
+    if (committing) await committing;
     if (currentMarker(transactionId)) throw new Error('A committed restore cannot be canceled; reconcile it forward');
     const record = (await dependencies.journal.readPending()).find(value => value.transactionId === transactionId);
     if (record) {
@@ -458,6 +485,17 @@ export function createMetadataRestoreService(dependencies: MetadataRestoreDepend
     await releaseMutationLease(transactionId);
     unresolvedFailure = null;
     plans.delete(transactionId);
+  }
+
+  async function cancelImport(transactionId: string) {
+    const existing = cancelOperations.get(transactionId);
+    if (existing) return existing;
+    let tracked!: Promise<void>;
+    tracked = performCancelImport(transactionId).finally(() => {
+      if (cancelOperations.get(transactionId) === tracked) cancelOperations.delete(transactionId);
+    });
+    cancelOperations.set(transactionId, tracked);
+    return tracked;
   }
 
   return { getCurrentSnapshot, previewImport, commitImport, acknowledgeImport, reconcileImport, cancelImport, getStatus, retryPendingAnnotations, dispose: unsubscribeFileIndexMutations };

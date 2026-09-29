@@ -448,3 +448,48 @@ test('corrupt pre-import recovery backup remains visible and blocks marker-backe
     assert.equal((db.prepare('SELECT state FROM metadata_import_transactions WHERE transaction_id = ?').get(plan.transactionId) as { state: string }).state, 'database-applied');
   } finally { db.close(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(fixture.dir, { recursive: true, force: true }); }
 });
+
+test('cancel serializes with a commit paused at prepared journal write and retains committed recovery evidence', async () => {
+  const { db, fixture } = createDb();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-restore-cancel-race-'));
+  const journal = createMetadataRestoreJournal(dir);
+  let preparedStarted!: () => void;
+  let resumePrepared!: () => void;
+  const preparedStartedPromise = new Promise<void>(resolve => { preparedStarted = resolve; });
+  const preparedBlock = new Promise<void>(resolve => { resumePrepared = resolve; });
+  const blockingJournal = {
+    async write(record: Parameters<typeof journal.write>[0]) {
+      if (record.state === 'prepared') { preparedStarted(); await preparedBlock; }
+      await journal.write(record);
+    },
+    readPending: () => journal.readPending(),
+    remove: (transactionId: string) => journal.remove(transactionId),
+  };
+  let leaseHeld = false;
+  const service = createMetadataRestoreService({
+    db, journal: blockingJournal, recoveryDirectory: path.join(dir, 'backups'),
+    acquireMutationLease: async () => { leaseHeld = true; return () => { leaseHeld = false; }; },
+    getRendererRevision: () => 7, getRendererState: () => rendererState, applyRendererState: async () => undefined,
+  });
+  try {
+    const plan = service.previewImport(backup(), rendererState);
+    const commitPromise = service.commitImport(plan);
+    await preparedStartedPromise;
+    const cancelPromise = service.cancelImport(plan.transactionId).then(() => 'cancelled', error => `rejected:${String(error)}`);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(leaseHeld, true);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM metadata_import_transactions').get() as { count: number }).count, 0);
+    resumePrepared();
+    const commit = await commitPromise;
+    assert.equal(commit.status, 'staged');
+    const cancelResult = await cancelPromise;
+    assert.match(cancelResult, /cannot be canceled|recover/i);
+    assert.equal(leaseHeld, true);
+    const marker = db.prepare('SELECT state, recovery_backup_path FROM metadata_import_transactions WHERE transaction_id = ?').get(plan.transactionId) as { state: string; recovery_backup_path: string };
+    assert.equal(marker.state, 'database-applied');
+    assert.equal(fs.existsSync(marker.recovery_backup_path), true);
+    assert.equal((await journal.read(plan.transactionId)).state, 'database-applied');
+    await service.acknowledgeImport(plan.transactionId, 7);
+    assert.equal(leaseHeld, false);
+  } finally { db.close(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(fixture.dir, { recursive: true, force: true }); }
+});
