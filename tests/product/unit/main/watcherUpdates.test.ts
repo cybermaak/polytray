@@ -20,6 +20,7 @@ function makeHarness() {
   let nextRevision = 1;
   let observedSize = 10;
   let removalSafe = true;
+  let throwThumbnailWrite = false;
   const metadataGates: Array<() => void> = [];
   const thumbnailGates: Array<() => void> = [];
   const coordinator = createWatcherUpdateCoordinator<Stat, Metadata>({
@@ -63,6 +64,7 @@ function makeHarness() {
       return `thumb-${identity.contentRevision}.png`;
     },
     applyThumbnail: (identity, thumbnailPath) => {
+      if (throwThumbnailWrite) throw new Error('thumbnail persistence failed');
       const current = rows.get(identity.path);
       if (!current || current.id !== identity.id || current.contentRevision !== identity.contentRevision) return false;
       current.thumbnail = thumbnailPath;
@@ -75,6 +77,7 @@ function makeHarness() {
     rows, operations, coordinator,
     setObservedSize(size: number) { observedSize = size; },
     setRemovalSafe(safe: boolean) { removalSafe = safe; },
+    setThrowThumbnailWrite(shouldThrow: boolean) { throwThumbnailWrite = shouldThrow; },
     committedRevisions,
     releaseEnrichment() {
       for (const release of [...metadataGates, ...thumbnailGates]) release();
@@ -278,4 +281,22 @@ test('settled paths are released and burst notifications collapse to the latest 
   batcher.flush();
   assert.deepEqual(published, [['unlink', 'add']]);
   batcher.dispose();
+});
+
+test('thumbnail persistence rejection is logged, drained, and cleaned without an unhandled rejection', async () => {
+  const harness = makeHarness();
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    harness.setThrowThumbnailWrite(true);
+    await harness.coordinator.handle({ type: 'add', filePath: '/models/thumbnail-write-failure.stl' });
+    harness.releaseEnrichment();
+    await assert.doesNotReject(harness.coordinator.drain());
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.deepEqual(unhandled, []);
+    assert.equal(harness.coordinator.getTrackedPathCount(), 0);
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
 });

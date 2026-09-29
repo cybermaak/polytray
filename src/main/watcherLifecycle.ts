@@ -178,8 +178,17 @@ export function createWatcherUpdateCoordinator<
   }
 
   function trackEnrichment(promise: Promise<void>) {
-    enrichments.add(promise);
-    void promise.finally(() => enrichments.delete(promise));
+    let tracked: Promise<void>;
+    tracked = promise
+      .catch((error: unknown) => {
+        try {
+          console.warn('[Watcher] Background enrichment failed:', error instanceof Error ? error.message : String(error));
+        } catch {
+          // Reporting must not turn an expected background failure back into a rejection.
+        }
+      })
+      .finally(() => enrichments.delete(tracked));
+    enrichments.add(tracked);
   }
 
   function startEnrichment(event: WatcherFileEvent, identity: TIdentity, generation: number, lifecycle: number) {
