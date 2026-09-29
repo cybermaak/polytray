@@ -59,7 +59,8 @@ import {
   addFilesToCollection,
 } from "../shared/libraryCollections";
 import { normalizeFileTags, parseStoredFileTags } from "../shared/fileTags";
-import type { FileRecord, ThumbnailReadyData, WatcherErrorData } from "../shared/types";
+import { applySlicerContextLookupIfCurrent, beginSlicerContextRootRemoval, fenceCollectionScopeChange, SlicerContextLaunchFence } from "./lib/slicerContextLaunchFence";
+import type { FileRecord, SlicerContextMenuRequest, ThumbnailReadyData, WatcherErrorData } from "../shared/types";
 import type { MetadataBackupSnapshot, StagedMetadataRestore } from "../shared/backupContracts";
 import type { LibraryQuery, LibraryItem } from "../shared/libraryQuery";
 import type { PreviewTarget } from "../shared/previewTarget";
@@ -83,6 +84,7 @@ interface LibraryStats {
 
 const RENDERER_STATE_REVISION_KEY = "polytray-renderer-state-revision";
 type RendererRestoreSnapshot = MetadataBackupSnapshot & { preferences: Record<string, unknown> };
+type SlicerContextLaunch = SlicerContextMenuRequest & { token: string };
 
 function canonicalRootKey(folderPath: string) {
   const normalized = folderPath.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
@@ -117,6 +119,8 @@ export const App: React.FC = () => {
   const [searchDraft, setSearchDraft] = useState("");
   const [resultCountAnnouncement, setResultCountAnnouncement] = useState("");
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
+  const [slicerContextLaunch, setSlicerContextLaunch] = useState<SlicerContextLaunch | null>(null);
+  const slicerContextLaunchFenceRef = useRef(new SlicerContextLaunchFence());
   const previewFocusReturnRef = useRef<HTMLElement | null>(null);
   const pendingPreviewScrollRestoreRef = useRef<number | null>(null);
   const pendingLibraryScrollAnchorRef = useRef<{
@@ -931,20 +935,28 @@ export const App: React.FC = () => {
   ]);
 
   const handleRemoveFolder = useCallback(
-    (folderPath: string) => runRendererMutation(async () => {
-      await window.polytray.removeLibraryFolder(folderPath);
-      const nextLibraryState = withRemovedLibraryFolder(
-        libraryStateRef.current,
+    (folderPath: string) => {
+      const activeFolderPath = activeFolderRef.current;
+      const removingActiveFolder = beginSlicerContextRootRemoval(
+        slicerContextLaunchFenceRef.current,
+        activeFolderPath,
         folderPath,
       );
-      applyLibraryState(nextLibraryState);
-      persistLibraryState(nextLibraryState);
-      if (activeFolderRef.current === folderPath) {
-        setActiveFolder(null);
-        activeFolderRef.current = null;
-      }
-      await refreshLibrary();
-    }),
+      return runRendererMutation(async () => {
+        await window.polytray.removeLibraryFolder(folderPath);
+        const nextLibraryState = withRemovedLibraryFolder(
+          libraryStateRef.current,
+          folderPath,
+        );
+        applyLibraryState(nextLibraryState);
+        persistLibraryState(nextLibraryState);
+        if (removingActiveFolder) {
+          setActiveFolder(null);
+          activeFolderRef.current = null;
+        }
+        await refreshLibrary();
+      });
+    },
     [
       applyLibraryState,
       clearSelection,
@@ -972,6 +984,7 @@ export const App: React.FC = () => {
 
   const handleSortChange = useCallback(
     async (newSort: string) => {
+      if (sortRef.current !== newSort) slicerContextLaunchFenceRef.current.noteUserIntent();
       if (sortRef.current !== newSort) clearSelection();
       setSort(newSort);
       sortRef.current = newSort;
@@ -980,6 +993,7 @@ export const App: React.FC = () => {
   );
 
   const handleOrderToggle = useCallback(async () => {
+    slicerContextLaunchFenceRef.current.noteUserIntent();
     clearSelection();
     const newOrder = orderRef.current === "ASC" ? "DESC" : "ASC";
     setOrder(newOrder);
@@ -988,6 +1002,7 @@ export const App: React.FC = () => {
 
   const handleExtensionFilter = useCallback(
     async (ext: string | null) => {
+      if (extensionRef.current !== ext) slicerContextLaunchFenceRef.current.noteUserIntent();
       if (extensionRef.current !== ext) clearSelection();
       setExtension(ext);
       extensionRef.current = ext;
@@ -997,6 +1012,7 @@ export const App: React.FC = () => {
 
   const handleSearch = useCallback(
     async (query: string) => {
+      if (searchRef.current !== query) slicerContextLaunchFenceRef.current.noteUserIntent();
       if (searchRef.current !== query) clearSelection();
       setSearch(query);
       setSearchDraft(query);
@@ -1007,6 +1023,7 @@ export const App: React.FC = () => {
 
   const handleFolderSelect = useCallback(
     async (folderPath: string | null) => {
+      if (activeFolderRef.current !== folderPath) slicerContextLaunchFenceRef.current.noteUserIntent();
       if (activeFolderRef.current !== folderPath) clearSelection();
       setActiveFolder(folderPath);
       activeFolderRef.current = folderPath;
@@ -1074,49 +1091,67 @@ export const App: React.FC = () => {
     setBatchTagsInput("");
   }, [batchTagsInput, handleFileRecordUpdate, selectedFiles]);
 
-  const handleCollectionSelect = useCallback((collectionId: string | null) => runRendererMutation(() => {
-    if (collectionsStateRef.current.activeCollectionId !== collectionId) clearSelection();
-    const nextState = normalizeCollectionsState({
-      ...collectionsStateRef.current,
-      activeCollectionId: collectionId,
-    });
-    applyCollectionsState(nextState);
-    persistCollectionsState(nextState);
-  }), [applyCollectionsState, clearSelection, persistCollectionsState, runRendererMutation]);
-
-  const handleCreateCollection = useCallback(
-    (name: string, filePaths: string[]) => runRendererMutation(() => {
-      const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || `collection-${Date.now()}`;
-      let nextState = upsertCollection(collectionsStateRef.current, {
-        id,
-        name: name.trim(),
-        filePaths,
+  const handleCollectionSelect = useCallback((collectionId: string | null) => {
+    fenceCollectionScopeChange(
+      slicerContextLaunchFenceRef.current,
+      collectionsStateRef.current.activeCollectionId,
+      collectionId ?? "",
+      collectionId,
+    );
+    return runRendererMutation(() => {
+      if (collectionsStateRef.current.activeCollectionId !== collectionId) clearSelection();
+      const nextState = normalizeCollectionsState({
+        ...collectionsStateRef.current,
+        activeCollectionId: collectionId,
       });
-      nextState = normalizeCollectionsState({
-        ...nextState,
-        activeCollectionId: id,
-      });
-      clearSelection();
       applyCollectionsState(nextState);
       persistCollectionsState(nextState);
-    }),
+    });
+  }, [applyCollectionsState, clearSelection, persistCollectionsState, runRendererMutation]);
+
+  const handleCreateCollection = useCallback(
+    (name: string, filePaths: string[]) => {
+      const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || `collection-${Date.now()}`;
+      fenceCollectionScopeChange(slicerContextLaunchFenceRef.current, collectionsStateRef.current.activeCollectionId, id, id);
+      return runRendererMutation(() => {
+        let nextState = upsertCollection(collectionsStateRef.current, {
+          id,
+          name: name.trim(),
+          filePaths,
+        });
+        nextState = normalizeCollectionsState({
+          ...nextState,
+          activeCollectionId: id,
+        });
+        clearSelection();
+        applyCollectionsState(nextState);
+        persistCollectionsState(nextState);
+      });
+    },
     [applyCollectionsState, clearSelection, persistCollectionsState, runRendererMutation],
   );
 
   const handleAddFilesToCollection = useCallback(
-    (collectionId: string, filePaths: string[]) => runRendererMutation(() => {
-      const nextState = addFilesToCollection(
-        collectionsStateRef.current,
+    (collectionId: string, filePaths: string[]) => {
+      fenceCollectionScopeChange(
+        slicerContextLaunchFenceRef.current,
+        collectionsStateRef.current.activeCollectionId,
         collectionId,
-        filePaths,
       );
-      applyCollectionsState(nextState);
-      persistCollectionsState(nextState);
-      if (collectionsStateRef.current.activeCollectionId === collectionId) {
-        clearSelection();
-        void refreshLibrary();
-      }
-    }),
+      return runRendererMutation(() => {
+        const nextState = addFilesToCollection(
+          collectionsStateRef.current,
+          collectionId,
+          filePaths,
+        );
+        applyCollectionsState(nextState);
+        persistCollectionsState(nextState);
+        if (collectionsStateRef.current.activeCollectionId === collectionId) {
+          clearSelection();
+          void refreshLibrary();
+        }
+      });
+    },
     [applyCollectionsState, clearSelection, persistCollectionsState, refreshLibrary, runRendererMutation],
   );
 
@@ -1129,6 +1164,7 @@ export const App: React.FC = () => {
   }, [batchCollectionId, handleAddFilesToCollection, selectedFiles]);
 
   const handleSelectLibraryItem = useCallback((item: DisplayFileRecord) => {
+    slicerContextLaunchFenceRef.current.noteUserIntent();
     if (document.activeElement instanceof HTMLElement) previewFocusReturnRef.current = document.activeElement;
     setComparisonFiles([]);
     if (isLibraryArchiveDisplayRecord(item)) {
@@ -1140,6 +1176,7 @@ export const App: React.FC = () => {
   }, [pageQuery]);
 
   const handleOpenArchive = useCallback((archivePath: string) => {
+    slicerContextLaunchFenceRef.current.noteUserIntent();
     clearSelection();
     const archiveFolder = getArchiveRootVirtualPath(archivePath);
     setActiveFolder(archiveFolder);
@@ -1147,12 +1184,14 @@ export const App: React.FC = () => {
   }, [clearSelection]);
 
   const handleCompareSelected = useCallback(() => {
+    slicerContextLaunchFenceRef.current.noteUserIntent();
     compareFocusReturnRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setPreviewTarget(null);
     setComparisonFiles(selectedFiles.slice(0, 2));
   }, [selectedFiles]);
 
   const handleOpenComparedFile = useCallback((file: FileRecord) => {
+    slicerContextLaunchFenceRef.current.noteUserIntent();
     if (document.activeElement instanceof HTMLElement) previewFocusReturnRef.current = document.activeElement;
     setComparisonFiles([]);
     setPreviewTarget({ kind: "file", file });
@@ -1172,6 +1211,7 @@ export const App: React.FC = () => {
   }, []);
 
   const handleClosePreview = useCallback(() => {
+    slicerContextLaunchFenceRef.current.noteUserIntent();
     const restoreOverlayScroll = Boolean(document.querySelector("#preview-panel.overlay"));
     const scrollTop = restoreOverlayScroll
       ? document.querySelector<HTMLElement>("[data-virtuoso-scroller]")?.scrollTop ?? null
@@ -1192,12 +1232,21 @@ export const App: React.FC = () => {
   const handleRetryPage = useCallback(() => { void libraryPages.retry(); }, [libraryPages.retry]);
 
   const handleRemoveCollection = useCallback(
-    (collectionId: string) => runRendererMutation(() => {
-      const nextState = removeCollection(collectionsStateRef.current, collectionId);
-      if (collectionsStateRef.current.activeCollectionId === collectionId) clearSelection();
-      applyCollectionsState(nextState);
-      persistCollectionsState(nextState);
-    }),
+    (collectionId: string) => {
+      const activeCollectionId = collectionsStateRef.current.activeCollectionId;
+      fenceCollectionScopeChange(
+        slicerContextLaunchFenceRef.current,
+        activeCollectionId,
+        collectionId,
+        activeCollectionId === collectionId ? null : activeCollectionId,
+      );
+      return runRendererMutation(() => {
+        const nextState = removeCollection(collectionsStateRef.current, collectionId);
+        if (collectionsStateRef.current.activeCollectionId === collectionId) clearSelection();
+        applyCollectionsState(nextState);
+        persistCollectionsState(nextState);
+      });
+    },
     [applyCollectionsState, clearSelection, persistCollectionsState, runRendererMutation],
   );
 
@@ -1276,11 +1325,34 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     return window.polytray.onArchiveOpen((archiveVirtualPath) => {
+      slicerContextLaunchFenceRef.current.noteUserIntent();
       clearSelection();
       setActiveFolder(archiveVirtualPath);
       activeFolderRef.current = archiveVirtualPath;
     });
   }, [clearSelection]);
+
+  useEffect(() => window.polytray.onSlicerContextMenuRequest((request) => {
+    const lookup = slicerContextLaunchFenceRef.current.beginLookup();
+    void applySlicerContextLookupIfCurrent(
+      slicerContextLaunchFenceRef.current,
+      lookup,
+      () => window.polytray.getFileById(request.fileId),
+      (file) => {
+        if (!file
+          || file.id !== request.fileId
+          || file.path !== request.path
+          || file.extension.toLowerCase() !== request.extension.toLowerCase()
+          || !["stl", "obj", "3mf"].includes(file.extension.toLowerCase())
+          || file.content_revision !== request.contentRevision) return;
+        setComparisonFiles([]);
+        setPreviewTarget({ kind: "file", file });
+        setSlicerContextLaunch({ ...request, token: crypto.randomUUID() });
+      },
+    ).catch((error: unknown) => {
+      console.error("Could not open indexed model from its context menu:", error);
+    });
+  }), []);
 
   // ── Render ──────────────────────────────────────────────────────
   // CRITICAL: #file-grid and #empty-state must be DIRECT children of
@@ -1442,6 +1514,7 @@ export const App: React.FC = () => {
           file={comparisonActive ? null : previewFile}
           item={comparisonActive ? null : previewFile}
           target={comparisonActive ? null : previewTarget}
+          slicerContextLaunch={slicerContextLaunch}
           showGrid={settings.showGrid}
           slicerConfiguration={settings.slicerConfiguration}
           thumbnailColor={settings.thumbnailColor}

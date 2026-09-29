@@ -24,6 +24,7 @@ import type {
   SlicerHandoffRequest,
   SlicerHandoffResult,
   SlicerConfiguration,
+  SlicerContextMenuRequest,
   BackgroundJob,
   BackgroundJobCommandResult,
   MetadataRestoreAcknowledgeResult,
@@ -79,6 +80,7 @@ interface PolytrayAPI {
   openInSlicer: (request: SlicerHandoffRequest) => Promise<SlicerHandoffResult>;
   cancelSlicerHandoff: (requestId: string) => Promise<boolean>;
   pickSlicerApplication: () => Promise<SlicerConfiguration | null>;
+  onSlicerContextMenuRequest: (callback: (request: SlicerContextMenuRequest) => void) => () => void;
 
   readFileBuffer: (filePath: string) => Promise<ArrayBuffer>;
   readThumbnail: (thumbnailPath: string) => Promise<string | null>;

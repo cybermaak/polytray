@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo, useReducer } from "react";
 import { formatMeasurement, formatSize, formatNumber } from "../lib/formatters";
-import type { FileRecord, SlicerConfiguration } from "../../shared/types";
+import type { FileRecord, SlicerConfiguration, SlicerContextMenuRequest } from "../../shared/types";
 import type { LibraryArchiveItem, LibraryQueryClient } from "../../shared/libraryQuery";
 import type { PreviewTarget } from "../../shared/previewTarget";
 import { normalizeFileTags, parseStoredFileTags } from "../../shared/fileTags";
@@ -32,6 +32,7 @@ interface Props {
   file: FileRecord | null;
   item: DisplayFileRecord | null;
   target?: PreviewTarget | null;
+  slicerContextLaunch?: SlicerContextMenuRequest & { token: string } | null;
   libraryQueryClient?: LibraryQueryClient;
   showGrid: boolean;
   thumbnailColor: string;
@@ -143,6 +144,7 @@ export const PreviewPanel: React.FC<Props> = ({
   file,
   item,
   target,
+  slicerContextLaunch = null,
   libraryQueryClient,
   showGrid,
   thumbnailColor,
@@ -186,6 +188,7 @@ export const PreviewPanel: React.FC<Props> = ({
   const [selectedCollectionId, setSelectedCollectionId] = useState("");
   const [slicerHandoff, setSlicerHandoff] = useState<SlicerHandoffState | null>(null);
   const slicerRequestRef = useRef<{ requestId: string; identity: string; generation: number } | null>(null);
+  const handledSlicerContextLaunchRef = useRef<string | null>(null);
   const activeTarget = target !== undefined ? target : targetFromLegacyProps(file, item);
   const archiveTarget = activeTarget?.kind === 'archive' ? activeTarget : null;
   const archiveKey = archiveTarget ? archivePreviewIdentity(archiveTarget) : '';
@@ -628,6 +631,16 @@ export const PreviewPanel: React.FC<Props> = ({
       if (slicerRequestRef.current?.requestId === requestId) slicerRequestRef.current = null;
     }
   }, [currentFile, slicerConfiguration, slicerTargetIdentity]);
+  useEffect(() => {
+    if (!slicerContextLaunch || !currentFile) return;
+    if (currentFile.id !== slicerContextLaunch.fileId
+      || currentFile.path !== slicerContextLaunch.path
+      || currentFile.extension.toLowerCase() !== slicerContextLaunch.extension.toLowerCase()
+      || currentFile.content_revision !== slicerContextLaunch.contentRevision
+      || handledSlicerContextLaunchRef.current === slicerContextLaunch.token) return;
+    handledSlicerContextLaunchRef.current = slicerContextLaunch.token;
+    void openCurrentInSlicer();
+  }, [currentFile, openCurrentInSlicer, slicerContextLaunch]);
   const cancelSlicerHandoff = useCallback(async () => {
     const activeRequest = slicerRequestRef.current;
     const { identity, generation } = slicerTargetRef.current;

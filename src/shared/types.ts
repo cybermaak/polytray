@@ -124,7 +124,15 @@ export const IPC = {
   GET_MAIN_WINDOW_VISIBILITY: "get-main-window-visibility",
   MAIN_WINDOW_VISIBILITY: "main-window-visibility",
   LIBRARY_CHANGED: "library-changed",
+  SLICER_CONTEXT_MENU_REQUEST: "slicer-context-menu-request",
 } as const;
+
+export interface SlicerContextMenuRequest {
+  fileId: number;
+  path: string;
+  extension: string;
+  contentRevision: number;
+}
 
 export const METADATA_RESTORE_IPC = {
   snapshot: 'get-metadata-restore-snapshot',

@@ -13,8 +13,10 @@ import { join } from "path";
 import { getDb } from "../database";
 import { startWatcher, stopWatcher, updateWatcherSettings } from "../watcher";
 import { IPC, PreviewMetricData, RuntimeSettingsData } from "../../shared/types";
+import type { SlicerContextMenuRequest } from "../../shared/types";
 import { ARCHIVE_ENTRY_SEPARATOR } from "../../shared/archivePaths";
 import { startWatcherThroughMutationGate } from "../watcherMutationGate";
+import { createSlicerContextMenuAction, sendSlicerContextMenuRequest, type SlicerContextMenuFile } from "../slicerContextMenu";
 import {
   parseFilePath,
   parseFolderPath,
@@ -25,6 +27,14 @@ import {
 
 interface SystemMutationOptions {
   runMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
+}
+
+function getIndexedContextMenuFile(filePath: unknown): SlicerContextMenuFile | null {
+  if (typeof filePath !== "string" || !filePath) return null;
+  return getDb().prepare(`
+    SELECT id AS fileId, path, extension, content_revision AS contentRevision
+    FROM files WHERE path = ?
+  `).get(filePath) as SlicerContextMenuFile | undefined ?? null;
 }
 
 export function registerSystemHandlers(
@@ -61,7 +71,13 @@ export function registerSystemHandlers(
 
   ipcMain.on(IPC.SHOW_CONTEXT_MENU, (event, filePath) => {
     const parsedFilePath = parseFilePath(filePath);
-    const template = [
+    const indexedFile = getIndexedContextMenuFile(parsedFilePath);
+    const slicerAction = createSlicerContextMenuAction(indexedFile, (captured) => {
+      sendSlicerContextMenuRequest(captured, () => getIndexedContextMenuFile(parsedFilePath), current =>
+        event.sender.send(IPC.SLICER_CONTEXT_MENU_REQUEST, current satisfies SlicerContextMenuRequest));
+    });
+    const template: Electron.MenuItemConstructorOptions[] = [
+      ...(slicerAction ? [slicerAction, { type: "separator" as const }] : []),
       {
         label: "Reveal in Finder / Explorer",
         click: () => {
@@ -121,6 +137,11 @@ export function registerSystemHandlers(
     const archivePath = separatorIndex !== -1 ? path.slice(0, separatorIndex) : path;
     const archiveVirtualRoot = `${archivePath}${ARCHIVE_ENTRY_SEPARATOR}`;
 
+    const indexedFile = isSummary === true ? null : getIndexedContextMenuFile(path);
+    const slicerAction = createSlicerContextMenuAction(indexedFile, (captured) => {
+      sendSlicerContextMenuRequest(captured, () => getIndexedContextMenuFile(path), current =>
+        event.sender.send(IPC.SLICER_CONTEXT_MENU_REQUEST, current satisfies SlicerContextMenuRequest));
+    });
     const template = isSummary
       ? [
           {
@@ -138,6 +159,7 @@ export function registerSystemHandlers(
           },
         ]
       : [
+          ...(slicerAction ? [slicerAction, { type: "separator" as const }] : []),
           {
             label: "Reveal Archive in Finder / Explorer",
             click: () => shell.showItemInFolder(archivePath),

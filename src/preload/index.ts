@@ -23,6 +23,7 @@ import {
   SlicerHandoffRequest,
   SlicerHandoffResult,
   SlicerConfiguration,
+  SlicerContextMenuRequest,
   BackgroundJob,
   BackgroundJobCommandResult,
   MetadataRestoreAcknowledgeResult,
@@ -194,6 +195,8 @@ contextBridge.exposeInMainWorld("polytray", {
     ipcRenderer.on("trigger-open-archive", handler);
     return () => ipcRenderer.removeListener("trigger-open-archive", handler);
   },
+  onSlicerContextMenuRequest: (callback: (request: SlicerContextMenuRequest) => void) =>
+    onChannel<SlicerContextMenuRequest>(IPC.SLICER_CONTEXT_MENU_REQUEST, callback),
 
   onScanProgress: (callback: (data: ScanProgressData) => void) =>
     onChannel<ScanProgressData>(IPC.SCAN_PROGRESS, callback),
