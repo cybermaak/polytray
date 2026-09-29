@@ -92,7 +92,7 @@ async function waitForIsolatedThumbnailGenerationGate(filePath: string): Promise
   return true;
 }
 
-function markIsolatedThumbnailGenerationGateFinished(filePath: string) {
+function markIsolatedThumbnailGenerationGateFinished(filePath: string, rejectedByIdentityGuard: boolean) {
   if (process.env.POLYTRAY_ISOLATED_TEST !== "1" || !isolatedThumbnailGenerationGateUsed || isolatedThumbnailGenerationGateFinished ||
       !isolatedThumbnailGenerationGateRoot || !isolatedThumbnailGenerationGateTarget) return;
   let canonicalFilePath: string;
@@ -102,7 +102,10 @@ function markIsolatedThumbnailGenerationGateFinished(filePath: string) {
   const finishedPath = path.join(isolatedThumbnailGenerationGateRoot, "thumbnail-generation-finished");
   if (!isPathContained(isolatedThumbnailGenerationGateRoot, finishedPath)) return;
   try {
-    fsSync.writeFileSync(finishedPath, "stale thumbnail response passed cache write guard", { flag: "wx" });
+    const outcome = rejectedByIdentityGuard
+      ? "stale response rejected by cache identity guard"
+      : "failure: stale response was not rejected by cache identity guard";
+    fsSync.writeFileSync(finishedPath, outcome, { flag: "wx" });
     if (isPathContained(isolatedThumbnailGenerationGateRoot, fsSync.realpathSync(finishedPath))) {
       isolatedThumbnailGenerationGateFinished = true;
     }
@@ -247,6 +250,7 @@ export function initThumbnailService() {
     const thumbPath = path.join(getThumbnailDir(), thumbnailCacheFilename(JSON.stringify(attempt.key)));
     const temporaryPath = `${thumbPath}.${result.requestId}.tmp`;
     let heldForTest = false;
+    let rejectedByIdentityGuard = false;
     try {
       const base64Data = result.dataUrl.replace(/^data:image\/png;base64,/, "");
       const image = Buffer.from(base64Data, "base64");
@@ -264,12 +268,14 @@ export function initThumbnailService() {
       const current = getDb().prepare("SELECT path, content_revision FROM files WHERE id = ?").get(row.id) as { path: string; content_revision: number } | undefined;
       if (!current || current.path !== attempt.key.canonicalPath || current.content_revision !== attempt.key.contentRevision ||
           getThumbnailCacheEpoch(attempt.key.canonicalPath) !== attempt.cacheEpoch) {
+        rejectedByIdentityGuard = true;
         await fs.rm(temporaryPath, { force: true });
       } else {
         await fs.rename(temporaryPath, thumbPath);
         const afterRename = getDb().prepare("SELECT path, content_revision FROM files WHERE id = ?").get(row.id) as { path: string; content_revision: number } | undefined;
         if (!afterRename || afterRename.path !== attempt.key.canonicalPath || afterRename.content_revision !== attempt.key.contentRevision ||
             getThumbnailCacheEpoch(attempt.key.canonicalPath) !== attempt.cacheEpoch) {
+          rejectedByIdentityGuard = true;
           await fs.rm(thumbPath, { force: true });
         } else {
           thumbnailReadQuarantine.markFresh(thumbPath);
@@ -282,7 +288,7 @@ export function initThumbnailService() {
       if (!savedPath) await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
     }
     pendingRequests.settle(result.requestId, savedPath);
-    if (heldForTest) markIsolatedThumbnailGenerationGateFinished(attempt.key.canonicalPath);
+    if (heldForTest) markIsolatedThumbnailGenerationGateFinished(attempt.key.canonicalPath, rejectedByIdentityGuard);
   });
 
 }

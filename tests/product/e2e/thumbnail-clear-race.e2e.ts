@@ -111,7 +111,7 @@ test('clearing thumbnails fences an active generation before it can publish stal
     expect(oldRequest?.error).toContain('Thumbnail job cancelled');
     fs.writeFileSync(releasePath, 'release');
     await expect.poll(() => fs.existsSync(finishedPath), { timeout: 20_000 }).toBe(true);
-    expect(fs.readFileSync(finishedPath, 'utf8')).toContain('stale thumbnail response passed cache write guard');
+    expect(fs.readFileSync(finishedPath, 'utf8')).toBe('stale response rejected by cache identity guard');
     expect(fs.existsSync(staleColorPath)).toBe(false);
     const afterStaleResponse = await page.evaluate(({ targetPath, folder }) => window.polytray.getFiles({ folder, limit: 10, offset: 0 })
       .then(rows => rows.files.find(file => file.path === targetPath)?.thumbnail ?? null), { targetPath: modelPath, folder: library });
