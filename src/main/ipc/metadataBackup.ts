@@ -1,7 +1,7 @@
 import type { Dialog, IpcMain, IpcMainInvokeEvent } from 'electron';
 import type { Database } from 'better-sqlite3';
 import type { MetadataBackupAnnotation } from '../../shared/metadataBackup';
-import type { MetadataBackupSnapshot, MetadataRestoreAcknowledgeResult, MetadataRestoreService, StagedMetadataRestore } from '../../shared/backupContracts';
+import type { MetadataBackupSnapshot, MetadataImportCancelResult, MetadataRestoreAcknowledgeResult, MetadataRestoreService, StagedMetadataRestore } from '../../shared/backupContracts';
 import { IPC, METADATA_RESTORE_IPC } from '../../shared/types';
 import { createMetadataBackupService } from '../metadataBackupService';
 
@@ -51,6 +51,7 @@ export interface MetadataRestoreIpcDependencies {
   ipcMain: IpcMain;
   service: MetadataRestoreService;
   acknowledgeImport?: (transactionId: string, rendererRevision: number) => Promise<void>;
+  cancelImport?: (transactionId: string) => Promise<void>;
   updateRendererSnapshot?: (snapshot: MetadataBackupSnapshot & { preferences: Record<string, unknown> }) => void;
   startAfterRecovery?: () => Promise<void>;
   applyRendererState?: (state: StagedMetadataRestore) => Promise<void>;
@@ -132,12 +133,12 @@ export function registerMetadataRestoreHandlers(dependencies: MetadataRestoreIpc
       return { status: 'acknowledged' };
     } catch (error) { return { status: 'failed', message: error instanceof Error ? error.message : String(error) }; }
   });
-  handle(METADATA_RESTORE_CHANNELS.cancel, async (_event, raw: unknown) => {
+  handle(METADATA_RESTORE_CHANNELS.cancel, async (_event, raw: unknown): Promise<MetadataImportCancelResult> => {
     try {
       const payload = recordPayload(raw);
       if (typeof payload.transactionId !== 'string') throw new Error('Invalid metadata restore transaction ID');
       ensureStartupRecoveryReady();
-      await service.cancelImport(payload.transactionId);
+      await (dependencies.cancelImport ?? (transactionId => service.cancelImport(transactionId)))(payload.transactionId);
       return { status: 'cancelled' };
     } catch (error) { return { status: 'failed', message: error instanceof Error ? error.message : String(error) }; }
   });

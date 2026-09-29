@@ -27,6 +27,7 @@ import type {
   BackgroundJob,
   BackgroundJobCommandResult,
   MetadataRestoreAcknowledgeResult,
+  MetadataImportCancelResult,
 } from "../shared/types";
 import type { PreparedPreview, PreviewParseRequest } from "../shared/previewContracts";
 import type {
@@ -118,7 +119,7 @@ interface PolytrayAPI {
   previewMetadataRestore: (request: { backup: unknown; currentSnapshot: RendererRestoreSnapshot; options?: { replaceSettings?: boolean; replaceRoots?: boolean } }) => Promise<MetadataRestorePreviewResult>;
   commitMetadataRestore: (transactionId: string) => Promise<MetadataImportCommitResult>;
   acknowledgeMetadataRestore: (transactionId: string, rendererRevision: number) => Promise<MetadataRestoreAcknowledgeResult>;
-  cancelMetadataRestore: (transactionId: string) => Promise<void>;
+  cancelMetadataRestore: (transactionId: string) => Promise<MetadataImportCancelResult>;
   getMetadataRestoreStatus: () => Promise<MetadataRestoreStatus>;
   retryPendingMetadataAnnotations: () => Promise<{ appliedCount: number; conflictCount: number }>;
   applyMetadataRestoreState: (state: StagedMetadataRestore) => Promise<void>;

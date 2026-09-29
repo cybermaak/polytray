@@ -26,6 +26,7 @@ import {
   BackgroundJob,
   BackgroundJobCommandResult,
   MetadataRestoreAcknowledgeResult,
+  MetadataImportCancelResult,
   METADATA_RESTORE_IPC,
 } from "../shared/types";
 import type { MetadataBackupExportResult, MetadataBackupSnapshot, StagedMetadataRestore } from "../shared/backupContracts";
@@ -156,7 +157,7 @@ contextBridge.exposeInMainWorld("polytray", {
   acknowledgeMetadataRestore: (transactionId: string, rendererRevision: number) =>
     ipcRenderer.invoke(METADATA_RESTORE_IPC.acknowledge, { transactionId, rendererRevision }) as Promise<MetadataRestoreAcknowledgeResult>,
   cancelMetadataRestore: (transactionId: string) =>
-    ipcRenderer.invoke(METADATA_RESTORE_IPC.cancel, { transactionId }),
+    ipcRenderer.invoke(METADATA_RESTORE_IPC.cancel, { transactionId }) as Promise<MetadataImportCancelResult>,
   getMetadataRestoreStatus: () => ipcRenderer.invoke(METADATA_RESTORE_IPC.status),
   retryPendingMetadataAnnotations: () => ipcRenderer.invoke(METADATA_RESTORE_IPC.retry),
   applyMetadataRestoreState: (state: StagedMetadataRestore) =>

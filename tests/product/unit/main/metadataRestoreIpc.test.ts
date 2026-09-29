@@ -73,6 +73,23 @@ test('restore handlers reject a renderer that is not the registered main window'
   await assert.rejects(handlers.get(METADATA_RESTORE_CHANNELS.snapshot)!({}, undefined), /untrusted restore renderer/);
 });
 
+test('restore cancel IPC returns a typed failure result for a committed preview', async () => {
+  const handlers = new Map<string, (...args: unknown[]) => Promise<unknown>>();
+  const service = {
+    getCurrentSnapshot: () => ({ rendererRevision: 1, libraryRoots: [], collections: [], preferences: {} }),
+    previewImport: () => ({}), commitImport: async () => ({}), acknowledgeImport: async () => undefined,
+    cancelImport: async () => { throw new Error('A committed restore cannot be canceled; reconcile it forward'); },
+    reconcileImport: async () => ({ status: 'none' }), getStatus: async () => ({}), retryPendingAnnotations: () => ({}), dispose: () => undefined,
+  } as unknown as MetadataRestoreService;
+  registerMetadataRestoreHandlers({
+    ipcMain: { handle: (channel, handler) => { handlers.set(channel, handler); } } as unknown as IpcMain,
+    service,
+  });
+  await handlers.get(METADATA_RESTORE_CHANNELS.bootstrap)!({}, { rendererRevision: 1, libraryRoots: [], collections: [], preferences: {} });
+  const result = await handlers.get(METADATA_RESTORE_CHANNELS.cancel)!({}, { transactionId: 'committed-preview' });
+  assert.deepEqual(result, { status: 'failed', message: 'A committed restore cannot be canceled; reconcile it forward' });
+});
+
 test('blocked startup recovery locks renderer state and never starts backfill', async () => {
   const handlers = new Map<string, (...args: unknown[]) => Promise<unknown>>();
   const order: string[] = [];

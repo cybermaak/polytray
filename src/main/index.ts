@@ -135,8 +135,10 @@ function getIsolatedNativeTestAdapters() {
   const launchReached = containedPath("slicer-launch-reached");
   const launchRelease = containedPath("slicer-launch-release");
   const restoreAckFailure = containedPath("metadata-restore-ack-failure");
+  const restoreCancelFailure = containedPath("metadata-restore-cancel-failure");
   return {
     restoreAckFailure,
+    restoreCancelFailure,
     dialog: {
       showSaveDialog: async () => ({ canceled: false, filePath: containedPath("metadata-backup.json") }),
     },
@@ -550,6 +552,14 @@ app.whenReady().then(() => {
         throw new Error("Injected acknowledgment mismatch");
       }
       await metadataRestoreService!.acknowledgeImport(transactionId, rendererRevision);
+    },
+    cancelImport: async (transactionId) => {
+      const failureMarker = getIsolatedNativeTestAdapters()?.restoreCancelFailure;
+      if (failureMarker && fs.existsSync(failureMarker)) {
+        fs.rmSync(failureMarker, { force: true });
+        throw new Error("Injected preview cancellation failure");
+      }
+      await metadataRestoreService!.cancelImport(transactionId);
     },
     updateRendererSnapshot: updateRendererRestoreSnapshot,
     applyRendererState: applyRendererRestoreState,

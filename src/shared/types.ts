@@ -430,6 +430,7 @@ export type {
   MetadataImportPlan,
   StagedMetadataRestore,
   MetadataImportCommitResult,
+  MetadataImportCancelResult,
   MetadataImportRecoveryResult,
   MetadataRestoreAcknowledgeResult,
   MetadataBackupService,

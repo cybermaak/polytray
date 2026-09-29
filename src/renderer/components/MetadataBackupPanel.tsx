@@ -1,8 +1,8 @@
 import React from "react";
-import type { MetadataBackupSnapshot, MetadataImportPlan, MetadataRestoreStatus, StagedMetadataRestore } from "../../shared/backupContracts";
+import type { MetadataBackupSnapshot, MetadataImportCancelResult, MetadataImportPlan, MetadataRestoreStatus, StagedMetadataRestore } from "../../shared/backupContracts";
 import type { MetadataRestoreAcknowledgeResult } from "../../shared/backupContracts";
 import { subscribeToRestoreStatusRefresh } from "../lib/restoreStatusSubscription";
-import { formatMetadataRestoreAcknowledgmentFailure } from "../lib/metadataRestoreFeedback";
+import { formatMetadataImportCancelFailure, formatMetadataRestoreAcknowledgmentFailure, shouldCancelPreviewOnUnmount } from "../lib/metadataRestoreFeedback";
 
 interface Props {
   getSnapshot: () => MetadataBackupSnapshot & { preferences: Record<string, unknown> };
@@ -20,18 +20,44 @@ export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = f
   const [recoveryBackupPath, setRecoveryBackupPath] = React.useState<string | null>(null);
   const [recoveryError, setRecoveryError] = React.useState<string | null>(null);
   const fileInput = React.useRef<HTMLInputElement>(null);
+  const previewPlanRef = React.useRef<MetadataImportPlan | null>(null);
+  const commitInProgressRef = React.useRef(false);
+  const committedTransactionIdRef = React.useRef<string | null>(null);
+  const mountedRef = React.useRef(false);
+  const updatePlan = React.useCallback((next: MetadataImportPlan | null) => {
+    previewPlanRef.current = next;
+    setPlan(next);
+  }, []);
 
-  const refreshStatus = React.useCallback(async () => {
+  const refreshStatus = React.useCallback(async (): Promise<MetadataRestoreStatus | null> => {
     try {
       const next = await window.polytray.getMetadataRestoreStatus();
       setStatus(next);
       const latestBackup = next.transactions.at(-1)?.recoveryBackupPath;
       if (latestBackup) setRecoveryBackupPath(latestBackup);
+      return next;
     }
-    catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    catch (error) { setMessage(error instanceof Error ? error.message : String(error)); return null; }
   }, []);
   React.useEffect(() => { void refreshStatus(); }, [refreshStatus]);
   React.useEffect(() => subscribeToRestoreStatusRefresh(window.polytray.onLibraryChanged, refreshStatus), [refreshStatus]);
+  React.useLayoutEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      const transactionId = previewPlanRef.current?.transactionId ?? null;
+      if (!shouldCancelPreviewOnUnmount(transactionId, commitInProgressRef.current, committedTransactionIdRef.current)) return;
+      void window.polytray.cancelMetadataRestore(transactionId!).then(async (result: MetadataImportCancelResult) => {
+        if (result.status === "failed") {
+          const current = await window.polytray.getMetadataRestoreStatus().catch(() => null);
+          const recoveryPath = current?.transactions.find(transaction => transaction.transactionId === transactionId)?.recoveryBackupPath;
+          onRecoveryError(formatMetadataImportCancelFailure(result.message, recoveryPath));
+        }
+      }).catch(error => {
+        onRecoveryError(formatMetadataImportCancelFailure(error instanceof Error ? error.message : String(error)));
+      });
+    };
+  }, [onRecoveryError]);
 
   const exportBackup = async () => {
     setBusy(true); setMessage("");
@@ -46,7 +72,7 @@ export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = f
   };
 
   const previewFile = async (file?: File) => {
-    setPlan(null);
+    updatePlan(null);
     if (!file) { setMessage("Import cancelled; nothing changed."); return; }
     setBusy(true); setMessage("");
     try {
@@ -55,21 +81,28 @@ export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = f
       const currentSnapshot = await window.polytray.getMetadataRestoreSnapshot(getSnapshot());
       const result = await window.polytray.previewMetadataRestore({ backup, currentSnapshot, options: { replaceSettings, replaceRoots } });
       if (result.status === "failed") throw new Error(result.message);
-      setPlan(result.plan);
+      if (!mountedRef.current) {
+        const cancelled = await window.polytray.cancelMetadataRestore(result.plan.transactionId);
+        if (cancelled.status === "failed") onRecoveryError(formatMetadataImportCancelFailure(cancelled.message));
+        return;
+      }
+      updatePlan(result.plan);
       setMessage("Review this plan. Your library changes only after you choose Apply import.");
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
-    finally { setBusy(false); }
+    finally { if (mountedRef.current) setBusy(false); }
   };
 
   const applyImport = async () => {
     if (!plan) return;
+    commitInProgressRef.current = true;
     setBusy(true); setMessage("Applying metadata and local settings…");
     let committedState: StagedMetadataRestore | null = null;
     try {
       const result = await window.polytray.commitMetadataRestore(plan.transactionId);
       if (result.status === "failed") throw new Error(result.message);
-      if (result.status === "cancelled") { setMessage("Import cancelled; nothing changed."); setPlan(null); return; }
+      if (result.status === "cancelled") { setMessage("Import cancelled; nothing changed."); updatePlan(null); return; }
       committedState = result.rendererState;
+      committedTransactionIdRef.current = plan.transactionId;
       setRecoveryBackupPath(committedState.recoveryBackupPath);
       await window.polytray.applyMetadataRestoreState(result.rendererState);
       const acknowledgment: MetadataRestoreAcknowledgeResult = await window.polytray.acknowledgeMetadataRestore(plan.transactionId, result.rendererState.rendererRevision);
@@ -83,7 +116,8 @@ export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = f
       }
       setRecoveryError(null);
       onRecoveryError(null);
-      setPlan(null);
+      updatePlan(null);
+      committedTransactionIdRef.current = null;
       await refreshStatus();
       setMessage("Metadata import applied. The library and local settings are in sync.");
     } catch (error) {
@@ -96,7 +130,36 @@ export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = f
         await refreshStatus();
       } else setMessage(errorText);
     }
-    finally { setBusy(false); }
+    finally { commitInProgressRef.current = false; setBusy(false); }
+  };
+
+  const cancelPreview = async () => {
+    const pendingPlan = previewPlanRef.current;
+    if (!pendingPlan) return;
+    setBusy(true);
+    try {
+      const result = await window.polytray.cancelMetadataRestore(pendingPlan.transactionId);
+      if (result.status === "failed") {
+        const current = await refreshStatus();
+        const recoveryPath = current?.transactions.find(transaction => transaction.transactionId === pendingPlan.transactionId)?.recoveryBackupPath;
+        const failure = formatMetadataImportCancelFailure(result.message, recoveryPath);
+        setRecoveryError(failure);
+        setMessage(failure);
+        if (recoveryPath) onRecoveryError(failure);
+        return;
+      }
+      updatePlan(null);
+      committedTransactionIdRef.current = null;
+      setRecoveryError(null);
+      setMessage("Import cancelled; nothing changed.");
+    } catch (error) {
+      const current = await refreshStatus();
+      const recoveryPath = current?.transactions.find(transaction => transaction.transactionId === pendingPlan.transactionId)?.recoveryBackupPath;
+      const failure = formatMetadataImportCancelFailure(error instanceof Error ? error.message : String(error), recoveryPath);
+      setRecoveryError(failure);
+      setMessage(failure);
+      if (recoveryPath) onRecoveryError(failure);
+    } finally { setBusy(false); }
   };
 
   const retryPending = async () => {
@@ -114,7 +177,7 @@ export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = f
     <p className="settings-row-desc">This portable backup contains annotations, collections, library roots, and selected preferences. Source model files are not included.</p>
     <div className="settings-row">
       <button type="button" id="export-metadata-backup" disabled={disabled || busy} onClick={() => void exportBackup()}>Export metadata…</button>
-      <button type="button" id="choose-metadata-backup" disabled={disabled || busy} onClick={() => fileInput.current?.click()}>Preview import…</button>
+      <button type="button" id="choose-metadata-backup" disabled={disabled || busy || !!plan} onClick={() => fileInput.current?.click()}>Preview import…</button>
       <input ref={fileInput} id="metadata-backup-file" type="file" accept="application/json,.json" hidden onChange={event => {
         const file = event.currentTarget.files?.[0];
         void previewFile(file);
@@ -123,7 +186,7 @@ export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = f
     </div>
     <label className="settings-row"><span>Replace portable preferences</span><input type="checkbox" id="restore-replace-settings" checked={replaceSettings} disabled={disabled || busy || !!plan} onChange={event => setReplaceSettings(event.currentTarget.checked)} /></label>
     <label className="settings-row"><span>Replace library roots</span><input type="checkbox" id="restore-replace-roots" checked={replaceRoots} disabled={disabled || busy || !!plan} onChange={event => setReplaceRoots(event.currentTarget.checked)} /></label>
-    {plan && <div className="metadata-restore-preview" role="region" aria-label="Import preview">
+    {plan && <div className="metadata-restore-preview" role="region" aria-label="Import preview" data-transaction-id={plan.transactionId}>
       <h3>Review import</h3>
       <dl>
         <div><dt>Matched annotations</dt><dd>{plan.matchedAnnotationCount}</dd></div>
@@ -138,12 +201,7 @@ export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = f
       {plan.unmatchedPaths.length > 0 && <details><summary>Unmatched paths</summary><ul>{plan.unmatchedPaths.map(path => <li key={path}>{path}</li>)}</ul></details>}
       <div className="settings-row">
         <button type="button" id="apply-metadata-import" disabled={disabled || busy} onClick={() => void applyImport()}>Apply import</button>
-        <button type="button" id="cancel-metadata-import" disabled={busy} onClick={() => {
-          const transactionId = plan.transactionId;
-          setPlan(null);
-          setMessage("Import cancelled; nothing changed.");
-          void window.polytray.cancelMetadataRestore(transactionId).catch(error => setMessage(error instanceof Error ? error.message : String(error)));
-        }}>Cancel</button>
+        <button type="button" id="cancel-metadata-import" disabled={busy} onClick={() => void cancelPreview()}>Cancel</button>
       </div>
     </div>}
     {status?.error && <p role="alert">Metadata restore needs attention. Recovery data is retained. {status.error}</p>}

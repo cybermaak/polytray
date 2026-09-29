@@ -111,6 +111,10 @@ export type MetadataRestoreAcknowledgeResult =
   | { status: "acknowledged" }
   | { status: "failed"; message: string };
 
+export type MetadataImportCancelResult =
+  | { status: "cancelled" }
+  | { status: "failed"; message: string };
+
 export type MetadataImportRecoveryResult =
   | { status: "none" }
   | { status: "aborted"; transactionId: string }
@@ -134,6 +138,7 @@ export interface MetadataRestoreService {
   acknowledgeImport(transactionId: string, rendererRevision: number): Promise<void>;
   reconcileImport(): Promise<MetadataImportRecoveryResult>;
   cancelImport(transactionId: string): Promise<void>;
+  getPreparedPlanCount(): number;
   getStatus(): Promise<MetadataRestoreStatus>;
   retryPendingAnnotations(): { appliedCount: number; conflictCount: number };
   dispose(): void;

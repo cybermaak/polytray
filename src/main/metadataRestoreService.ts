@@ -308,6 +308,14 @@ export function createMetadataRestoreService(dependencies: MetadataRestoreDepend
     }
     const existing = commitOperations.get(transactionId);
     if (existing) return existing;
+    if (typeof input === 'string') {
+      const stored = completedOrStored(transactionId);
+      if (stored) {
+        if (currentMarker(transactionId)?.state === 'complete') await releaseMutationLease(transactionId);
+        plans.delete(transactionId);
+        return stored;
+      }
+    }
     const plan = plans.get(transactionId);
     if (!plan || typeof input !== 'string' && JSON.stringify(plan) !== JSON.stringify(input)) {
       return { status: 'failed', message: 'Metadata import plan was not prepared by this service; regenerate the preview' };
@@ -323,7 +331,7 @@ export function createMetadataRestoreService(dependencies: MetadataRestoreDepend
   async function acknowledgeImport(transactionId: string, rendererRevision: number) {
     const marker = currentMarker(transactionId);
     if (!marker) throw new Error('Metadata restore has not committed to SQLite');
-    if (marker.state === 'complete') return;
+    if (marker.state === 'complete') { plans.delete(transactionId); return; }
     const stored = parseStoredRestore(marker.result);
     if (rendererRevision !== stored.rendererState.rendererRevision) throw new Error('Renderer acknowledgment revision does not match the staged restore');
     const actualRendererState = dependencies.getRendererState();
@@ -352,6 +360,7 @@ export function createMetadataRestoreService(dependencies: MetadataRestoreDepend
     repository.updateMetadataImportTransactionState(transactionId, 'complete', timestamp);
     if (journalRecord) await dependencies.journal.write({ ...journalRecord, state: 'complete' });
     await releaseMutationLease(transactionId);
+    plans.delete(transactionId);
   }
 
   async function reconcileImport(): Promise<MetadataImportRecoveryResult> {
@@ -376,6 +385,7 @@ export function createMetadataRestoreService(dependencies: MetadataRestoreDepend
         try { await dependencies.journal.write({ ...record, state: 'complete' }); }
         catch (error) { return { status: 'blocked', transactionId: record.transactionId, message: `Could not finish restore journal: ${error instanceof Error ? error.message : String(error)}` }; }
         await releaseMutationLease(record.transactionId);
+        plans.delete(record.transactionId);
       }
     }
     const committed = repository.listIncompleteMetadataImportTransactions();
@@ -498,5 +508,9 @@ export function createMetadataRestoreService(dependencies: MetadataRestoreDepend
     return tracked;
   }
 
-  return { getCurrentSnapshot, previewImport, commitImport, acknowledgeImport, reconcileImport, cancelImport, getStatus, retryPendingAnnotations, dispose: unsubscribeFileIndexMutations };
+  return {
+    getCurrentSnapshot, previewImport, commitImport, acknowledgeImport, reconcileImport, cancelImport, getStatus, retryPendingAnnotations,
+    getPreparedPlanCount: () => plans.size,
+    dispose() { unsubscribeFileIndexMutations(); plans.clear(); },
+  };
 }

@@ -16,6 +16,7 @@ let launchLog = '';
 let launchHoldPath = '';
 let launchReachedPath = '';
 let launchReleasePath = '';
+let restoreCancelFailurePath = '';
 
 async function launchWorkflowApp() {
   const args = buildElectronLaunchArgs(path.join(appRoot, 'out/main/index.js'), userData,
@@ -28,8 +29,26 @@ async function launchWorkflowApp() {
   }) });
 }
 
+async function ensureSettingsOpen() {
+  const className = await page.locator('#settings-overlay').getAttribute('class');
+  if (className?.includes('hidden')) await page.locator('#btn-settings').click();
+}
+
 function writeStl(filePath: string, name: string) {
   fs.writeFileSync(filePath, `solid ${name}\nfacet normal 0 0 1\n outer loop\n vertex 0 0 0\n vertex 10 0 0\n vertex 0 5 0\n endloop\nendfacet\nendsolid ${name}\n`);
+}
+
+function writeMinimalMetadataBackup(filename: string) {
+  const backupPath = path.join(scratch, filename);
+  fs.writeFileSync(backupPath, JSON.stringify({
+    format: 'polytray-metadata-backup', version: 1, exportedAt: new Date().toISOString(), appVersion: '1.1.1',
+    manifest: { backupType: 'metadata-only', sourceModelsIncluded: false, statement: 'This is a metadata backup; source model files are not included.' },
+    annotations: [], pendingAnnotations: [], collections: [], libraryRoots: [library], preferences: {
+      lightMode: false, gridSize: 'medium', autoScan: true, accentColor: '#6d9fff', previewColor: '#8888aa',
+      thumbnailColor: '#8888aa', thumbQuality: '256', showGrid: true, watch: true,
+    },
+  }));
+  return backupPath;
 }
 
 test.beforeAll(async () => {
@@ -40,6 +59,7 @@ test.beforeAll(async () => {
   launchHoldPath = path.join(scratch, 'slicer-launch-hold');
   launchReachedPath = path.join(scratch, 'slicer-launch-reached');
   launchReleasePath = path.join(scratch, 'slicer-launch-release');
+  restoreCancelFailurePath = path.join(scratch, 'metadata-restore-cancel-failure');
   fs.mkdirSync(userData); fs.mkdirSync(library);
   writeStl(path.join(library, 'regular.stl'), 'regular');
   writeStl(path.join(library, 'second.stl'), 'second');
@@ -247,6 +267,33 @@ test('previews, cancels, and applies portable metadata restore with conflicts an
   await expect(page.locator('#metadata-backup-title').locator('..')).toContainText('0 annotations waiting for matching files');
 });
 
+test('keeps an import preview open and reports a resolved cancel failure', async () => {
+  await ensureSettingsOpen();
+  await page.locator('#choose-metadata-backup').click();
+  await page.locator('#metadata-backup-file').setInputFiles(writeMinimalMetadataBackup('cancel-failure-backup.json'));
+  await expect(page.locator('.metadata-restore-preview')).toBeVisible();
+  fs.writeFileSync(restoreCancelFailurePath, 'fail next cancellation');
+  await page.locator('#cancel-metadata-import').click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Injected preview cancellation failure' })).toBeVisible();
+  await expect(page.locator('.metadata-restore-preview')).toBeVisible();
+  await page.locator('#cancel-metadata-import').click();
+  await expect(page.locator('.metadata-restore-preview')).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: 'Import cancelled; nothing changed.' })).toBeVisible();
+});
+
+test('closing Settings cancels an uncommitted metadata preview', async () => {
+  await ensureSettingsOpen();
+  await page.locator('#choose-metadata-backup').click();
+  await page.locator('#metadata-backup-file').setInputFiles(writeMinimalMetadataBackup('close-preview-backup.json'));
+  await expect(page.locator('.metadata-restore-preview')).toBeVisible();
+  const transactionId = await page.locator('.metadata-restore-preview').getAttribute('data-transaction-id');
+  expect(transactionId).toBeTruthy();
+  await page.locator('#settings-close').click();
+  const commit = await page.evaluate(id => window.polytray.commitMetadataRestore(id), transactionId!);
+  expect(commit.status).toBe('failed');
+  expect(commit.status === 'failed' ? commit.message : '').toMatch(/not prepared/i);
+});
+
 test('startup rolls a committed restore forward when the renderer has not applied it yet', async () => {
   const backup = JSON.parse(fs.readFileSync(path.join(scratch, 'conflict-backup.json'), 'utf8')) as { preferences: Record<string, unknown> };
   backup.preferences.autoScan = false;
@@ -290,7 +337,7 @@ test('startup rolls a committed restore forward when the renderer has not applie
 });
 
 test('shows retained recovery after an acknowledgment failure and recovers on restart', async () => {
-  await page.locator('#btn-settings').click();
+  await ensureSettingsOpen();
   fs.writeFileSync(path.join(scratch, 'metadata-restore-ack-failure'), 'fail next acknowledgement');
   await page.locator('#choose-metadata-backup').click();
   await page.locator('#metadata-backup-file').setInputFiles(path.join(scratch, 'conflict-backup.json'));

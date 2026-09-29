@@ -24,6 +24,30 @@ function backup() {
 const rendererState = { rendererRevision: 7, libraryRoots: ['/models'], collections: [], preferences: { customPreference: 'keep-me' } };
 const noMutationLease = { acquireMutationLease: async () => () => undefined };
 
+test('successful acknowledgment releases the cached preview while preserving committed replay', async () => {
+  const { db, fixture } = createDb();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-restore-plan-release-'));
+  const service = createMetadataRestoreService({
+    ...noMutationLease,
+    db, journal: createMetadataRestoreJournal(dir), recoveryDirectory: path.join(dir, 'backups'),
+    getRendererRevision: () => 7, getRendererState: () => rendererState, applyRendererState: async () => undefined,
+  });
+  try {
+    const plan = service.previewImport(backup(), rendererState);
+    assert.equal(service.getPreparedPlanCount(), 1);
+    const staged = await service.commitImport(plan.transactionId);
+    assert.equal(staged.status, 'staged');
+    const cannotCancel = await service.cancelImport(plan.transactionId).then(() => '', error => String(error));
+    assert.match(cannotCancel, /cannot be canceled|recover/i);
+    assert.equal(service.getPreparedPlanCount(), 1);
+    await service.acknowledgeImport(plan.transactionId, 7);
+    assert.equal(service.getPreparedPlanCount(), 0);
+    const replayed = await service.commitImport(plan.transactionId);
+    assert.equal(replayed.status, 'staged');
+    assert.equal((db.prepare('SELECT state FROM metadata_import_transactions WHERE transaction_id = ?').get(plan.transactionId) as { state: string }).state, 'complete');
+  } finally { db.close(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(fixture.dir, { recursive: true, force: true }); }
+});
+
 test('restore persists unmatched annotations and advances the durable browse revision once', async () => {
   const { db, fixture } = createDb();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-restore-'));
@@ -419,7 +443,12 @@ test('restore rejects a stale renderer revision and cancel-before-commit leaves 
 
     rendererRevision = 7;
     const cancelledPlan = service.previewImport(backup(), rendererState);
+    assert.equal(service.getPreparedPlanCount(), 1);
     await service.cancelImport(cancelledPlan.transactionId);
+    assert.equal(service.getPreparedPlanCount(), 0);
+    const afterCancel = await service.commitImport(cancelledPlan.transactionId);
+    assert.equal(afterCancel.status, 'failed');
+    assert.match(afterCancel.status === 'failed' ? afterCancel.message : '', /not prepared/i);
     assert.equal((db.prepare('SELECT COUNT(*) AS count FROM metadata_import_transactions').get() as { count: number }).count, 0);
     assert.equal((db.prepare('SELECT COUNT(*) AS count FROM pending_annotations').get() as { count: number }).count, 0);
     assert.equal((await fs.promises.readdir(dir)).some(name => name.endsWith('.json')), false);
