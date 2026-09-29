@@ -1185,6 +1185,39 @@ textarea:focus-visible {
   gap: var(--space-3);
 }
 
+.background-jobs {
+  max-height: min(32vh, 280px);
+  overflow: auto;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.background-job {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.background-job p { margin: 4px 0 0; }
+.background-job-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.background-job-heading > div { display: flex; align-items: center; gap: var(--space-2); color: var(--text-primary); }
+.background-job-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
+.background-job-state { font-weight: 600; }
+.state-failed, .state-partial, .background-job-error { color: var(--color-danger, #e76f72); }
+.state-completed { color: var(--color-success, #5eae7c); }
+.background-job-progress { height: 4px; margin-top: 7px; overflow: hidden; border-radius: 2px; background: var(--bg-active); }
+.background-job-progress span { display: block; width: 35%; height: 100%; background: var(--accent-primary); animation: background-job-indeterminate 1.4s ease-in-out infinite; }
+.background-job-actions { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
+.background-job-actions button { border: 1px solid var(--border-subtle); border-radius: 5px; background: var(--bg-surface); color: var(--text-primary); padding: 4px 8px; cursor: pointer; font-size: inherit; }
+.background-job-actions button:disabled { cursor: default; opacity: .55; }
+.background-job-errors { margin-top: 7px; }
+.background-job-errors summary { cursor: pointer; }
+.background-job-errors ul { max-height: 120px; overflow: auto; margin: 5px 0 0; padding-left: 20px; }
+.background-job-errors li + li { margin-top: 3px; }
+@keyframes background-job-indeterminate { from { transform: translateX(-110%); } to { transform: translateX(320%); } }
+
 /* ── 3D Preview Panel ──────────────────────────────────────────── */
 .preview-panel {
   width: var(--panel-width);

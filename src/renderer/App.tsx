@@ -16,7 +16,6 @@ import { EmptyState } from "./components/EmptyState";
 import { FileGrid } from "./components/FileGrid";
 import { ScanProgress } from "./components/ScanProgress";
 import { createRefreshDebouncer, type RefreshTargets } from "./lib/refreshDebouncer";
-import { getScanProgressPresentation } from "./lib/scanProgress";
 import { calculatePanelLayout } from "./lib/panelLayout";
 import {
   libraryQueryScopeKey,
@@ -60,12 +59,13 @@ import {
   addFilesToCollection,
 } from "../shared/libraryCollections";
 import { normalizeFileTags, parseStoredFileTags } from "../shared/fileTags";
-import type { FileRecord, ScanProgressData, ThumbnailReadyData } from "../shared/types";
+import type { FileRecord, ThumbnailReadyData } from "../shared/types";
 import type { MetadataBackupSnapshot, StagedMetadataRestore } from "../shared/backupContracts";
 import type { LibraryQuery, LibraryItem } from "../shared/libraryQuery";
 import type { PreviewTarget } from "../shared/previewTarget";
 import { thumbnailImageCache } from "./lib/thumbnailImageCache";
 import { createRendererMutationGate } from "./rendererMutationGate";
+import { useBackgroundJobs } from "./hooks/useBackgroundJobs";
 import {
   applyThumbnailReadyToRecord,
   invalidateThumbnailImages,
@@ -78,13 +78,6 @@ interface LibraryStats {
   obj: number;
   threemf: number;
   totalSize: number;
-}
-
-interface ProgressState {
-  visible: boolean;
-  percent: number;
-  text: string;
-  count: string;
 }
 
 const RENDERER_STATE_REVISION_KEY = "polytray-renderer-state-revision";
@@ -114,6 +107,14 @@ export const App: React.FC = () => {
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
   const previewFocusReturnRef = useRef<HTMLElement | null>(null);
   const pendingPreviewScrollRestoreRef = useRef<number | null>(null);
+  const pendingLibraryScrollAnchorRef = useRef<{
+    itemKey: string;
+    itemIndex: number;
+    columns: number;
+    rowStep: number;
+    scrollTop: number;
+  } | null>(null);
+  const libraryScrollRestoreFrameRef = useRef<number | null>(null);
   useLayoutEffect(() => {
     if (previewTarget !== null || pendingPreviewScrollRestoreRef.current === null) return;
     const scrollTop = pendingPreviewScrollRestoreRef.current;
@@ -133,12 +134,7 @@ export const App: React.FC = () => {
   const [selectionAnnouncement, setSelectionAnnouncement] = useState("");
   const [batchTagsInput, setBatchTagsInput] = useState("");
   const [batchCollectionId, setBatchCollectionId] = useState("");
-  const [progress, setProgress] = useState<ProgressState>({
-    visible: false,
-    percent: 0,
-    text: "",
-    count: "",
-  });
+  const backgroundJobs = useBackgroundJobs();
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [layoutWidth, setLayoutWidth] = useState(() => window.innerWidth);
   const panelLayout = calculatePanelLayout({
@@ -166,6 +162,33 @@ export const App: React.FC = () => {
     offset: 0,
   }), [sort, order, extension, activeFolder, search, activeCollection, settings.page_size]);
   const libraryPages = useLibraryPages(pageQuery, libraryReady);
+  useLayoutEffect(() => {
+    const anchor = pendingLibraryScrollAnchorRef.current;
+    if (!anchor || libraryPages.loading || libraryPages.refreshing) return;
+    if (libraryScrollRestoreFrameRef.current !== null) {
+      window.cancelAnimationFrame(libraryScrollRestoreFrameRef.current);
+    }
+    libraryScrollRestoreFrameRef.current = window.requestAnimationFrame(() => {
+      libraryScrollRestoreFrameRef.current = null;
+      if (pendingLibraryScrollAnchorRef.current !== anchor) return;
+      pendingLibraryScrollAnchorRef.current = null;
+      const scroller = document.querySelector<HTMLElement>("[data-virtuoso-scroller]");
+      if (!scroller) return;
+      const currentIndex = libraryPagesRef.current.items.findIndex((item) => item.key === anchor.itemKey);
+      if (currentIndex < 0 || anchor.itemIndex < 0) {
+        scroller.scrollTop = anchor.scrollTop;
+        return;
+      }
+      const rowDelta = Math.floor(currentIndex / anchor.columns) - Math.floor(anchor.itemIndex / anchor.columns);
+      scroller.scrollTop = Math.max(0, anchor.scrollTop + rowDelta * anchor.rowStep);
+    });
+    return () => {
+      if (libraryScrollRestoreFrameRef.current !== null) {
+        window.cancelAnimationFrame(libraryScrollRestoreFrameRef.current);
+        libraryScrollRestoreFrameRef.current = null;
+      }
+    };
+  }, [libraryPages.items, libraryPages.loading, libraryPages.refreshing, libraryPages.revision]);
   const legacyItems = useMemo<LibraryItem[]>(() => legacyFiles.map((file) => ({
     kind: "file",
     key: `file:${file.id}`,
@@ -200,7 +223,6 @@ export const App: React.FC = () => {
   // Refs to get latest state in IPC callbacks
   const foldersRef = useRef(folders);
   foldersRef.current = folders;
-  const isGeneratingRef = useRef(false);
   const hasBooted = useRef(false);
   const sortRef = useRef(sort);
   sortRef.current = sort;
@@ -474,7 +496,35 @@ export const App: React.FC = () => {
     topology: true,
   }) => {
     const reads: Promise<unknown>[] = [];
-    if (targets.pages) reads.push(libraryPages.refresh());
+    if (targets.pages) {
+      const scroller = document.querySelector<HTMLElement>("[data-virtuoso-scroller]");
+      if (scroller) {
+        const bounds = scroller.getBoundingClientRect();
+        const cards = [...scroller.querySelectorAll<HTMLElement>("[data-item-key]")];
+        const anchor = cards.find((candidate) => {
+          const rect = candidate.getBoundingClientRect();
+          return rect.bottom > bounds.top && rect.top < bounds.bottom;
+        });
+        const grid = document.querySelector<HTMLElement>("#file-grid");
+        const gridStyle = grid ? window.getComputedStyle(grid) : null;
+        const columns = Math.max(1, gridStyle?.gridTemplateColumns.split(" ").length ?? 1);
+        const cardHeight = anchor?.getBoundingClientRect().height ?? 0;
+        const rowGap = Number.parseFloat(gridStyle?.rowGap ?? "0") || 0;
+        const rowTops = [...new Set(cards.map((card) => Math.round(card.getBoundingClientRect().top)))].sort((a, b) => a - b);
+        const rowStep = rowTops.length > 1 ? rowTops[1] - rowTops[0] : cardHeight + rowGap;
+        const itemKey = anchor?.dataset.itemKey ?? "";
+        pendingLibraryScrollAnchorRef.current = anchor
+          ? {
+              itemKey,
+              itemIndex: libraryPagesRef.current.items.findIndex((item) => item.key === itemKey),
+              columns,
+              rowStep,
+              scrollTop: scroller.scrollTop,
+            }
+          : { itemKey: "", itemIndex: -1, columns, rowStep, scrollTop: scroller.scrollTop };
+      }
+      reads.push(libraryPages.refresh());
+    }
     if (targets.stats) {
       reads.push(window.polytray.getStats().then(setStats));
     }
@@ -512,85 +562,9 @@ export const App: React.FC = () => {
     const cleanups: (() => void)[] = [];
 
     cleanups.push(
-      window.polytray.onScanProgress((data: ScanProgressData) => {
-        const display = getScanProgressPresentation(data);
-        setProgress({
-          visible: true,
-          percent: display.percent,
-          text: display.text,
-          count: display.count,
-        });
-      }),
-    );
-
-    cleanups.push(
-      window.polytray.onScanComplete(async (data: { totalFiles: number }) => {
-        setProgress((p) => ({
-          ...p,
-          percent: 100,
-          text: `Scan complete — ${data.totalFiles} files`,
-        }));
-
+      window.polytray.onScanComplete(async () => {
         await refreshLibrary();
-
-        window.polytray.startWatching(foldersRef.current, getRuntimeSettings());
-
-        setTimeout(() => {
-          setProgress((p) => {
-            if (!isGeneratingRef.current) {
-              return { ...p, visible: false };
-            }
-            return p;
-          });
-        }, 2000);
       }),
-    );
-
-    cleanups.push(
-      window.polytray.onThumbnailProgress(
-        (data) => {
-          const { current, total, filename, phase, outcome } = data;
-          if (phase === "start") {
-            isGeneratingRef.current = true;
-            setProgress({
-              visible: true,
-              percent: 0,
-              text: "Generating thumbnails...",
-              count: `0 / ${total}`,
-            });
-            return;
-          }
-          if (outcome !== "running") {
-            isGeneratingRef.current = false;
-            const { generated, failed, cancelled } = data;
-            const terminalText = outcome === "completed"
-              ? `Thumbnails complete — ${generated} generated`
-              : outcome === "cancelled"
-                ? `Thumbnail generation cancelled — ${generated} generated, ${failed} failed`
-                : outcome === "partial"
-                  ? `Thumbnails finished — ${generated} generated, ${failed} failed, ${cancelled} cancelled`
-                  : `Thumbnail generation failed — ${generated} generated, ${failed} failed`;
-            setProgress({
-              visible: true,
-              percent: 100,
-              text: terminalText,
-              count: `${generated} / ${total}${cancelled ? ` (${cancelled} cancelled)` : ""}`,
-            });
-            setTimeout(
-              () => setProgress((p) => ({ ...p, visible: false })),
-              2000,
-            );
-            return;
-          }
-          const pct = Math.round((current / total) * 100);
-          setProgress({
-            visible: true,
-            percent: pct,
-            text: `Thumbnail: ${filename}`,
-            count: `${current} / ${total}`,
-          });
-        },
-      ),
     );
 
     cleanups.push(
@@ -728,7 +702,7 @@ export const App: React.FC = () => {
     return () => {
       cleanups.forEach((c) => c());
     };
-  }, [getRuntimeSettings, libraryPages.patchFile, refreshLibrary, removeSelectedFiles, updateSelectedFile]);
+  }, [libraryPages.patchFile, refreshLibrary, removeSelectedFiles, updateSelectedFile]);
 
   // ── Boot ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -838,13 +812,6 @@ export const App: React.FC = () => {
         setLibraryReady(true);
       }
 
-      if (currentLibraryState.libraryFolders.length > 0 && currentSettings.watch) {
-        window.polytray.startWatching(
-          currentLibraryState.libraryFolders,
-          toRuntimeSettings(currentSettings),
-        );
-      }
-
       if (currentLibraryState.libraryFolders.length > 0 && currentSettings.autoScan) {
         handleRescan();
       }
@@ -871,26 +838,12 @@ export const App: React.FC = () => {
     );
     applyLibraryState(nextLibraryState);
     persistLibraryState(nextLibraryState);
-    // If watching is enabled, start watching the new set of folders
-    if (settings.watch) {
-      window.polytray.startWatching(
-        nextLibraryState.libraryFolders,
-        getRuntimeSettings(),
-      );
-    }
-    setProgress({
-      visible: true,
-      percent: 0,
-      text: "Starting scan...",
-      count: "",
-    });
     await window.polytray.scanFolder(folder, getRuntimeSettings());
   }), [
     applyLibraryState,
     getRuntimeSettings,
     persistLibraryState,
     runRendererMutation,
-    settings.watch,
   ]);
 
   const handleRemoveFolder = useCallback(
@@ -902,15 +855,6 @@ export const App: React.FC = () => {
       );
       applyLibraryState(nextLibraryState);
       persistLibraryState(nextLibraryState);
-      // If watching is enabled, update watching with the new set of folders
-      if (settings.watch) {
-        window.polytray.startWatching(
-          nextLibraryState.libraryFolders,
-          getRuntimeSettings(),
-        );
-      } else {
-        window.polytray.stopWatching();
-      }
       if (activeFolderRef.current === folderPath) {
         setActiveFolder(null);
         activeFolderRef.current = null;
@@ -924,18 +868,11 @@ export const App: React.FC = () => {
       persistLibraryState,
       runRendererMutation,
       refreshLibrary,
-      settings.watch,
     ],
   );
 
   const handleRescan = useCallback(async () => {
     for (const folder of foldersRef.current) {
-      setProgress({
-        visible: true,
-        percent: 0,
-        text: "Starting scan...",
-        count: "",
-      });
       await window.polytray.scanFolder(folder, getRuntimeSettings());
     }
   }, [getRuntimeSettings]);
@@ -944,12 +881,6 @@ export const App: React.FC = () => {
     if (confirm("Regenerate all thumbnails? This may take a while.")) {
       await window.polytray.clearThumbnails(getRuntimeSettings());
       for (const folder of foldersRef.current) {
-        setProgress({
-          visible: true,
-          percent: 0,
-          text: "Starting scan...",
-          count: "",
-        });
         await window.polytray.scanFolder(folder, getRuntimeSettings());
       }
     }
@@ -1001,12 +932,6 @@ export const App: React.FC = () => {
 
   const handleRescanFolder = useCallback(
     async (folderPath: string) => {
-      setProgress({
-        visible: true,
-        percent: 0,
-        text: "Scanning folder...",
-        count: "",
-      });
       await window.polytray.scanFolder(folderPath, getRuntimeSettings());
     },
     [getRuntimeSettings],
@@ -1014,12 +939,6 @@ export const App: React.FC = () => {
 
   const handleRefreshFolderThumbnails = useCallback(
     async (folderPath: string) => {
-      setProgress({
-        visible: true,
-        percent: 0,
-        text: "Refreshing thumbnails...",
-        count: "",
-      });
       await window.polytray.refreshFolderThumbnails(
         folderPath,
         getRuntimeSettings(),
@@ -1213,22 +1132,12 @@ export const App: React.FC = () => {
 
   // ── Reactive watch toggle ──────────────────────────────────────
   useEffect(() => {
-    if (foldersRef.current.length === 0) return;
-
-    if (settings.watch) {
-      window.polytray.startWatching(foldersRef.current, getRuntimeSettings());
+    if (settings.watch && folders.length > 0) {
+      window.polytray.startWatching(folders, toRuntimeSettings(settingsRef.current));
     } else {
       window.polytray.stopWatching();
     }
-  }, [
-    getRuntimeSettings,
-    settings.watch,
-    settings.thumbnail_timeout,
-    settings.scanning_batch_size,
-    settings.watcher_stability,
-    settings.page_size,
-    settings.thumbnailColor,
-  ]);
+  }, [folders, settings.watch, settings.watcher_stability]);
 
   // Context Menu Callbacks
   useEffect(() => {
@@ -1361,10 +1270,18 @@ export const App: React.FC = () => {
           />
           <EmptyState hidden={displayFiles.length > 0 || !libraryReady || libraryPages.loading || libraryPages.refreshing || libraryPages.error !== null} />
           <ScanProgress
-            visible={progress.visible}
-            percent={progress.percent}
-            text={progress.text}
-            count={progress.count}
+            visible={backgroundJobs.jobs.length > 0}
+            percent={0}
+            text=""
+            count=""
+            jobs={backgroundJobs.jobs}
+            pendingJobs={backgroundJobs.pending}
+            commandErrors={backgroundJobs.commandErrors}
+            onPause={backgroundJobs.pause}
+            onResume={backgroundJobs.resume}
+            onCancel={backgroundJobs.cancel}
+            onRetry={backgroundJobs.retry}
+            onDismiss={backgroundJobs.dismiss}
           />
         </main>
         <ComparePanel
