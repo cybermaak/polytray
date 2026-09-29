@@ -80,6 +80,7 @@ test('explicitly hands off an indexed model and only a chosen archive member', a
   const archiveCard = page.locator('.file-card.archive-summary').filter({ has: page.locator('.card-name[title="models.zip"]') });
   await archiveCard.click();
   await expect(page.locator('#viewer-filename')).toContainText('models.zip');
+  await expect(page.getByRole('status').filter({ hasText: 'Model opened in the selected application.' })).toHaveCount(0);
   await expect(page.locator('#open-in-slicer')).toHaveCount(0);
   await expect(page.getByText('Choose an archive member before opening it in a slicer.')).toBeVisible();
   const member = page.locator('#archive-preview-models button[title="archive-model.stl"]');
@@ -96,6 +97,40 @@ test('explicitly hands off an indexed model and only a chosen archive member', a
   expect(launches[1].modelPath).toMatch(/\.stl$/i);
   expect(fs.existsSync(launches[1].modelPath)).toBe(true);
   expect(launches.every(launch => launch.configuration.applicationPath.startsWith(scratch))).toBe(true);
+});
+
+test('does not carry completed or in-flight slicer state to a different archive member', async () => {
+  await page.locator('#btn-settings').click();
+  await page.locator('#pick-slicer-application').click();
+  await page.locator('#settings-close').click();
+  fs.writeFileSync(launchHoldPath, 'hold');
+  try {
+    const regularCard = page.locator('.file-card').filter({ has: page.locator('.card-name[title="regular"]') });
+    await regularCard.click();
+    const open = page.locator('#open-in-slicer');
+    await expect(open).toBeVisible();
+    await open.click();
+    await expect.poll(() => fs.existsSync(launchReachedPath)).toBe(true);
+
+    const archiveCard = page.locator('.file-card.archive-summary').filter({ has: page.locator('.card-name[title="models.zip"]') });
+    await archiveCard.click();
+    const member = page.locator('#archive-preview-models button[title="archive-model.stl"]');
+    await expect(member).toBeVisible();
+    await member.click();
+    await expect(page.locator('#open-in-slicer')).toBeEnabled();
+    await expect(page.getByRole('status').filter({ hasText: 'Preparing slicer handoff…' })).toHaveCount(0);
+    await expect(page.getByRole('status').filter({ hasText: 'Model opened in the selected application.' })).toHaveCount(0);
+
+    fs.writeFileSync(launchReleasePath, 'release');
+    await expect.poll(() => fs.readFileSync(launchLog, 'utf8').trim().split('\n').length).toBe(3);
+    await expect(page.getByRole('status').filter({ hasText: 'Preparing slicer handoff…' })).toHaveCount(0);
+    await expect(page.getByRole('status').filter({ hasText: 'Model opened in the selected application.' })).toHaveCount(0);
+  } finally {
+    fs.writeFileSync(launchReleasePath, 'release');
+    fs.rmSync(launchHoldPath, { force: true });
+    fs.rmSync(launchReleasePath, { force: true });
+    fs.rmSync(launchReachedPath, { force: true });
+  }
 });
 
 test('announces slicer preparation while the isolated mock launch is held', async () => {

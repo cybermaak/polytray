@@ -59,6 +59,14 @@ interface ArchivePreviewView {
   requestedFilePath: string | null;
 }
 
+interface SlicerHandoffState {
+  identity: string;
+  generation: number;
+  requestId: string;
+  status: "preparing" | "opened" | "cancelled" | "failed";
+  message?: string;
+}
+
 const EMPTY_ARCHIVE_VIEW: ArchivePreviewView = {
   key: '', page: null, selectedIndex: 0, loading: false, error: null, requestedOffset: 0, requestedIndex: 0, requestedFilePath: null,
 };
@@ -176,8 +184,8 @@ export const PreviewPanel: React.FC<Props> = ({
   const [savedTags, setSavedTags] = useState<string[]>([]);
   const [newCollectionName, setNewCollectionName] = useState("");
   const [selectedCollectionId, setSelectedCollectionId] = useState("");
-  const [slicerHandoff, setSlicerHandoff] = useState<{ requestId: string; status: "preparing" | "opened" | "cancelled" | "failed"; message?: string } | null>(null);
-  const slicerRequestRef = useRef<string | null>(null);
+  const [slicerHandoff, setSlicerHandoff] = useState<SlicerHandoffState | null>(null);
+  const slicerRequestRef = useRef<{ requestId: string; identity: string; generation: number } | null>(null);
   const activeTarget = target !== undefined ? target : targetFromLegacyProps(file, item);
   const archiveTarget = activeTarget?.kind === 'archive' ? activeTarget : null;
   const archiveKey = archiveTarget ? archivePreviewIdentity(archiveTarget) : '';
@@ -207,6 +215,22 @@ export const PreviewPanel: React.FC<Props> = ({
     ? archiveFiles[currentArchiveView?.selectedIndex ?? 0] ?? null
     : activeTarget?.kind === 'file' ? activeTarget.file : null;
   currentFileRef.current = currentFile;
+  const slicerTargetIdentity = currentFile
+    ? JSON.stringify([currentFile.id, currentFile.path, currentFile.content_revision])
+    : null;
+  const slicerTargetRef = useRef({ identity: slicerTargetIdentity, generation: 0 });
+  if (slicerTargetRef.current.identity !== slicerTargetIdentity) {
+    slicerTargetRef.current = { identity: slicerTargetIdentity, generation: slicerTargetRef.current.generation + 1 };
+  }
+  const slicerTargetGeneration = slicerTargetRef.current.generation;
+  const currentSlicerHandoff = slicerHandoff?.identity === slicerTargetIdentity
+    && slicerHandoff.generation === slicerTargetGeneration ? slicerHandoff : null;
+  useEffect(() => {
+    if (slicerTargetRef.current.identity !== slicerTargetIdentity
+      || slicerTargetRef.current.generation !== slicerTargetGeneration) return;
+    setSlicerHandoff(previous => previous?.identity === slicerTargetIdentity
+      && previous.generation === slicerTargetGeneration ? previous : null);
+  }, [slicerTargetIdentity, slicerTargetGeneration]);
   const geometryIdentity = currentFile ? createPreviewGeometryIdentity(currentFile) : null;
   const stateForCurrentFile = geometryIdentity && loadState.status !== 'idle' && loadState.identity === geometryIdentity
     ? loadState
@@ -573,31 +597,46 @@ export const PreviewPanel: React.FC<Props> = ({
     .join(" ");
 
   const openCurrentInSlicer = useCallback(async () => {
-    if (!currentFile || slicerRequestRef.current) return;
+    if (!currentFile || !slicerTargetIdentity) return;
+    const { generation } = slicerTargetRef.current;
+    if (slicerRequestRef.current?.identity === slicerTargetIdentity
+      && slicerRequestRef.current.generation === generation) return;
     const requestId = crypto.randomUUID();
-    slicerRequestRef.current = requestId;
-    setSlicerHandoff({ requestId, status: "preparing" });
+    slicerRequestRef.current = { requestId, identity: slicerTargetIdentity, generation };
+    setSlicerHandoff({ requestId, identity: slicerTargetIdentity, generation, status: "preparing" });
     try {
       const result = await window.polytray.openInSlicer({
         requestId, fileId: currentFile.id, path: currentFile.path,
         extension: currentFile.extension, contentRevision: currentFile.content_revision,
         configuration: slicerConfiguration,
       });
-      if (slicerRequestRef.current !== requestId) return;
-      if (result.status === "launched") setSlicerHandoff({ requestId, status: "opened", message: "Model opened in the selected application." });
-      else if (result.status === "cancelled") setSlicerHandoff({ requestId, status: "cancelled", message: "Slicer handoff cancelled." });
-      else setSlicerHandoff({ requestId, status: "failed", message: result.message });
+      const activeRequest = slicerRequestRef.current;
+      if (activeRequest?.requestId !== requestId || activeRequest.identity !== slicerTargetIdentity
+        || activeRequest.generation !== slicerTargetRef.current.generation
+        || slicerTargetRef.current.identity !== slicerTargetIdentity) return;
+      if (result.status === "launched") setSlicerHandoff({ requestId, identity: slicerTargetIdentity, generation, status: "opened", message: "Model opened in the selected application." });
+      else if (result.status === "cancelled") setSlicerHandoff({ requestId, identity: slicerTargetIdentity, generation, status: "cancelled", message: "Slicer handoff cancelled." });
+      else setSlicerHandoff({ requestId, identity: slicerTargetIdentity, generation, status: "failed", message: result.message });
     } catch (error) {
-      if (slicerRequestRef.current === requestId) setSlicerHandoff({ requestId, status: "failed", message: error instanceof Error ? error.message : String(error) });
+      const activeRequest = slicerRequestRef.current;
+      if (activeRequest?.requestId === requestId && activeRequest.identity === slicerTargetIdentity
+        && activeRequest.generation === slicerTargetRef.current.generation
+        && slicerTargetRef.current.identity === slicerTargetIdentity) {
+        setSlicerHandoff({ requestId, identity: slicerTargetIdentity, generation, status: "failed", message: error instanceof Error ? error.message : String(error) });
+      }
     } finally {
-      if (slicerRequestRef.current === requestId) slicerRequestRef.current = null;
+      if (slicerRequestRef.current?.requestId === requestId) slicerRequestRef.current = null;
     }
-  }, [currentFile, slicerConfiguration]);
+  }, [currentFile, slicerConfiguration, slicerTargetIdentity]);
   const cancelSlicerHandoff = useCallback(async () => {
-    const requestId = slicerRequestRef.current;
-    if (!requestId) return;
-    const accepted = await window.polytray.cancelSlicerHandoff(requestId);
-    if (accepted) setSlicerHandoff({ requestId, status: "cancelled", message: "Slicer handoff cancelled." });
+    const activeRequest = slicerRequestRef.current;
+    const { identity, generation } = slicerTargetRef.current;
+    if (!activeRequest || activeRequest.identity !== identity || activeRequest.generation !== generation) return;
+    const accepted = await window.polytray.cancelSlicerHandoff(activeRequest.requestId);
+    if (accepted && slicerRequestRef.current?.requestId === activeRequest.requestId
+      && slicerTargetRef.current.identity === identity && slicerTargetRef.current.generation === generation) {
+      setSlicerHandoff({ ...activeRequest, status: "cancelled", message: "Slicer handoff cancelled." });
+    }
   }, []);
 
   const handleRetryPreview = useCallback(() => {
@@ -856,12 +895,12 @@ export const PreviewPanel: React.FC<Props> = ({
           <div className="viewer-tags">
             {currentFile && (!archiveTarget || archiveMemberChosen) && <div className="viewer-tag-editor slicer-handoff-actions">
               <button type="button" id="open-in-slicer" className="btn-copy-path" onClick={() => void openCurrentInSlicer()}
-                disabled={slicerHandoff?.status === "preparing"} aria-label={`Open ${currentFile.name}.${currentFile.extension} in slicer`}>
+                disabled={currentSlicerHandoff?.status === "preparing"} aria-label={`Open ${currentFile.name}.${currentFile.extension} in slicer`}>
                 Open in slicer
               </button>
-              {slicerHandoff?.status === "preparing" && <span role="status" aria-live="polite">Preparing slicer handoff…</span>}
-              {slicerHandoff?.status === "preparing" && <button type="button" id="cancel-slicer-handoff" onClick={() => void cancelSlicerHandoff()}>Cancel</button>}
-              {slicerHandoff?.message && <span role={slicerHandoff.status === "failed" ? "alert" : "status"} aria-live="polite">{slicerHandoff.message}</span>}
+              {currentSlicerHandoff?.status === "preparing" && <span role="status" aria-live="polite">Preparing slicer handoff…</span>}
+              {currentSlicerHandoff?.status === "preparing" && <button type="button" id="cancel-slicer-handoff" onClick={() => void cancelSlicerHandoff()}>Cancel</button>}
+              {currentSlicerHandoff?.message && <span role={currentSlicerHandoff.status === "failed" ? "alert" : "status"} aria-live="polite">{currentSlicerHandoff.message}</span>}
             </div>}
             {archiveTarget && !archiveMemberChosen && <p role="status">Choose an archive member before opening it in a slicer.</p>}
             <div className="viewer-tags-header">Tags</div>
