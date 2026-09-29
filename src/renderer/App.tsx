@@ -83,9 +83,16 @@ interface LibraryStats {
 const RENDERER_STATE_REVISION_KEY = "polytray-renderer-state-revision";
 type RendererRestoreSnapshot = MetadataBackupSnapshot & { preferences: Record<string, unknown> };
 
+function canonicalRootKey(folderPath: string) {
+  const normalized = folderPath.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
+  const isWindowsPath = /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith("//");
+  return isWindowsPath ? normalized.toLowerCase() : normalized;
+}
+
 export const App: React.FC = () => {
   // ── State ───────────────────────────────────────────────────────
   const [folders, setFolders] = useState<string[]>([]);
+  const [offlineRoots, setOfflineRoots] = useState<Map<string, string>>(() => new Map());
   const [stats, setStats] = useState<LibraryStats>({
     total: 0,
     stl: 0,
@@ -306,6 +313,8 @@ export const App: React.FC = () => {
     libraryStateRef.current = nextState;
     setFolders(nextState.libraryFolders);
     foldersRef.current = nextState.libraryFolders;
+    const configuredRootKeys = new Set(nextState.libraryFolders.map(canonicalRootKey));
+    setOfflineRoots((current) => new Map([...current].filter(([key]) => configuredRootKeys.has(key))));
   }, []);
 
   const applyCollectionsState = useCallback((nextState: CollectionsState) => {
@@ -700,7 +709,19 @@ export const App: React.FC = () => {
     );
 
     cleanups.push(
-      window.polytray.onFilesUpdated(async () => {
+      window.polytray.onFilesUpdated(async (notice) => {
+        if (notice.type === "root-available" || notice.type === "root-unavailable") {
+          const rootKey = canonicalRootKey(notice.filePath);
+          const configuredRoot = foldersRef.current.find((folder) => canonicalRootKey(folder) === rootKey);
+          if (configuredRoot) {
+            setOfflineRoots((current) => {
+              const next = new Map(current);
+              if (notice.type === "root-unavailable") next.set(rootKey, configuredRoot);
+              else next.delete(rootKey);
+              return next;
+            });
+          }
+        }
         fileRefreshDebouncerRef.current?.trigger({ pages: true, stats: false, topology: false });
       }),
     );
@@ -1226,6 +1247,13 @@ export const App: React.FC = () => {
           {restoreRecoveryError && (
             <div role="alert" className="scan-error">
               Metadata restore recovery is blocked. Your saved metadata is protected; resolve this recovery issue before changing library settings. {restoreRecoveryError}
+            </div>
+          )}
+          {offlineRoots.size > 0 && (
+            <div className="offline-root-status" role="status" aria-live="polite" aria-atomic="true">
+              <strong>{offlineRoots.size === 1 ? "Library folder unavailable" : `${offlineRoots.size} library folders unavailable`}</strong>
+              <ul>{[...offlineRoots.values()].map((folder) => <li key={canonicalRootKey(folder)}>{folder}</li>)}</ul>
+              <span>Indexed models remain available. Scanning resumes when each folder reconnects.</span>
             </div>
           )}
           <Toolbar

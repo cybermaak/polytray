@@ -15,6 +15,7 @@ import {
   createMetadataRestoreWatcherResumePlan,
   createWatcherNotificationBatcher,
   createWatcherRootAvailabilityTracker,
+  createSerializedTransitionQueue,
   createWatcherUpdateCoordinator,
   type WatcherFileEvent,
 } from './watcherLifecycle';
@@ -42,6 +43,7 @@ interface WatchedStat { size: number; modifiedAt: number; }
 let watcherContext: ActiveWatcherContext | null = null;
 let watcherRun = 0;
 const watcherThumbnailSettings = new WeakMap<object, RuntimeSettingsData>();
+const runWatcherTransition = createSerializedTransitionQueue();
 const rootAvailability = createWatcherRootAvailabilityTracker();
 const watcherNotifications = createWatcherNotificationBatcher((events: Array<{ type: string; filePath: string }>) => {
   const window = watcherContext?.mainWindow;
@@ -165,7 +167,7 @@ const watcherUpdates = createWatcherUpdateCoordinator<WatchedStat, MetadataSumma
   },
 });
 
-export async function startWatcher(
+async function startWatcherNow(
   folderPaths: string[],
   mainWindow: BrowserWindow,
   db: Database,
@@ -175,7 +177,7 @@ export async function startWatcher(
 ) {
   if (folderPaths.length === 0) {
     rootAvailability.retainConfiguredRoots([]);
-    await stopWatcher();
+    await stopWatcherNow();
     return;
   }
 
@@ -223,7 +225,18 @@ export async function startWatcher(
   );
 }
 
-export async function stopWatcher(): Promise<void> {
+export function startWatcher(
+  folderPaths: string[],
+  mainWindow: BrowserWindow,
+  db: Database,
+  settings: RuntimeSettingsData,
+  runMutation: WatcherMutationRunner = immediateMutationRunner,
+  preservePending = false,
+) {
+  return runWatcherTransition(() => startWatcherNow(folderPaths, mainWindow, db, settings, runMutation, preservePending));
+}
+
+async function stopWatcherNow(): Promise<void> {
   watcherRun++;
   watcherUpdates.invalidatePending();
   await watcherLifecycle.stop();
@@ -231,12 +244,18 @@ export async function stopWatcher(): Promise<void> {
   watcherContext = null;
 }
 
+export function stopWatcher(): Promise<void> {
+  return runWatcherTransition(stopWatcherNow);
+}
+
 /** Update future watch-triggered enrichment without restarting the utility watcher. */
-export function updateWatcherSettings(settings: RuntimeSettingsData): boolean {
-  const context = watcherContext;
-  if (!context) return false;
-  watcherContext = { ...context, settings };
-  return true;
+export function updateWatcherSettings(settings: RuntimeSettingsData): Promise<boolean> {
+  return runWatcherTransition(() => {
+    const context = watcherContext;
+    if (!context) return false;
+    watcherContext = { ...context, settings };
+    return true;
+  });
 }
 
 /** Build the release callback that aligns the worker to restored roots/settings. */
@@ -258,8 +277,16 @@ export function createMetadataRestoreWatcherResumeHandler(mainWindow: BrowserWin
         current.roots.every((root, index) => root === plan.watchRoots[index]);
       const sameStability = current?.settings.watcher_stability === restored.settings.watcher_stability;
       if (current && sameRoots && sameStability) {
-        watcherMutationRunner = runMutation;
-        watcherContext = { ...current, settings: restored.settings };
+        const updated = await runWatcherTransition(() => {
+          const latest = watcherContext;
+          const stillSameRoots = latest && latest.roots.length === plan.watchRoots.length &&
+            latest.roots.every((root, index) => root === plan.watchRoots[index]);
+          if (!latest || !stillSameRoots || latest.settings.watcher_stability !== restored.settings.watcher_stability) return false;
+          watcherMutationRunner = runMutation;
+          watcherContext = { ...latest, settings: restored.settings };
+          return true;
+        });
+        if (!updated) await startWatcher(plan.watchRoots, mainWindow, db, restored.settings, runMutation, true);
       } else {
         await startWatcher(plan.watchRoots, mainWindow, db, restored.settings, runMutation, true);
       }

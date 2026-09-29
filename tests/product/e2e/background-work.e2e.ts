@@ -246,6 +246,10 @@ test('background job controls retain browse state and watch follows only watch s
     const offlineRoot = `${root}-offline`;
     fs.renameSync(root, offlineRoot);
     await expect.poll(() => page!.evaluate((before) => ((window as Window & { __rootUnavailableCount?: number }).__rootUnavailableCount ?? 0) > before, unavailableBefore), { timeout: 15_000 }).toBe(true);
+    const offlineStatus = page.locator('.offline-root-status');
+    await expect(offlineStatus).toBeVisible();
+    await expect(offlineStatus).toContainText(root);
+    await expect(offlineStatus).toHaveAttribute('aria-live', 'polite');
     await expect(offlineCard).toBeVisible();
     await expect(offlineCard.locator('.file-select-toggle')).toBeVisible();
     fs.rmSync(path.join(offlineRoot, 'offline-target.stl'));
@@ -253,6 +257,7 @@ test('background job controls retain browse state and watch follows only watch s
     fs.rmSync(reachedPath, { force: true });
     fs.renameSync(offlineRoot, root);
     await expect.poll(() => page!.evaluate(() => (window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0)).toBe(3);
+    await expect(offlineStatus).toHaveCount(0);
     await expect.poll(() => fs.existsSync(reachedPath), { timeout: 15_000 }).toBe(true);
     fs.writeFileSync(releasePath, 'release reconnect scan');
     await expect.poll(() => page!.evaluate((before) => ((window as Window & { __scanCompleteCount?: number }).__scanCompleteCount ?? 0) > before, scanCompleteBeforeOffline), { timeout: 20_000 }).toBe(true);
@@ -264,6 +269,39 @@ test('background job controls retain browse state and watch follows only watch s
     await page.getByRole('button', { name: 'Settings' }).click();
     await page.locator('label.toggle-switch:has(#setting-watch)').click();
     await expect(page.locator('#setting-watch')).not.toBeChecked();
+    const stoppedRuntime = { thumbnail_timeout: 30_000, scanning_batch_size: 50, watcher_stability: 160, page_size: 120, thumbnailColor: '#336699', thumbQuality: '512' as const };
+    await expect.poll(() => page!.evaluate((runtime) => window.polytray.updateWatcherSettings(runtime), stoppedRuntime)).toBe(false);
+
+    fs.rmSync(watcherReleasePath, { force: true });
+    fs.rmSync(watcherReachedPath, { force: true });
+    await page.locator('label.toggle-switch:has(#setting-watch)').click();
+    await expect(page.locator('#setting-watch')).toBeChecked();
+    await expect.poll(() => fs.existsSync(watcherReachedPath), { timeout: 15_000 }).toBe(true);
+    await page.locator('label.toggle-switch:has(#setting-watch)').click();
+    await expect(page.locator('#setting-watch')).not.toBeChecked();
+    await expect.poll(() => page!.evaluate((runtime) => window.polytray.updateWatcherSettings(runtime), stoppedRuntime)).toBe(false);
+
+    fs.rmSync(watcherReachedPath, { force: true });
+    const rootEventsBeforeRapidRestart = await page.evaluate(() => (window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0);
+    await page.locator('label.toggle-switch:has(#setting-watch)').click();
+    await expect(page.locator('#setting-watch')).toBeChecked();
+    if (!(await page.locator('#setting-watcher-stability').isVisible())) await page.locator('.advanced-toggle').click();
+    await page.locator('#setting-watcher-stability').fill('240');
+    await expect(page.locator('#setting-watcher-stability')).toHaveValue('240');
+    await expect.poll(() => fs.existsSync(watcherReachedPath), { timeout: 15_000 }).toBe(true);
+    const rapidRuntime = { ...stoppedRuntime, watcher_stability: 240 };
+    await expect.poll(() => page!.evaluate((runtime) => window.polytray.updateWatcherSettings(runtime), rapidRuntime)).toBe(true);
+    fs.writeFileSync(watcherReleasePath, 'release final rapid watcher start');
+    await expect.poll(() => page!.evaluate((before) => ((window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0) > before, rootEventsBeforeRapidRestart), { timeout: 15_000 }).toBe(true);
+    const rapidFile = path.join(root, 'rapid-toggle-final.stl');
+    fs.copyFileSync(modelFixture, rapidFile);
+    await expect.poll(() => page!.evaluate(async (filePath) => {
+      const record = (await window.polytray.getFiles({ limit: 500, offset: 0 })).files.find((file) => file.path === filePath);
+      return record?.thumbnail ?? null;
+    }, rapidFile), { timeout: 20_000 }).toBeTruthy();
+    const rapidRecord = await page.evaluate(async (filePath) => (await window.polytray.getFiles({ limit: 500, offset: 0 })).files.find((file) => file.path === filePath) ?? null, rapidFile);
+    expect(rapidRecord).toBeTruthy();
+    expect(path.basename(rapidRecord!.thumbnail!)).toBe(thumbnailCacheFilename(createThumbnailIdentity(rapidFile, rapidRecord!.content_revision, '#336699', 512).key));
   } finally {
     if (isolated) await isolated.close();
   }

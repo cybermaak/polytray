@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
-import { createMetadataRestoreWatcherResumePlan, createWatcherLifecycleManager } from '../../../../src/main/watcherLifecycle';
+import { createMetadataRestoreWatcherResumePlan, createSerializedTransitionQueue, createWatcherLifecycleManager } from '../../../../src/main/watcherLifecycle';
 
 class FakeWorker extends EventEmitter {
   public postMessages: unknown[] = [];
@@ -86,4 +86,24 @@ test('restarting watcher detaches stale process cleanup from the new worker', as
 
   first.emit('exit', 0);
   assert.equal(manager.getCurrentProcess(), second);
+});
+
+test('watcher lifecycle transitions run in request order and do not overlap', async () => {
+  const runTransition = createSerializedTransitionQueue();
+  const order: string[] = [];
+  let releaseFirst!: () => void;
+  const firstBarrier = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  const first = runTransition(async () => {
+    order.push('start-enter');
+    await firstBarrier;
+    order.push('start-exit');
+  });
+  const stop = runTransition(async () => { order.push('stop'); });
+  const reconfigure = runTransition(async () => { order.push('reconfigure'); });
+
+  await Promise.resolve();
+  assert.deepEqual(order, ['start-enter']);
+  releaseFirst();
+  await Promise.all([first, stop, reconfigure]);
+  assert.deepEqual(order, ['start-enter', 'start-exit', 'stop', 'reconfigure']);
 });
