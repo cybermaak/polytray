@@ -1,6 +1,6 @@
 # Performance and resource validation (G02)
 
-**Status: REVIEW — incomplete evidence; 50k grouped-query median and multipart CPU long task remain over target.** This report includes F02-shape parity, production grouped browse queries with statement-phase diagnostics, a bounded query heartbeat probe, and selected scan/preview/thumbnail/lifecycle E2E evidence. It does not claim all resource requirements are validated.
+**Status: REVIEW — incomplete evidence; one multipart CPU long-task overrun was not reproduced, and cold scope-index readiness is slow.** Current grouped warm-query targets pass. This report includes F02-shape parity, production grouped browse queries with statement-phase diagnostics, cold readiness and heartbeat measurements, and selected scan/preview/thumbnail/lifecycle E2E evidence. It does not claim all resource requirements are validated.
 
 ## Reference query capture
 
@@ -14,11 +14,11 @@ This fixture has no `archive_path` values. The timed call is renderer `performan
 
 | Rows | Original F02 folder median / p95 | Current flat `GET_FILES` median / p95 | Original F02 last-only collection median / p95 | Current renderer query + membership median / p95 |
 | ---: | ---: | ---: | ---: | ---: |
-| 600 | 6.10 / 6.50 ms | 4.1 / 4.3 ms | 6.3 / 6.9 ms | 3.5 / 3.9 ms |
-| 10,000 | 64.90 / 71.70 ms | 5.3 / 5.9 ms | 66.30 / 68.40 ms | 5.3 / 5.8 ms |
-| 50,000 | 322.60 / 336.80 ms | 21.6 / 24.2 ms | 317.30 / 322.70 ms | 19.4 / 20.2 ms |
+| 600 | 6.10 / 6.50 ms | 3.9 / 4.5 ms | 6.3 / 6.9 ms | 3.6 / 4.0 ms |
+| 10,000 | 64.90 / 71.70 ms | 5.4 / 5.9 ms | 66.30 / 68.40 ms | 5.4 / 5.7 ms |
+| 50,000 | 322.60 / 336.80 ms | 20.0 / 20.7 ms | 317.30 / 322.70 ms | 19.7 / 21.6 ms |
 
-Current flat 50k main heartbeat max gap was 115.77 ms over 38 samples while a held scan heartbeat ran. The current flat timings are not C10's primary grouped archive-summary path.
+Current flat 50k main heartbeat max gap was 75.13 ms over 39 samples while a held scan heartbeat ran. The current flat timings are not C10's primary grouped archive-summary path.
 
 ### Grouped production shape (C10)
 
@@ -26,29 +26,40 @@ The fixture places 20% of records in 12 ZIP summary groups. The primary timing i
 
 | Rows | Display items | Folder median / p95 | C10 median / p95 | Last-only collection median / p95 |
 | ---: | ---: | ---: | --- | ---: |
-| 600 | 492 | 6.6 / 7.7 ms | Informational | 0.8 / 0.9 ms |
-| 10,000 | 8,012 | 27.3 / 28.4 ms | Meets <=50 ms median | 3.5 / 3.7 ms |
-| 50,000 | 40,012 | 161.6 / 165.0 ms | **Median misses <=150 ms by 11.6 ms; p95 meets <=250 ms** | 28.2 / 29.2 ms |
+| 600 | 492 | 6.4 / 6.7 ms | Informational | 0.7 / 0.8 ms |
+| 10,000 | 8,012 | 20.7 / 21.8 ms | Meets <=50 ms median | 1.6 / 1.7 ms |
+| 50,000 | 40,012 | 100.4 / 105.8 ms | Meets <=150 / <=250 ms | 10.3 / 10.8 ms |
+
+An independent current-primary capture reported by the coordinator measured the same grouped 50k renderer IPC path at 101.5/115.0 ms median/p95. Both captures meet the C10 warm query median and p95 targets; they remain separate runs rather than a combined statistic.
+
+### Cold first-page and scope-index readiness
+
+The baseline records one first `GET_LIBRARY_PAGE` call immediately after the renderer's search input becomes attached. It queues a test scan IPC first to start the existing 25 ms main heartbeat probe, then sends the cold page request from the same renderer task; the scan is held at its delayed-subtree barrier until warm samples finish. `elapsedMs` is request-to-response; `readyToRequestMs` was 4.5-15.1 ms, and `readyToResponseMs` differs by that small setup delay. The cold call is separate from five warmups and 20 warm measurements.
+
+| Fixture shape | 600 cold call | 10k cold call | 50k cold call | 50k ready-to-response |
+| --- | ---: | ---: | ---: | ---: |
+| Flat F02 parity | 12.5 ms | 289.8 ms | 1,552.1 ms | 1,567.2 ms |
+| Grouped production | 14.0 ms | 294.9 ms | 1,617.9 ms | 1,630.1 ms |
+
+The grouped 50k warm query meets C10 at 100.4/105.8 ms in the worker capture. An independent capture on the integrated primary tree measured 101.5/115.0 ms; these are separate runs, not a combined statistic. The first page took 1,617.9 ms from request to response in the worker capture. This points to an initial scope-index/readiness delay: the response waits after the app is ready while startup backfill catches up. The 25 ms heartbeat ran over an interval containing this cold call and the warm query series; its maximum gap was 121.74 ms over 134 samples, below 250 ms. This is a measured readiness delay, not evidence of an event-loop stall. The heartbeat maximum is for the combined interval rather than a separately windowed cold-call-only statistic. Bounded follow-up belongs to D01/FileIndex readiness and D02: determine whether the UI can continue on legacy browsing during backfill and measure the wait again with a preseeded 50k index.
 
 The 50k query plan uses the covering `file_scopes` scope-path index and primary-key file lookup, then shows scans of the filtered/display CTE, a temporary B-tree for archive grouping, and a temporary B-tree for ordering. An Electron Node diagnostic invoked the unchanged `getLibraryPage` function five warmups plus 20 samples and wrapped that DB instance's statement `get/all` calls only. Clock: `performance.now()` in Electron Node 20.19.1, synchronously around each statement call; excludes IPC, prepare time, temporary-table setup, and JavaScript between statements. Timings are diagnostic phases, separate from the renderer IPC aggregate:
 
 | 50k statement phase | Median / p95 |
 | --- | ---: |
-| Filtered model COUNT | 27.94 / 29.33 ms |
-| Display item COUNT including archive GROUP BY | 41.72 / 44.08 ms |
-| Ordered page SELECT and selection | 46.11 / 48.83 ms |
-| Archive representative samples | 48.12 / 52.83 ms |
-| Whole `getLibraryPage` function in Electron Node | 165.21 / 174.64 ms |
+| Page counts, archive grouping, ordering and page selection statement | 53.57 / 56.19 ms |
+| Archive representative samples statement | 48.47 / 50.17 ms |
+| Whole `getLibraryPage` function in Electron Node | 102.54 / 105.78 ms |
 
-The display count statement runs the CTE with archive grouping; page and representative-sample phases also perform their own production query work, so these timings should not be added as mutually exclusive end-to-end components. The measured medians span four substantial synchronous statement phases (27.94-48.12 ms), while the query plan shows repeated scans and temp grouping/sorting; taken together they explain why the 50k grouped request exceeds the 150 ms median budget. This is phase evidence, not proof that any one statement alone causes the miss. The 50k renderer IPC aggregate remains the primary C10 comparison at 161.6/165.0 ms.
+The integrated query combines model count, display count with archive grouping, ordering and page selection into one statement with scalar subqueries; the statement wrapper cannot split those subqueries without duplicating or changing production SQL. Archive representative samples run in a separate statement. These diagnostic calls are in Electron Node and exclude IPC; the worker capture's 50k renderer IPC aggregate is 100.4/105.8 ms, while the independent integrated-primary capture is 101.5/115.0 ms.
 
-The query harness held a separate isolated scan at a subtree barrier while production query samples ran. The 25 ms main-process heartbeat recorded a maximum gap of 174.82 ms over 202 samples during the 50k grouped run, below C10's <=250 ms bound. The query median miss is owned by the D02 library-query owner; bounded follow-up: use the measured phase costs and query plan to optimize the grouped path while retaining the C10 target and response shape.
+The query harness held a separate isolated scan at a subtree barrier while production query samples ran. The worker capture's heartbeat maximum was 121.74 ms across the cold request and warm 50k grouped-query samples, below C10's <=250 ms bound. After D02 optimization commit `2000282`, the integrated-primary grouped 50k capture measured 101.5/115.0 ms, meeting C10. The earlier 161.6/165.0 ms capture is not a controlled before measurement because fixture/runtime details differ. The measured 1.62 s first-page readiness wait remains open for D01/FileIndex and D02 investigation.
 
-The earlier F02 capture used legacy `GET_FILES` and renderer-side collection path filtering, and explicitly omitted archive-summary grouping. Its 50k folder median/p95 of 322.6/336.8 ms and collection 317.3/322.7 ms are retained as historical evidence but are not equivalent to this production page measurement. The current flat run matches F02's fixture shape/call path, but invokes the integrated indexed GET_FILES implementation. D02's corrected source-shaped 50k grouped query was 79.71/81.35 ms with a 20% archive distribution; the current 161.6/165.0 ms result is a regression against that handoff measurement under the current fixture/runtime. Do not interpret fixtures as identical in archive group count or SQLite runtime.
+The earlier F02 capture used legacy `GET_FILES` and renderer-side collection path filtering, and explicitly omitted archive-summary grouping. Its 50k folder median/p95 of 322.6/336.8 ms and collection 317.3/322.7 ms are retained as historical evidence but are not equivalent to this production page measurement. The current flat run matches F02's fixture shape/call path, but invokes the integrated indexed GET_FILES implementation. D02's corrected source-shaped 50k grouped query was 79.71/81.35 ms with a 20% archive distribution; the later 100.4/105.8 ms worker and 101.5/115.0 ms integrated-primary captures are current C10 observations, not controlled before/after comparisons. Hardware matches; do not interpret fixtures as identical in archive group count or SQLite runtime.
 
 ## Query plan and bottleneck owner
 
-The 50k `EXPLAIN QUERY PLAN` output includes: `SEARCH scopes USING COVERING INDEX sqlite_autoindex_file_scopes_1 (scope_path=?)`; `SEARCH f USING INTEGER PRIMARY KEY (rowid=?)`; `SCAN f`; `USE TEMP B-TREE FOR GROUP BY`; and `USE TEMP B-TREE FOR ORDER BY`. The bounded follow-up belongs to the D02 library-query owner: investigate the 42 ms display count/archive-grouping statement and 46-48 ms page/sample statements, then optimize the measured grouped path while preserving C10 and the result contract. No production SQL or target was changed in G02.
+The 50k `EXPLAIN QUERY PLAN` output includes `MATERIALIZE display_items`, a covering `file_scopes` scope-path lookup, primary-key file lookup, scans of the filtered/display CTEs, a temporary B-tree for GROUP BY, and a temporary B-tree for ORDER BY. Current warm grouped query meets the C10 target; no further D02 query follow-up is required by this measurement. Cold readiness remains assigned to D01/D02.
 
 The isolated dense parser diagnostic generated a 200,000-triangle, 10,000,084-byte STL. Electron Node `STLLoader` parsing took 6.19 ms in the latest run. This is parser-only timing; it is not renderer CPU assembly, GPU upload, or frame time.
 
@@ -68,21 +79,23 @@ npx playwright test tests/product/e2e/performance-regressions.e2e.ts tests/produ
 
 Result: 6 passed, 0 failed in 32.6 seconds on macOS 25.6 / M3 Ultra.
 
-- The 5k delayed-subtree scan made its first indexed-subtree queryable batch in 5.7 ms while discovery remained held; main heartbeat max gap was 28.97 ms over 59 samples. This establishes first queryability, not that the first batch was painted visibly in the library UI.
-- Dense preview first-frame duration was 283.1 ms; multipart first-frame duration was 28.4 ms. First-frame measurement is separate from render-submit (19.3 / 9.3 ms). The multipart run observed a 107 ms renderer long task, exceeding C10's <=100 ms CPU long-task target. Dense observed 0 ms max long task. These are CPU observer results; they do not measure GPU upload. Bounded follow-up owner is V04 preview assembly: identify the multipart task segment and split/yield CPU work if warranted, then rerun dense and multipart fixtures without relaxing 100 ms.
+- The 5k delayed-subtree scan made its first indexed-subtree queryable batch in 5.3 ms and the first file card became DOM-visible in 213.6 ms while the delayed subtree remained held. It captured 8 progress events: one first-batch boundary, one total-known terminal boundary, and at most 4 regular events in any rolling second. Main heartbeat max gap was 29.93 ms over 62 samples. This verifies a visible card before delayed discovery completes; compositor presentation time was not instrumented.
+- A focused multipart preview run observed one 107 ms renderer long task, exceeding C10's <=100 ms CPU long-task target. Three subsequent isolated repeats and the integrated Product run recorded 0 ms max long tasks; the overrun remains an unexplained, non-reproduced outlier. The integrated run's dense/multipart first frames were 282.2/22.5 ms and render-submit was 19.2/6.2 ms. These are CPU observer results; they do not measure GPU upload. V04 owns investigation if the outlier recurs; no threshold is relaxed.
 - Held preview replacement stopped its obsolete renderer in 21 ms; A/B were rejected and C resolved. The main and thumbnail renderer processes remained alive, and independent thumbnail work completed during the held parse.
-- `metadata-worker.e2e.ts` passed separately (1/1 in 1.5 s): one large OBJ metadata item completed; scan-plus-metadata elapsed 392 ms; the 25 ms main heartbeat had 13 samples and max gap 36.04 ms. This is a responsive background-worker/heartbeat result, not a measured browse-query latency during metadata extraction.
+- `metadata-worker.e2e.ts` passed in the integrated run: during one large OBJ scan, 289 production `GET_LIBRARY_PAGE` samples were taken while the scan job was running and `metadataCompleted` stayed zero before and after each call. Query latency median/p95 was 0.6/0.8 ms; the 25 ms main heartbeat max gap was 26.05 ms over 17 samples. A prior same-fixture run recorded 392 ms scan-plus-metadata total. This shows query latency while metadata work remained outstanding; it does not prove the worker was actively parsing during every sample.
 - Thumbnail lifecycle, deletion/recovery, refresh, clear, revision, and cache invalidation E2Es passed. The dedicated 20-cycle test also passed its direct cache hit/regenerate-after-delete assertions.
 
-The suite does not expose scan discovery queue depth or identify boundary progress events, and this run did not capture progress publication rate. Metadata extraction has a passing worker/heartbeat check, but no browse-query latency measurement during concurrent metadata extraction. Scope-index startup stall is also unmeasured. Queue/progress and startup requirements remain open for owner S; the <=4 Hz target remains unchanged.
+The scan E2E measures progress rate and separates the observed first-batch and total-known boundaries. It does not expose queue high-water. With `scanning_batch_size` 50, source inspection shows discovery capacity 50 and metadata capacity 100; `BackgroundJob` and public progress expose no high-water values, so actual queue occupancy remains unmeasured without an isolated S-owned hook. Cold scope-index readiness is measured separately at 1.62 s for grouped 50k, as detailed above; the heartbeat was active over that interval and remained below 250 ms.
+
+After adding these probes, the performance baseline completed all six flat/grouped size combinations and fixture unit tests passed 2/2 under Electron Node. On the exact integrated test tree, `npm run build` passed; `PYTHON=/usr/bin/python3 npm run test:product` passed through Node native rebuild, unit tests, Electron native rebuild, and Playwright E2E: 478 unit passes/1 Windows-only skip and 69 E2E passes/1 optional real-model skip. The generated fixture was restored to baseline SHA256 `6ca9f75c11d9330221860ade9fdb641cac6728a9f0a4cc1883989506a39fc109`.
 
 ## Remaining gaps and owners
 
-- `scan-streaming.e2e.ts` passed for a synthetic 5k scan: first indexed subtree queryable in 5.7 ms and main heartbeat max gap 28.97 ms. The latest query run recorded 174.82 ms max heartbeat while querying 50k grouped pages. `metadata-worker.e2e.ts` passed for one large OBJ with 392 ms scan-plus-metadata completion and 36.04 ms max main heartbeat. Tests do not establish visible paint, discovery queue depth, <=4 Hz progress rate plus boundaries, browse latency during metadata work, or scope-index startup stall. `BackgroundJob` exposes discovered/indexed/metadata counts but no queue depth; scan progress omits depth. Owner S should add an isolated probe for peak bounded queue depth, timestamp progress including boundaries, and query latency during metadata work; startup/index stalls remain open.
-- `preview-preparation.e2e.ts` passed: dense/multipart first-frame 283.1/28.4 ms, render-submit 19.3/9.3 ms, with a 107 ms multipart CPU long task (misses <=100 ms). For multipart, the first viewer frame is present while part-image placeholders and in-flight image work remain, so first-frame-before-images passes. It also checks publication cleanup after replacement/close. GPU upload is not measured separately from render-submit; V04 owns the bounded CPU-slicing follow-up and should add GPU timer-query instrumentation where supported, otherwise keep upload unverified.
+- `scan-streaming.e2e.ts` passed for a synthetic 5k scan: queryable batch at 5.3 ms, first file card DOM-visible at 213.6 ms before barrier release, max regular progress 4/rolling second, and heartbeat max gap 29.93 ms. Source-defined capacities are 50 discovery events and 100 metadata items for batch size 50, but actual queue high-water is not observable; owner S needs an isolated depth probe if measured occupancy is required. `metadata-worker.e2e.ts` sampled page-query latency at 0.6/0.8 ms median/p95 while the scan was running and metadata remained outstanding; active parser overlap was not proven. A separate direct run recorded one metadata completion in 392 ms and a 36.04 ms main heartbeat max gap over 13 samples. The 50k grouped cold first page took 1,617.9 ms request-to-response, with 121.74 ms maximum heartbeat across the cold-plus-warm query interval. D01/FileIndex and D02 should check legacy-browse availability during backfill and compare first-run with already-indexed readiness.
+- `preview-preparation.e2e.ts` passed; one earlier focused run observed a 107 ms multipart CPU long task, while three repeats and the integrated run recorded 0 ms. For multipart, the first viewer frame is present while part-image placeholders and in-flight image work remain, so first-frame-before-images passes. It also checks publication cleanup after replacement/close. GPU upload is not measured separately from render-submit; retain the outlier and investigate if it recurs. V04 should add GPU timer-query instrumentation where supported, otherwise keep upload unverified.
 - `preview-cancellation.e2e.ts` passed: obsolete renderer stopped in 21 ms, below 500 ms. One independent thumbnail request observed queue depth one then zero and completed, but this is not queue stress evidence. The E2E's BrowserWindow count and page PIDs do not expose utility worker processes; owner V/S needs a test-only process registry or operating-system child-process capture for worker-process inventory.
 - The test wraps visible renderer `MessageChannel` and `Worker` constructors, but transferred ports are created in preload/main/owned preview contexts. It observes no visible-renderer channels; it cannot claim all app ports are zero. Explicit EventTarget add/remove operation counts do not provide a complete active listener count because native/internal listeners and abort-signal removal are not observable through the wrapper. Owners V/U should add lifecycle counters at the resource-owning preview runtime boundary if exact port/listener counts are required.
-- Thumbnail PNG bytes are measured on disk, not in-memory image cache bytes. Owner T should expose a bounded cache byte/count diagnostic for image-memory accounting.
+- Thumbnail PNG bytes are measured on disk, not in-memory image-cache bytes. The renderer cache's encoded-byte counter is closure-private; owner T should expose an isolated byte/count diagnostic if memory accounting is required.
 - Thumbnail lifecycle and invalidation E2Es passed, including refresh and missing-cache recovery. The new cycle test observed a cache hit and regenerated a deleted PNG; disk image-cache bytes were stable after warmup.
 - CI timing calibration and Windows/Linux app runtime evidence remain open. Local app evidence here is macOS arm64 only.
 - Optional real `base.3mf` supplementary run was not available or run; portable dense and multipart preview E2E fixtures were run.
@@ -91,13 +104,13 @@ The suite does not expose scan discovery queue depth or identify boundary progre
 
 The following C10/resource areas were not measured in this capture and must remain open:
 
-- First visibly painted batch; scan queue depth, progress rate, browse-query latency during metadata extraction, and startup stalls from temporary scope/membership indexes.
-- Dense renderer mesh assembly CPU long tasks (multipart observed a 107 ms miss); GPU upload/driver timing.
+- Scan queue high-water; compositor presentation time for the first batch; legacy browse availability during scope-index backfill (first grouped 50k request took 1.62 s); and first-run versus already-indexed readiness comparison.
+- Multipart renderer CPU long tasks (one 107 ms overrun was not reproduced); GPU upload/driver timing.
 - Exact transferred port and active-listener counts across preload/main/owned preview contexts; utility worker-process inventory; in-memory image-cache bytes. Visible-renderer Worker object counters and BrowserWindow counts do not substitute for these.
 - CI timing calibration and Windows/Linux app runtime evidence. The local app evidence in this report is macOS arm64 only.
 - Optional real `base.3mf` supplementary run. Its absence is not treated as a pass; portable dense and multipart renderer fixtures were run.
 
-Related coverage not included in the six-file command includes [preview-state](../../tests/product/e2e/preview-state.e2e.ts); it is not cited as passing evidence here. The metadata-worker suite passed separately and is reported above. The preview-preparation suite passed its product assertions, with the separate 107 ms long-task budget miss reported above.
+Related coverage not included in the focused six-file command includes [preview-state](../../tests/product/e2e/preview-state.e2e.ts); it is not cited as separate focused evidence here. Both metadata-worker and preview-preparation suites passed in the integrated Product run. The prior 107 ms long-task observation is reported above.
 
 ## Reproduction
 
@@ -109,4 +122,4 @@ npx playwright test tests/product/e2e/metadata-worker.e2e.ts
 node -e 'const {spawnSync}=require("node:child_process");const r=spawnSync(require("electron"),["--import","tsx","--test","tests/product/unit/main/performanceFixtures.test.ts"],{cwd:process.cwd(),stdio:"inherit",env:{...process.env,ELECTRON_RUN_AS_NODE:"1"}});process.exit(r.status??1)'
 ```
 
-The initial direct-host-Node fixture test failed because the reusable worktree's `better-sqlite3` binary was built for Electron ABI 132 while host Node requires ABI 141. The prescribed Electron Node fixture test then passed (2/2). The latest baseline command completed successfully and emitted the numeric samples above. Final G02 status depends on coordinator integration, Build/full Product, the open measurements, and disposition of the 50k median miss.
+The initial direct-host-Node fixture test failed because the reusable worktree's `better-sqlite3` binary was built for Electron ABI 132 while host Node requires ABI 141. The prescribed Electron Node fixture test then passed (2/2). The latest baseline command completed successfully and emitted the numeric samples above. The warm grouped 50k query target passes after D02; the cold 1.62 s scope-index readiness delay, non-reproduced 107 ms multipart CPU outlier, and unmeasured resource/platform requirements keep G02 in REVIEW. Build and full Product passed on the exact integrated test tree.

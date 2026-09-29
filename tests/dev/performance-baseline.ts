@@ -55,15 +55,45 @@ async function runAppQueryBenchmark(count: number, shape: 'flat' | 'grouped') {
     const window = await isolated.app.firstWindow();
     await window.locator('#search-input').waitFor({ state: 'attached', timeout: 30_000 });
     const folder = path.join(isolated.userDataDir, 'library');
-    await window.evaluate((root) => {
-      const state = window as unknown as { __g02Scan?: { done: boolean; error?: string } };
+    const coldReadyAt = await window.evaluate(() => performance.now());
+    await window.evaluate(({ root, folderPath, readyAt }) => {
+      const state = window as unknown as {
+        __g02Scan?: { done: boolean; error?: string };
+        __g02ColdPage?: { elapsedMs: number; readyToRequestMs: number; readyToResponseMs: number; status: string; totalModels: number | null; totalItems: number | null };
+      };
       state.__g02Scan = { done: false };
       void window.polytray.scanFolder(root).then(() => { state.__g02Scan!.done = true; }, (error) => {
         state.__g02Scan!.error = String(error); state.__g02Scan!.done = true;
       });
-    }, scanRoot);
+      // These invokes are sent sequentially from one renderer task: scan starts
+      // the isolated main heartbeat before the first browse request is sent.
+      const requestAt = performance.now();
+      void (window as unknown as PerformanceBridge).polytray.getLibraryPage({
+        sort: 'name', direction: 'ASC', extension: null, folder: folderPath,
+        search: '', collectionPaths: null, limit: 500, offset: 0,
+      }).then((page) => {
+        const respondedAt = performance.now();
+        state.__g02ColdPage = {
+          elapsedMs: respondedAt - requestAt,
+          readyToRequestMs: requestAt - readyAt,
+          readyToResponseMs: respondedAt - readyAt,
+          status: page.status,
+          totalModels: page.status === 'ok' ? page.totalModels : null,
+          totalItems: page.status === 'ok' ? page.totalItems : null,
+        };
+      });
+    }, { root: scanRoot, folderPath: folder, readyAt: coldReadyAt });
     for (let attempt = 0; attempt < 300 && !fs.existsSync(reachedPath); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
     if (!fs.existsSync(reachedPath)) throw new Error('Main heartbeat scan did not reach its hold barrier');
+    for (let attempt = 0; attempt < 300; attempt++) {
+      const coldPageComplete = await window.evaluate(() => Boolean((window as unknown as { __g02ColdPage?: unknown }).__g02ColdPage));
+      if (coldPageComplete) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const firstPageFromReady = await window.evaluate(() => (window as unknown as {
+      __g02ColdPage: { elapsedMs: number; readyToRequestMs: number; readyToResponseMs: number; status: string; totalModels: number | null; totalItems: number | null };
+    }).__g02ColdPage);
+    if (!firstPageFromReady) throw new Error('Cold GET_LIBRARY_PAGE did not settle while heartbeat scan was held');
     const samples: number[] = [];
     let finalPage: { total: number; pageCount: number; totalItems: number | null; archiveGroups: number } | undefined;
     for (let i = 0; i < 25; i++) {
@@ -113,6 +143,10 @@ async function runAppQueryBenchmark(count: number, shape: 'flat' | 'grouped') {
         queryFolder: folder, matchingRows: finalPage?.total ?? 0, matchingDisplayItems: finalPage?.totalItems,
         order: 'name ASC', pageSize: 500, sortTiePattern: '7 sizes, 9 timestamps, 11 vertex-counts, 13 face-counts',
       },
+      coldFirstGetLibraryPageFromReady: {
+        clock: 'renderer performance.now around the first GET_LIBRARY_PAGE after search-input readiness; isolated scan IPC is queued immediately beforehand to start the 25ms main heartbeat, and this sample is excluded from warmups and warm query samples',
+        ...firstPageFromReady,
+      },
       folderQuery: { timingClock: 'renderer performance.now around the awaited production IPC call', warmups: 5, samples: 20, ...summarize(samples) },
       lastOnlyCollection: { memberCount: 1, firstPageMatches: shape === 'flat' ? filteredCount : null, matchingModelCount: shape === 'grouped' ? filteredCount : null, queryAndMembership: { warmups: 5, samples: 20, ...summarize(collectionSamples) } },
       productionQueryDiagnostic: planDiagnostics,
@@ -139,6 +173,7 @@ async function main() {
     flatF02Parity: 'Electron renderer -> preload IPC -> legacy GET_FILES folder branch -> 500-row page; then renderer-side last-only collectionPaths.includes filtering on returned page. Fixture has 40 folders and no archive_path values.',
     groupedProductionShape: 'Electron renderer -> preload IPC -> production GET_LIBRARY_PAGE scoped 500-item page; includes filtered model count, display-item count, archive grouping/counts, ordering, representative samples, and page selection. Fixture has 20% archive membership across 12 groups.',
     phaseDiagnostics: 'Electron Node 20.19.1 performance.now around synchronous get/all calls inside the unchanged production getLibraryPage function; five warmups plus 20 measured calls per categorized statement; excludes IPC and JS/temp-table work between statements.',
+    coldReadiness: 'One first getLibraryPage request immediately after the visible search input is attached; an isolated scan IPC is queued first in the same renderer task to start the 25ms main heartbeat. Cold call is excluded from warmups and query samples and includes production scope-index readiness wait if one is still pending.',
     collection: 'Flat shape repeats F02 renderer membership predicate; grouped shape uses GET_LIBRARY_PAGE collectionPaths membership in SQLite.',
     mainHeartbeat: 'A separate isolated scan is held at a subtree barrier while the measured production query calls run; a 25 ms main-process heartbeat records gaps through scan completion.',
     idleHeartbeat: 'Not measured by the query harness; settled viewer frames are measured by the product E2E probe.',

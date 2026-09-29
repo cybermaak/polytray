@@ -39,12 +39,47 @@ test('large OBJ metadata uses the utility worker and the app quits cleanly after
   });
   try {
     const window = await findMainWindow(isolated.app);
-    const result = await window.evaluate(async (root) => window.polytray.scanFolder(root, {
-      thumbnail_timeout: 10_000, scanning_batch_size: 10, watcher_stability: 500,
-      page_size: 50, thumbnailColor: '#808080',
-    }), libraryPath);
+    await window.evaluate((root) => {
+      const state = window as unknown as { __g02MetadataScan?: { done: boolean; result?: { state: string; metadataCompleted?: number }; error?: string } };
+      state.__g02MetadataScan = { done: false };
+      void window.polytray.scanFolder(root, {
+        thumbnail_timeout: 10_000, scanning_batch_size: 10, watcher_stability: 500,
+        page_size: 50, thumbnailColor: '#808080',
+      }).then((result) => { state.__g02MetadataScan!.result = result; state.__g02MetadataScan!.done = true; }, (error) => {
+        state.__g02MetadataScan!.error = String(error); state.__g02MetadataScan!.done = true;
+      });
+    }, libraryPath);
+    const concurrentQuerySamples: number[] = [];
+    let scanResult: { state: string; metadataCompleted?: number } | undefined;
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      const sample = await window.evaluate(async (root) => {
+        const state = window as unknown as { __g02MetadataScan: { done: boolean; result?: { state: string; metadataCompleted?: number }; error?: string } };
+        if (state.__g02MetadataScan.error) throw new Error(state.__g02MetadataScan.error);
+        const jobs = await window.polytray.getBackgroundJobs();
+        const job = jobs.find((candidate) => candidate.kind === 'scan' && candidate.rootPath === root);
+        const extracting = Boolean(job && job.state === 'running' && job.counts.indexed > 0 && job.counts.metadataCompleted === 0);
+        let queryMs: number | null = null;
+        let queryStatus: string | null = null;
+        if (extracting) {
+          const started = performance.now();
+          const page = await window.polytray.getLibraryPage({ sort: 'name', direction: 'ASC', extension: null, folder: root, search: '', collectionPaths: null, limit: 50, offset: 0 });
+          queryMs = performance.now() - started;
+          queryStatus = page.status;
+        }
+        const after = (await window.polytray.getBackgroundJobs()).find((candidate) => candidate.kind === 'scan' && candidate.rootPath === root);
+        const remainedInExtraction = Boolean(extracting && after && after.state === 'running' && after.counts.metadataCompleted === 0);
+        if (state.__g02MetadataScan.done) return { done: true, result: state.__g02MetadataScan.result, error: state.__g02MetadataScan.error, concurrent: false, queryMs, queryStatus };
+        return { done: false, concurrent: remainedInExtraction, queryMs, queryStatus };
+      }, libraryPath);
+      if (sample.concurrent && sample.queryMs !== null) concurrentQuerySamples.push(sample.queryMs);
+      if (sample.done) { scanResult = sample.result; break; }
+    }
+    expect(scanResult, 'large OBJ scan and metadata extraction finish').toBeTruthy();
+    const result = scanResult!;
     expect(result.state).toBe('completed');
     expect(result.metadataCompleted).toBe(1);
+    expect(concurrentQuerySamples.length).toBeGreaterThan(0);
     await expect.poll(() => fs.existsSync(heartbeatPath)).toBe(true);
     const heartbeat = JSON.parse(fs.readFileSync(heartbeatPath, 'utf8')) as {
       intervalMs: number; samples: number; maxGapMs: number | null;
@@ -53,6 +88,15 @@ test('large OBJ metadata uses the utility worker and the app quits cleanly after
     expect(heartbeat.samples).toBeGreaterThan(0);
     expect(heartbeat.maxGapMs).not.toBeNull();
     expect(heartbeat.maxGapMs!).toBeLessThanOrEqual(250);
+    const sortedQueries = [...concurrentQuerySamples].sort((a, b) => a - b);
+    console.info('[G02 metadata query metrics]', JSON.stringify({
+      concurrentSamples: concurrentQuerySamples.length,
+      queryMedianMs: sortedQueries[Math.floor(sortedQueries.length / 2)],
+      queryP95Ms: sortedQueries[Math.ceil(sortedQueries.length * 0.95) - 1],
+      mainHeartbeatIntervalMs: heartbeat.intervalMs,
+      mainHeartbeatSamples: heartbeat.samples,
+      mainHeartbeatMaxGapMs: heartbeat.maxGapMs,
+    }));
   } finally {
     // Closing the isolated Electron app exercises metadata-worker shutdown on quit.
     await isolated.close();
