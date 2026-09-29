@@ -133,10 +133,30 @@ async function ensureFixtureFilesLoaded() {
 
 async function resetUiState() {
   const scanProgress = window.locator("#scan-progress");
-  const progressClasses = (await scanProgress.getAttribute("class")) || "";
-  if (!progressClasses.includes("hidden")) {
-    await expect(scanProgress).toHaveClass(/hidden/, { timeout: 30000 });
+  const dismissedJobIds = new Set<string>();
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    await expect.poll(() => window.evaluate(async () => {
+      const jobs = await window.polytray.getBackgroundJobs();
+      return jobs.every((job) => !["queued", "running", "pausing", "paused", "cancelling"].includes(job.state));
+    }), { timeout: 30000 }).toBe(true);
+    const terminalJobIds = await window.evaluate(async () => (await window.polytray.getBackgroundJobs())
+      .filter((job) => !["queued", "running", "pausing", "paused", "cancelling"].includes(job.state))
+      .map((job) => job.jobId));
+    const pendingDismissal = terminalJobIds.filter((jobId) => !dismissedJobIds.has(jobId));
+    if (pendingDismissal.length === 0) break;
+    for (const jobId of pendingDismissal) {
+      dismissedJobIds.add(jobId);
+      const panel = window.locator(".background-work-details");
+      if (await panel.count()) await panel.evaluate((element) => { (element as HTMLDetailsElement).open = true; });
+      const card = window.locator(`.background-job[data-job-id="${jobId}"]`);
+      const dismiss = card.getByRole("button", { name: "Dismiss" });
+      if (await dismiss.count()) {
+        await dismiss.evaluate((button) => (button as HTMLButtonElement).click());
+        await expect(card).toHaveCount(0);
+      }
+    }
   }
+  await expect(scanProgress).toHaveClass(/hidden/, { timeout: 30000 });
 
   const overlay = window.locator("#settings-overlay");
   const overlayClasses = (await overlay.getAttribute("class")) || "";
@@ -160,13 +180,9 @@ async function resetUiState() {
   }
 
   const searchInput = window.locator("#search-input");
-  await searchInput.fill("");
-  await window.waitForTimeout(300);
+  if (await searchInput.inputValue()) await window.locator("#search-clear").click();
   await expect(searchInput).toHaveValue("");
-  await window.waitForFunction(() => {
-    const context = document.querySelector("#toolbar-context");
-    return context ? !context.textContent?.includes('Search: "') : true;
-  });
+  await expect(window.locator("#toolbar-context")).not.toContainText('Search: "');
 
   const allBtn = window.locator('.filter-btn[data-ext=""]');
   const allBtnClasses = (await allBtn.getAttribute("class")) || "";
@@ -1176,23 +1192,18 @@ test("rescan specific folder triggers scan UI", async () => {
 
   // Trigger the rescan for the exact selected folder so later tests don't inherit a stale scope.
   await window.evaluate(
-    ({ targetFolderPath }) => {
-      window.polytray.scanFolder(targetFolderPath, {
+    ({ targetFolderPath }) => window.polytray.scanFolder(targetFolderPath, {
         thumbnail_timeout: 20000,
         scanning_batch_size: 50,
         watcher_stability: 1000,
         page_size: 500,
         thumbnailColor: "#8888aa",
-      });
-    },
+      }),
     { targetFolderPath: folderPath },
   );
 
-  const progressContainer = window.locator("#scan-progress");
-
-  // Windows runners can complete small rescans quickly enough that the progress UI never becomes visibly non-hidden.
-  // The important regression check is that the rescan completes cleanly and preserves indexed files for that folder.
-  await expect(progressContainer).toHaveClass(/hidden/, { timeout: 30000 });
+  // Clear the completed job summary so subsequent tests start from a clean progress panel.
+  await resetUiState();
   await window.waitForFunction(
     async ({ targetFolderPath }) => {
       const result = await window.polytray.getFiles({
