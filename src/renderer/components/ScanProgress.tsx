@@ -27,6 +27,30 @@ function hasFailures(job: BackgroundJob) {
     && job.errors.some((error) => error.retryable);
 }
 
+export type DiscoveryProgressPresentation =
+  | { mode: "indeterminate"; ariaValueText: string; summary: string }
+  | { mode: "terminal"; showProgressBar: false; summary: string };
+
+export function getDiscoveryProgressPresentation(job: BackgroundJob): DiscoveryProgressPresentation {
+  if (ACTIVE_STATES.has(job.state)) {
+    const activity = job.state === "queued" ? "Discovery queued"
+      : job.state === "paused" ? "Discovery paused"
+        : job.state === "pausing" ? "Discovery pausing"
+          : job.state === "cancelling" ? "Discovery cancelling"
+            : "Discovery in progress";
+    return {
+      mode: "indeterminate",
+      ariaValueText: `${job.counts.discovered} files discovered; total is still unknown`,
+      summary: `${activity} · ${job.counts.discovered} found`,
+    };
+  }
+  const label = job.state === "completed" ? "Discovery complete"
+    : job.state === "partial" ? "Discovery partially complete"
+      : job.state === "failed" ? "Discovery failed"
+        : "Discovery cancelled";
+  return { mode: "terminal", showProgressBar: false, summary: `${label} · ${job.counts.discovered} found` };
+}
+
 function JobCard({ job, pending, commandError, onPause, onResume, onCancel, onRetry, onDismiss }: {
   job: BackgroundJob;
   pending: boolean;
@@ -40,6 +64,7 @@ function JobCard({ job, pending, commandError, onPause, onResume, onCancel, onRe
   const isActive = ACTIVE_STATES.has(job.state);
   const label = job.kind === "scan" ? "Library scan" : "Thumbnail generation";
   const titlePath = job.scopePath || job.rootPath || "Library";
+  const discoveryProgress = job.kind === "scan" ? getDiscoveryProgressPresentation(job) : null;
   return (
     <article className="background-job" data-job-id={job.jobId} data-job-state={job.state} aria-label={`${label}: ${stateLabel(job.state)}`}>
       <div className="background-job-heading">
@@ -47,12 +72,12 @@ function JobCard({ job, pending, commandError, onPause, onResume, onCancel, onRe
         <span className="background-job-path" title={titlePath}>{titlePath}</span>
       </div>
       {job.kind === "scan" && <>
-        <div className="background-job-progress" role="progressbar" aria-label="Discovery progress" aria-valuetext={`${job.counts.discovered} files discovered; total is still unknown`}><span /></div>
-        <p>Discovery {job.state === "completed" || job.state === "partial" || job.state === "failed" || job.state === "cancelled" ? "finished" : "in progress"} · {job.counts.discovered} found</p>
+        {discoveryProgress?.mode === "indeterminate" && <div className="background-job-progress indeterminate" role="progressbar" aria-label="Discovery progress" aria-valuetext={discoveryProgress.ariaValueText}><span /></div>}
+        <p>{discoveryProgress?.summary}</p>
         <p>{job.counts.indexed} indexed · {job.counts.indexFailed} index failures</p>
         <p>{job.counts.metadataCompleted} metadata read · {job.counts.metadataFailed} metadata failures</p>
       </>}
-      <p>{job.counts.thumbnailsSucceeded} thumbnails generated · {job.counts.thumbnailsFailed} failed · {job.counts.thumbnailsPending} pending</p>
+      {job.kind === "thumbnail" && <p>{job.counts.thumbnailsSucceeded} thumbnails generated · {job.counts.thumbnailsFailed} failed · {job.counts.thumbnailsPending} pending</p>}
       {commandError && <p className="background-job-error" role="alert">{commandError}</p>}
       {job.errors.length > 0 && <details className="background-job-errors">
         <summary>{job.errors.length} {job.errors.length === 1 ? "issue" : "issues"} · {job.errors.some((error) => error.retryable) ? "some can be retried" : "no retry available"}</summary>

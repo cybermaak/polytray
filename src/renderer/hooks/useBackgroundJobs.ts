@@ -19,13 +19,18 @@ export function createBackgroundJobsState(): BackgroundJobsState {
   return { jobs: [], pending: [], commandErrors: {}, dismissed: [] };
 }
 
+const ACTIVE_STATES = new Set<BackgroundJob["state"]>(["queued", "running", "pausing", "paused", "cancelling"]);
+
 function mergeJobs(current: BackgroundJob[], incoming: BackgroundJob[], replaceEqual = true) {
   const byId = new Map(current.map((job) => [job.jobId, job]));
   for (const job of incoming) {
     const previous = byId.get(job.jobId);
     if (!previous || job.updatedAt > previous.updatedAt || (replaceEqual && job.updatedAt === previous.updatedAt)) byId.set(job.jobId, job);
   }
-  return [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 20);
+  const sorted = [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+  const active = sorted.filter((job) => ACTIVE_STATES.has(job.state));
+  const terminalHistory = sorted.filter((job) => !ACTIVE_STATES.has(job.state)).slice(0, 20);
+  return [...active, ...terminalHistory].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export function backgroundJobsReducer(state: BackgroundJobsState, action: BackgroundJobsAction): BackgroundJobsState {

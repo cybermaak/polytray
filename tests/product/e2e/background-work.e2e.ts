@@ -62,13 +62,19 @@ test('background job controls retain browse state and watch follows only watch s
     await page.locator('#search-input').waitFor();
     await expect(page.locator('#empty-state')).toBeVisible({ timeout: 15_000 });
     await page.evaluate((folder) => {
-      const state = window as Window & { __rootAvailability?: string[] };
+      const state = window as Window & { __rootAvailability?: string[]; __rootUnavailableCount?: number; __scanCompleteCount?: number };
       state.__rootAvailability = [];
+      state.__rootUnavailableCount = 0;
+      state.__scanCompleteCount = 0;
       window.polytray.onFilesUpdated((notice) => {
         if (notice.type === 'root-available' && notice.filePath === folder) {
           state.__rootAvailability?.push(notice.filePath);
         }
+        if (notice.type === 'root-unavailable' && notice.filePath === folder) {
+          state.__rootUnavailableCount = (state.__rootUnavailableCount ?? 0) + 1;
+        }
       });
+      window.polytray.onScanComplete(() => { state.__scanCompleteCount = (state.__scanCompleteCount ?? 0) + 1; });
     }, root);
 
     await page.evaluate(({ folder, runtime }) => {
@@ -83,6 +89,7 @@ test('background job controls retain browse state and watch follows only watch s
     expect(jobId).toBeTruthy();
     const jobCard = page.locator(`[data-job-id="${jobId}"]`);
     await expect(jobCard).toContainText('Discovery in progress');
+    await expect(jobCard).not.toContainText('thumbnails generated');
     await expect(page.locator('.file-card[aria-label="first-batch.stl"]')).toBeVisible();
     const browseScroller = page.locator('[data-virtuoso-scroller]');
     await browseScroller.evaluate((element) => { element.scrollTop = 500; });
@@ -205,6 +212,38 @@ test('background job controls retain browse state and watch follows only watch s
     await page.locator('#setting-watcher-stability').fill('160');
     await expect.poll(() => fs.existsSync(watcherReachedPath)).toBe(true);
     await expect.poll(() => page!.evaluate(() => (window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0)).toBe(2);
+
+    // Offline roots keep indexed rows actionable; reconnect starts a scoped scan that prunes only confirmed absence.
+    await page.locator('#settings-close').click();
+    const offlineModel = path.join(root, 'offline-target.stl');
+    fs.copyFileSync(modelFixture, offlineModel);
+    await expect.poll(() => page!.evaluate(async (filePath) => (await window.polytray.getFiles({ limit: 500, offset: 0 })).files.some((file) => file.path === filePath), offlineModel), { timeout: 15_000 }).toBe(true);
+    await page.locator('#search-input').fill('offline-target');
+    const offlineCard = page.locator('.file-card[aria-label^="offline-target.stl"]');
+    await expect(offlineCard).toBeVisible();
+    await offlineCard.locator('.file-select-toggle').click();
+    await expect(page.locator('#batch-actions')).toBeVisible();
+    const scanCompleteBeforeOffline = await page.evaluate(() => (window as Window & { __scanCompleteCount?: number }).__scanCompleteCount ?? 0);
+    const unavailableBefore = await page.evaluate(() => (window as Window & { __rootUnavailableCount?: number }).__rootUnavailableCount ?? 0);
+    const offlineRoot = `${root}-offline`;
+    fs.renameSync(root, offlineRoot);
+    await expect.poll(() => page!.evaluate((before) => ((window as Window & { __rootUnavailableCount?: number }).__rootUnavailableCount ?? 0) > before, unavailableBefore), { timeout: 15_000 }).toBe(true);
+    await expect(offlineCard).toBeVisible();
+    await expect(offlineCard.locator('.file-select-toggle')).toBeVisible();
+    fs.rmSync(path.join(offlineRoot, 'offline-target.stl'));
+    fs.rmSync(releasePath, { force: true });
+    fs.rmSync(reachedPath, { force: true });
+    fs.renameSync(offlineRoot, root);
+    await expect.poll(() => page!.evaluate(() => (window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0)).toBe(3);
+    await expect.poll(() => fs.existsSync(reachedPath), { timeout: 15_000 }).toBe(true);
+    fs.writeFileSync(releasePath, 'release reconnect scan');
+    await expect.poll(() => page!.evaluate((before) => ((window as Window & { __scanCompleteCount?: number }).__scanCompleteCount ?? 0) > before, scanCompleteBeforeOffline), { timeout: 20_000 }).toBe(true);
+    await expect(offlineCard).toHaveCount(0);
+    await expect.poll(() => page!.evaluate(async (filePath) => !(await window.polytray.getFiles({ limit: 500, offset: 0 })).files.some((file) => file.path === filePath), offlineModel)).toBe(true);
+    await page.locator('#search-input').fill('');
+    await expect(page.locator('.file-card[aria-label="first-batch.stl"]')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Settings' }).click();
     await page.locator('label.toggle-switch:has(#setting-watch)').click();
     await expect(page.locator('#setting-watch')).not.toBeChecked();
   } finally {
