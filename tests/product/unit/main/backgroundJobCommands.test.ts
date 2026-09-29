@@ -62,7 +62,8 @@ test('routes valid thumbnail commands and returns the resulting state', async ()
 });
 
 test('generic thumbnail commands reject unknown, invalid-state, and nonretryable jobs without invoking controls', async () => {
-  const current = job('thumbnail', 'completed');
+  const current = job('thumbnail', 'failed');
+  current.errors = [{ path: '/library/a.stl', phase: 'thumbnail', code: 'NOT_RETRYABLE', message: 'not retained', retryable: false }];
   let calls = 0;
   const router = createBackgroundJobCommandRouter({
     getJobs: async () => [current],
@@ -80,7 +81,7 @@ test('generic thumbnail commands reject unknown, invalid-state, and nonretryable
 
   assert.deepEqual(await router.cancel('missing'), { ok: false, reason: 'not-found' });
   assert.deepEqual(await router.pause('thumbnail-1'), { ok: false, reason: 'invalid-state' });
-  assert.deepEqual(await router.retryFailures('thumbnail-1'), { ok: false, reason: 'invalid-state' });
+  assert.deepEqual(await router.retryFailures('thumbnail-1'), { ok: false, reason: 'no-retryable-failures' });
   assert.equal(calls, 0);
 });
 

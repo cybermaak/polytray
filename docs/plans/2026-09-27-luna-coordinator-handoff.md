@@ -26,6 +26,10 @@ Follow the [sequential coordinator/worker policy](2026-09-27-sequential-executio
 
 Skip tasks already DONE in the tracker. The sequential dependency order is: S04, S05, S06, U04, V04, V05, P04, U05, U06, G01, G02, G03 preparation, and final Astra review. Preserve all existing WIP; do not restart finished work. The new policy contains the limited build/test execution instructions and the explicitly deferred reliability/code changes.
 
+### Current coordinator checkpoint (2026-09-29)
+
+The Luna coordinator owns and has integrated S06 candidate `e0cb46a` locally: generic scan/thumbnail command IPC, typed preload/renderer methods, retry count aggregation, and a bounded responsive-layout scroll harness correction. Service candidate `ea22f4e` passed serial spec/quality reviews. The first integrated Product run exposed a parent retry counter omission; after the fix, full Product passed: 448 units/1 Windows-only skip, 55 E2Es/1 optional skip. Both scan-controls E2Es passed. An unrelated 900x600 responsive test failed once because one wheel event did not move the opener fully offscreen; bounded event-driven wheel steps retain the offscreen assertion, and both focused and full Product runs pass. Build and focused bridge-routing tests pass. Fixture ZIP restored to required SHA256 `6ca9f75c11d9330221860ade9fdb641cac6728a9f0a4cc1883989506a39fc109`. Current next step: independent integration spec/quality review of `e0cb46a`, record S06 acceptance, then continue U05 -> U06 -> G01 -> G02 -> G03 preparation and final Astra packet. No push/release/publication or real user data. Preserve unrelated primary-checkout edits.
+
 ## Task reference and acceptance map
 
 The tracker is authoritative for current completion status; this reference includes previously completed producers. Use the linked full specification for owned files, individual steps, and tests. The checks below highlight the remaining integration risks rather than replace those specifications.
