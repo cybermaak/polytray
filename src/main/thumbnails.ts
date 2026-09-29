@@ -41,6 +41,51 @@ const cacheEpochs = createThumbnailCacheEpochStore();
 const thumbnailInvalidationQueue = createThumbnailInvalidationQueue();
 const thumbnailReadQuarantine = createThumbnailCacheReadQuarantine();
 let thumbnailCacheReady: Promise<void> = Promise.resolve();
+let isolatedThumbnailGenerationGateUsed = false;
+
+async function waitForIsolatedThumbnailGenerationGate(filePath: string): Promise<boolean> {
+  if (process.env.POLYTRAY_ISOLATED_TEST !== "1" || isolatedThumbnailGenerationGateUsed) return false;
+  const scratchEnv = process.env.POLYTRAY_PERF_SCRATCH;
+  const targetEnv = process.env.POLYTRAY_THUMBNAIL_TEST_TARGET_PATH;
+  if (!scratchEnv || !path.isAbsolute(scratchEnv) || !targetEnv || !path.isAbsolute(targetEnv)) return false;
+
+  let scratchRoot: string;
+  try {
+    scratchRoot = fsSync.realpathSync(scratchEnv);
+    if (!fsSync.statSync(scratchRoot).isDirectory()) return false;
+  } catch { return false; }
+
+  let targetPath: string;
+  let canonicalJobPath: string;
+  try {
+    targetPath = fsSync.realpathSync(path.resolve(targetEnv));
+    canonicalJobPath = fsSync.realpathSync(path.resolve(filePath));
+  } catch { return false; }
+  if (targetPath !== canonicalJobPath || !isPathContained(scratchRoot, targetPath)) return false;
+
+  const holdPath = path.join(scratchRoot, "thumbnail-generation-hold");
+  const reachedPath = path.join(scratchRoot, "thumbnail-generation-reached");
+  const releasePath = path.join(scratchRoot, "thumbnail-generation-release");
+  const isScratchRegularFile = (candidate: string) => {
+    if (!isPathContained(scratchRoot, candidate)) return false;
+    try {
+      const entry = fsSync.lstatSync(candidate);
+      return entry.isFile() && !entry.isSymbolicLink() && isPathContained(scratchRoot, fsSync.realpathSync(candidate));
+    } catch { return false; }
+  };
+  if (!isScratchRegularFile(holdPath)) return false;
+
+  isolatedThumbnailGenerationGateUsed = true;
+  try { fsSync.writeFileSync(reachedPath, "thumbnail generation reached isolated test gate", { flag: "wx" }); }
+  catch { isolatedThumbnailGenerationGateUsed = false; return false; }
+
+  const deadline = Date.now() + 30_000;
+  while (!isScratchRegularFile(releasePath)) {
+    if (Date.now() >= deadline) throw new Error("Isolated thumbnail generation gate timed out");
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  return true;
+}
 
 function decodeThumbnailPng(data: Buffer) {
   try {
@@ -68,6 +113,7 @@ const thumbnailScheduler = createThumbnailJobScheduler({
         Number(job.settings.thumbQuality ?? 256) as 128 | 256 | 512,
       ).key;
       if (job.dedupeKey && job.dedupeKey !== thumbnailRequestKey(identityKey, scheduledEpoch!)) throw new ThumbnailJobCancelledError();
+      if (process.env.POLYTRAY_ISOLATED_TEST === "1") await waitForIsolatedThumbnailGenerationGate(job.filePath);
       const thumbnailPath = await generateThumbnail(job.filePath, job.ext, job.settings, scheduledEpoch ?? undefined, job.controller.signal);
       const current = createFileIndexRepository(getDb()).getFileIdentityByPath(job.filePath);
       if (job.controller.signal.aborted || !thumbnailPath && (!current || current.id !== identity.id || current.contentRevision !== identity.contentRevision || getThumbnailCacheEpoch(identity.path) !== (scheduledEpoch ?? getThumbnailCacheEpoch(identity.path)))) {
