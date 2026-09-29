@@ -99,6 +99,26 @@ export function createWatcherRootStatusPoller(
   return { start, stop, isRunning: () => timer !== null };
 }
 
+export function createWatcherRootAvailabilityTracker() {
+  const availability = new Map<string, boolean>();
+  return {
+    retainConfiguredRoots(roots: string[]) {
+      const configured = new Set(roots);
+      for (const root of availability.keys()) {
+        if (!configured.has(root)) availability.delete(root);
+      }
+    },
+    observe(rootPath: string, available: boolean) {
+      const previous = availability.get(rootPath);
+      availability.set(rootPath, available);
+      return {
+        changed: previous !== available,
+        recovered: previous === false && available,
+      };
+    },
+  };
+}
+
 interface WatcherLifecycleOptions<TProcess extends WatcherProcessLike> {
   createProcess: () => TProcess;
   stopTimeoutMs?: number;

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createWatcherNotificationBatcher,
+  createWatcherRootAvailabilityTracker,
   createWatcherRootStatusPoller,
   createWatcherUpdateCoordinator,
   type WatcherRootPollTimer,
@@ -240,6 +241,22 @@ test('root status polling owns one unref timer, avoids overlapping checks, and c
   assert.equal(clears, 2);
   assert.equal(callbacks.size, 0);
   assert.ok(timer);
+});
+
+test('an offline root recovery survives watcher stop and reconfigure before the next root check', () => {
+  const roots = createWatcherRootAvailabilityTracker();
+  roots.retainConfiguredRoots(['/library']);
+  assert.deepEqual(roots.observe('/library', false), { changed: true, recovered: false });
+
+  // stopWatcher leaves configured-root availability intact; starting again for
+  // the same root must remember the observed outage until the new worker checks it.
+  roots.retainConfiguredRoots(['/library']);
+  assert.deepEqual(roots.observe('/library', true), { changed: true, recovered: true });
+
+  // Removing the root from configuration forgets its prior status.
+  roots.retainConfiguredRoots([]);
+  roots.retainConfiguredRoots(['/library']);
+  assert.deepEqual(roots.observe('/library', true), { changed: true, recovered: false });
 });
 
 test('settled paths are released and burst notifications collapse to the latest event', async () => {

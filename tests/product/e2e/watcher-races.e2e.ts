@@ -166,7 +166,14 @@ test('utility watcher indexes before enrichment, fences scan churn, and recovers
     fs.unlinkSync(path.join(offlineRoot, 'a-before', 'seed.stl'));
     expect(await readRow(page, beforeScan, seedPath)).toBeTruthy();
 
+    const noticeCountBeforeOfflineRestart = await page.evaluate(() => (window as Window & { __watchNotices?: WatchNotice[] }).__watchNotices?.length ?? 0);
+    await page.evaluate(() => window.polytray.stopWatching());
+    await page.evaluate(({ folder, runtime }) => window.polytray.startWatching([folder], runtime), { folder: root, runtime: settings });
     fs.renameSync(offlineRoot, root);
+    await expect.poll(() => page.evaluate(({ folder, after }) =>
+      (window as Window & { __watchNotices?: WatchNotice[] }).__watchNotices?.slice(after).some(
+        (notice) => notice.type === 'root-available' && notice.filePath === folder,
+      ) ?? false, { folder: root, after: noticeCountBeforeOfflineRestart }), { timeout: 15_000 }).toBe(true);
     await expect.poll(() => page.evaluate((rootPath) =>
       (window as Window & { __folderActions?: Array<{ action: string; path: string }> }).__folderActions?.some(
         (entry) => entry.action === 'rescan' && entry.path === rootPath,

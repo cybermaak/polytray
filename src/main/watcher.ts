@@ -13,6 +13,7 @@ import { isPathContained } from './pathContainment';
 import { createThumbnailIdentity } from './thumbnailIdentity';
 import {
   createWatcherNotificationBatcher,
+  createWatcherRootAvailabilityTracker,
   createWatcherUpdateCoordinator,
   type WatcherFileEvent,
 } from './watcherLifecycle';
@@ -35,7 +36,7 @@ interface WatchedStat { size: number; modifiedAt: number; }
 
 let watcherContext: ActiveWatcherContext | null = null;
 let watcherRun = 0;
-const rootAvailability = new Map<string, boolean>();
+const rootAvailability = createWatcherRootAvailabilityTracker();
 const watcherNotifications = createWatcherNotificationBatcher((events: Array<{ type: string; filePath: string }>) => {
   const window = watcherContext?.mainWindow;
   if (!window || window.isDestroyed() || events.length === 0) return;
@@ -161,6 +162,7 @@ export async function startWatcher(
   settings: RuntimeSettingsData,
 ) {
   if (folderPaths.length === 0) {
+    rootAvailability.retainConfiguredRoots([]);
     await stopWatcher();
     return;
   }
@@ -170,7 +172,7 @@ export async function startWatcher(
   const run = ++watcherRun;
   const roots = [...new Set(folderPaths.map((folderPath) => path.resolve(folderPath)))];
   watcherContext = { mainWindow, db, settings, roots };
-  rootAvailability.clear();
+  rootAvailability.retainConfiguredRoots(roots);
 
   await watcherLifecycle.restart(
     {
@@ -214,7 +216,6 @@ export async function stopWatcher(): Promise<void> {
   await watcherLifecycle.stop();
   watcherNotifications.flush();
   watcherContext = null;
-  rootAvailability.clear();
 }
 
 async function handleFileChange(
@@ -243,14 +244,13 @@ async function handleFileRemove(filePath: string) {
 function handleRootStatus(folderPath: string, available: boolean, mainWindow: BrowserWindow) {
   const root = path.resolve(folderPath);
   if (!watcherContext?.roots.includes(root)) return;
-  const previous = rootAvailability.get(root);
-  rootAvailability.set(root, available);
+  const { recovered } = rootAvailability.observe(root, available);
   if (mainWindow.isDestroyed()) return;
   mainWindow.webContents.send(IPC.FILES_UPDATED, {
     type: available ? 'root-available' : 'root-unavailable',
     filePath: root,
   });
-  if (available && previous === false) {
+  if (recovered) {
     // Let the established scan service prove which rows disappeared while this root was offline.
     mainWindow.webContents.send('trigger-rescan-folder', root);
   }
