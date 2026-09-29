@@ -24,6 +24,12 @@ interface IpcDependencies {
   dialog: DialogAdapter;
 }
 
+export interface SlicerHandlerTestAdapters {
+  dialog?: DialogAdapter;
+  launch?: (configuration: SlicerConfiguration, modelPath: string, guard?: () => 'cancelled' | 'stale' | null) => Promise<void>;
+  validateApplication?: (configuration: SlicerConfiguration) => Promise<boolean>;
+}
+
 interface SenderRequestRegistry {
   senderId: number;
   sender: WebContents;
@@ -100,7 +106,7 @@ export function createSlicerIpcHandlers(deps: IpcDependencies) {
   };
 }
 
-export function registerSlicerHandlers(getMainWindow: MainWindowGetter) {
+export function registerSlicerHandlers(getMainWindow: MainWindowGetter, testAdapters: SlicerHandlerTestAdapters = {}) {
   const platform = process.platform as SlicerPlatform;
   const handoff = createSlicerHandoff({
     userDataPath: app.getPath('userData'),
@@ -110,8 +116,8 @@ export function registerSlicerHandlers(getMainWindow: MainWindowGetter) {
         id: number; contentRevision: number; path: string; extension: string;
       } | undefined ?? null;
     },
-    launch: createPlatformLauncher(platform),
-    validateApplication: async configuration => {
+    launch: testAdapters.launch ?? createPlatformLauncher(platform),
+    validateApplication: testAdapters.validateApplication ?? (async configuration => {
       if (configuration.useSystemDefault || !configuration.applicationPath) return true;
       const fsPromises = await import('node:fs/promises');
       const stat = await fsPromises.lstat(configuration.applicationPath).catch(() => null);
@@ -121,11 +127,11 @@ export function registerSlicerHandlers(getMainWindow: MainWindowGetter) {
         return fsPromises.access(configuration.applicationPath, fs.constants.X_OK).then(() => true).catch(() => false);
       }
       return platform === 'darwin' ? stat.isDirectory() : stat.isFile();
-    },
+    }),
   });
   const handlers = createSlicerIpcHandlers({
     platform, getMainWindow, handoff,
-    dialog: { showOpenDialog: (window, options) => dialog.showOpenDialog(window, options) },
+    dialog: testAdapters.dialog ?? { showOpenDialog: (window, options) => dialog.showOpenDialog(window, options) },
   });
   ipcMain.handle(IPC.OPEN_IN_SLICER, handlers.open);
   ipcMain.handle(IPC.CANCEL_SLICER_HANDOFF, handlers.cancel);

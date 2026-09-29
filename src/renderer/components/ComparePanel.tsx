@@ -1,6 +1,6 @@
-import React, { useMemo } from "react";
-import { formatDimensions, formatNumber, formatSize } from "../lib/formatters";
-import type { FileRecord, ModelDimensions } from "../../shared/types";
+import React from "react";
+import { formatMeasurement, formatNumber, formatSize } from "../lib/formatters";
+import type { FileRecord } from "../../shared/types";
 import { parseStoredFileTags } from "../../shared/fileTags";
 import { ThumbnailImage } from "./ThumbnailImage";
 
@@ -23,18 +23,8 @@ const CompareThumbnail: React.FC<{ file: FileRecord }> = ({ file }) => (
   </div>
 );
 
-function parseDimensions(dimensions: string | null | undefined): ModelDimensions | null {
-  if (!dimensions) return null;
-  try {
-    return JSON.parse(dimensions) as ModelDimensions;
-  } catch {
-    return null;
-  }
-}
-
 export const ComparePanel: React.FC<Props> = ({ files, onClose, onOpenPreview }) => {
   const visible = files.length === 2;
-  const dimensions = useMemo(() => files.map((file) => parseDimensions(file.dimensions)), [files]);
 
   return (
     <aside id="compare-panel" className={`compare-panel${visible ? "" : " hidden"}`}>
@@ -51,7 +41,6 @@ export const ComparePanel: React.FC<Props> = ({ files, onClose, onOpenPreview })
       </div>
       <div className="compare-grid">
         {files.map((file, index) => {
-          const parsedDimensions = dimensions[index];
           const tags = parseStoredFileTags(file.tags);
           return (
             <section key={file.id} className="compare-card" id={`compare-card-${index + 1}`}>
@@ -75,7 +64,7 @@ export const ComparePanel: React.FC<Props> = ({ files, onClose, onOpenPreview })
                 </div>
                 <dl className="compare-metrics">
                   <div>
-                    <dt>Size</dt>
+                    <dt>File size</dt>
                     <dd>{formatSize(file.size_bytes)}</dd>
                   </div>
                   <div>
@@ -88,7 +77,7 @@ export const ComparePanel: React.FC<Props> = ({ files, onClose, onOpenPreview })
                   </div>
                   <div>
                     <dt>Dimensions</dt>
-                    <dd>{parsedDimensions ? formatDimensions(parsedDimensions) : "Unknown"}</dd>
+                    <dd>{formatMeasurement(file.dimensions)}</dd>
                   </div>
                 </dl>
                 <div className="compare-tags">

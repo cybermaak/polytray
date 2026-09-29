@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo, useReducer } from "react";
-import { formatDimensions, formatSize, formatNumber } from "../lib/formatters";
-import type { FileRecord, ModelDimensions } from "../../shared/types";
+import { formatMeasurement, formatSize, formatNumber } from "../lib/formatters";
+import type { FileRecord, SlicerConfiguration } from "../../shared/types";
 import type { LibraryArchiveItem, LibraryQueryClient } from "../../shared/libraryQuery";
 import type { PreviewTarget } from "../../shared/previewTarget";
 import { normalizeFileTags, parseStoredFileTags } from "../../shared/fileTags";
@@ -36,6 +36,7 @@ interface Props {
   showGrid: boolean;
   thumbnailColor: string;
   thumbQuality: ThumbnailQuality;
+  slicerConfiguration: SlicerConfiguration | null;
   collections: CollectionRecord[];
   onFileChange?: (file: FileRecord) => void;
   onCreateCollection: (name: string, filePaths: string[]) => void;
@@ -138,6 +139,7 @@ export const PreviewPanel: React.FC<Props> = ({
   showGrid,
   thumbnailColor,
   thumbQuality,
+  slicerConfiguration,
   collections,
   onFileChange,
   onCreateCollection,
@@ -174,6 +176,8 @@ export const PreviewPanel: React.FC<Props> = ({
   const [savedTags, setSavedTags] = useState<string[]>([]);
   const [newCollectionName, setNewCollectionName] = useState("");
   const [selectedCollectionId, setSelectedCollectionId] = useState("");
+  const [slicerHandoff, setSlicerHandoff] = useState<{ requestId: string; status: "preparing" | "opened" | "cancelled" | "failed"; message?: string } | null>(null);
+  const slicerRequestRef = useRef<string | null>(null);
   const activeTarget = target !== undefined ? target : targetFromLegacyProps(file, item);
   const archiveTarget = activeTarget?.kind === 'archive' ? activeTarget : null;
   const archiveKey = archiveTarget ? archivePreviewIdentity(archiveTarget) : '';
@@ -193,6 +197,8 @@ export const PreviewPanel: React.FC<Props> = ({
     return currentTarget ? createArchivePreviewPages(currentTarget, stablePageClient) : null;
   }, [archiveKey, stablePageClient]);
   const [archiveView, setArchiveView] = useState<ArchivePreviewView>(EMPTY_ARCHIVE_VIEW);
+  const [archiveMemberChosen, setArchiveMemberChosen] = useState(false);
+  useEffect(() => { setArchiveMemberChosen(false); }, [archiveKey]);
   const archiveViewRef = useRef(archiveView);
   archiveViewRef.current = archiveView;
   const currentArchiveView = archiveKey && archiveView.key === archiveKey ? archiveView : null;
@@ -292,6 +298,7 @@ export const PreviewPanel: React.FC<Props> = ({
   }, [archiveKey, archivePages]);
 
   const handleArchiveStep = useCallback((direction: -1 | 1) => {
+    setArchiveMemberChosen(true);
     const view = archiveView.key === archiveKey ? archiveView : null;
     const page = view?.page;
     if (!page || view?.loading) return;
@@ -565,14 +572,33 @@ export const PreviewPanel: React.FC<Props> = ({
     .filter(Boolean)
     .join(" ");
 
-  const parsedDimensions = React.useMemo<ModelDimensions | null>(() => {
-    if (!currentFile?.dimensions) return null;
+  const openCurrentInSlicer = useCallback(async () => {
+    if (!currentFile || slicerRequestRef.current) return;
+    const requestId = crypto.randomUUID();
+    slicerRequestRef.current = requestId;
+    setSlicerHandoff({ requestId, status: "preparing" });
     try {
-      return JSON.parse(currentFile.dimensions) as ModelDimensions;
-    } catch {
-      return null;
+      const result = await window.polytray.openInSlicer({
+        requestId, fileId: currentFile.id, path: currentFile.path,
+        extension: currentFile.extension, contentRevision: currentFile.content_revision,
+        configuration: slicerConfiguration,
+      });
+      if (slicerRequestRef.current !== requestId) return;
+      if (result.status === "launched") setSlicerHandoff({ requestId, status: "opened", message: "Model opened in the selected application." });
+      else if (result.status === "cancelled") setSlicerHandoff({ requestId, status: "cancelled", message: "Slicer handoff cancelled." });
+      else setSlicerHandoff({ requestId, status: "failed", message: result.message });
+    } catch (error) {
+      if (slicerRequestRef.current === requestId) setSlicerHandoff({ requestId, status: "failed", message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      if (slicerRequestRef.current === requestId) slicerRequestRef.current = null;
     }
-  }, [currentFile?.dimensions]);
+  }, [currentFile, slicerConfiguration]);
+  const cancelSlicerHandoff = useCallback(async () => {
+    const requestId = slicerRequestRef.current;
+    if (!requestId) return;
+    const accepted = await window.polytray.cancelSlicerHandoff(requestId);
+    if (accepted) setSlicerHandoff({ requestId, status: "cancelled", message: "Slicer handoff cancelled." });
+  }, []);
 
   const handleRetryPreview = useCallback(() => {
     if (geometryIdentity) setRetryNonce((retry) => retry + 1);
@@ -672,7 +698,10 @@ export const PreviewPanel: React.FC<Props> = ({
             type="button"
             className={`multi-model-thumb${currentArchiveView?.selectedIndex === index ? " active" : ""}`}
             disabled={currentArchiveView?.loading}
-            onClick={() => setArchiveView({ ...currentArchiveView!, selectedIndex: index })}
+            onClick={() => {
+              setArchiveMemberChosen(true);
+              setArchiveView({ ...currentArchiveView!, selectedIndex: index });
+            }}
             title={`${entry.name}.${entry.extension}`}
           >
             {entry.thumbnail
@@ -821,10 +850,19 @@ export const PreviewPanel: React.FC<Props> = ({
             {archiveTarget
               ? `${archiveTotal ?? '…'} models${currentFile ? ` | Viewing: ${currentFile.name}.${currentFile.extension}` : ""}`
               : currentFile
-              ? `Volume: ${formatSize(currentFile.size_bytes)} | ${formatNumber(currentFile.face_count)} Faces | ${formatNumber(currentFile.vertex_count)} Vertices | ${formatDimensions(parsedDimensions)} | ${currentFile.extension.toUpperCase()}`
+              ? `File size: ${formatSize(currentFile.size_bytes)} | ${formatNumber(currentFile.face_count)} Faces | ${formatNumber(currentFile.vertex_count)} Vertices | Dimensions: ${formatMeasurement(currentFile.dimensions)} | ${currentFile.extension.toUpperCase()}`
               : ""}
           </div>
           <div className="viewer-tags">
+            {currentFile && (!archiveTarget || archiveMemberChosen) && <div className="viewer-tag-editor slicer-handoff-actions">
+              <button type="button" id="open-in-slicer" className="btn-copy-path" onClick={() => void openCurrentInSlicer()}
+                disabled={slicerHandoff?.status === "preparing"} aria-label={`Open ${currentFile.name}.${currentFile.extension} in slicer`}>
+                Open in slicer
+              </button>
+              {slicerHandoff?.status === "preparing" && <button type="button" id="cancel-slicer-handoff" onClick={() => void cancelSlicerHandoff()}>Cancel</button>}
+              {slicerHandoff?.message && <span role={slicerHandoff.status === "failed" ? "alert" : "status"} aria-live="polite">{slicerHandoff.message}</span>}
+            </div>}
+            {archiveTarget && !archiveMemberChosen && <p role="status">Choose an archive member before opening it in a slicer.</p>}
             <div className="viewer-tags-header">Tags</div>
             <div id="file-tags" className="tag-chip-list">
               {savedTags.length > 0 ? (

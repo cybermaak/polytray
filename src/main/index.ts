@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, net } from "electron";
-import { join } from "path";
+import { join, relative, resolve } from "path";
 import { randomUUID } from "node:crypto";
 import { getDb, initDatabase } from "./database";
 import { stopWatcher } from "./watcher";
@@ -115,6 +115,35 @@ if (fs.existsSync(portableDataDir)) {
 
 let mainWindow: BrowserWindow | null = null;
 let slicerHandlers: ReturnType<typeof registerSlicerHandlers> | null = null;
+
+function getIsolatedNativeTestAdapters() {
+  if (process.env.POLYTRAY_ISOLATED_TEST !== "1") return null;
+  const scratch = process.env.POLYTRAY_PERF_SCRATCH;
+  if (!scratch || !fs.existsSync(scratch) || !fs.statSync(scratch).isDirectory()) return null;
+  const scratchRoot = resolve(scratch);
+  const containedPath = (name: string) => {
+    const target = resolve(scratchRoot, name);
+    const rel = relative(scratchRoot, target);
+    if (!rel || rel.startsWith("..") || resolve(scratchRoot, rel) !== target) throw new Error("Isolated native test output escaped POLYTRAY_PERF_SCRATCH");
+    return target;
+  };
+  const selectedApplication = containedPath(process.platform === "darwin"
+    ? "mock-slicer-application.app"
+    : process.platform === "win32" ? "mock-slicer-application.exe" : "mock-slicer-application");
+  const launchLog = containedPath("mock-slicer-launches.jsonl");
+  return {
+    dialog: {
+      showSaveDialog: async () => ({ canceled: false, filePath: containedPath("metadata-backup.json") }),
+    },
+    slicer: {
+      dialog: { showOpenDialog: async () => ({ canceled: false, filePaths: [selectedApplication] }) },
+      validateApplication: async () => true,
+      launch: async (configuration: unknown, modelPath: string) => {
+        fs.appendFileSync(launchLog, `${JSON.stringify({ configuration, modelPath })}\n`);
+      },
+    },
+  };
+}
 let thumbnailWindow: BrowserWindow | null = null;
 let mainWindowVisibilityRevision = 0;
 function getWindowRendererPid(target: BrowserWindow | null): number {
@@ -356,7 +385,8 @@ function registerIpcHandlers() {
   });
   registerThumbnailHandlers(getMainWindow);
   registerSystemHandlers(getMainWindow, { runMutation: runMainMutation });
-  slicerHandlers = registerSlicerHandlers(getMainWindow);
+  const isolatedNativeTestAdapters = getIsolatedNativeTestAdapters();
+  slicerHandlers = registerSlicerHandlers(getMainWindow, isolatedNativeTestAdapters?.slicer);
   previewParseRegistration = registerPreviewParseHandler(ipcMain, getMainWindow, previewRuntime);
   initThumbnailService();
 }
@@ -475,7 +505,7 @@ app.whenReady().then(() => {
   registerMetadataBackupHandlers({
     ipcMain,
     db: getDb(),
-    dialog,
+    dialog: getIsolatedNativeTestAdapters()?.dialog ?? dialog,
     appVersion: app.getVersion(),
     getCurrentRendererRevision: () => rendererRestoreSnapshot.rendererRevision,
     getPendingAnnotations: (db) => createFileIndexRepository(db).getPendingAnnotations(),

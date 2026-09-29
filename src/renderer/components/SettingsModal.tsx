@@ -6,11 +6,16 @@ import {
   type AppSettings,
   type SettingsPreset,
 } from "../../shared/settings";
+import type { MetadataBackupSnapshot } from "../../shared/backupContracts";
+import { MetadataBackupPanel } from "./MetadataBackupPanel";
+import { SlicerSettings } from "./SlicerSettings";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   settings: AppSettings;
+  backupSnapshot: MetadataBackupSnapshot;
+  restoreBlocked?: boolean;
   onSettingsChange: (newSettings: Partial<AppSettings>) => void;
 }
 
@@ -18,6 +23,8 @@ export const SettingsModal: React.FC<Props> = ({
   open,
   onClose,
   settings,
+  backupSnapshot,
+  restoreBlocked = false,
   onSettingsChange,
 }) => {
   const [advancedExpanded, setAdvancedExpanded] = React.useState(false);
@@ -253,6 +260,12 @@ export const SettingsModal: React.FC<Props> = ({
               </select>
             </div>
           </div>
+
+          <SlicerSettings
+            configuration={settings.slicerConfiguration}
+            onChange={(slicerConfiguration) => onSettingsChange({ slicerConfiguration })}
+          />
+          <MetadataBackupPanel snapshot={backupSnapshot} disabled={restoreBlocked} />
 
           {/* Advanced */}
           <div className="settings-group">

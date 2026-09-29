@@ -1440,6 +1440,7 @@ export const App: React.FC = () => {
           item={comparisonActive ? null : previewFile}
           target={comparisonActive ? null : previewTarget}
           showGrid={settings.showGrid}
+          slicerConfiguration={settings.slicerConfiguration}
           thumbnailColor={settings.thumbnailColor}
           thumbQuality={settings.thumbQuality}
           onFileChange={handleFileRecordUpdate}
@@ -1467,6 +1468,8 @@ export const App: React.FC = () => {
       <SettingsModal
         open={settingsOpen}
         settings={settings}
+        backupSnapshot={buildRendererRestoreSnapshot()}
+        restoreBlocked={!!restoreRecoveryError}
         onSettingsChange={handleSettingsChange}
         onClose={() => setSettingsOpen(false)}
       />
