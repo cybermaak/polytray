@@ -268,15 +268,15 @@ export function initThumbnailService() {
       const current = getDb().prepare("SELECT path, content_revision FROM files WHERE id = ?").get(row.id) as { path: string; content_revision: number } | undefined;
       if (!current || current.path !== attempt.key.canonicalPath || current.content_revision !== attempt.key.contentRevision ||
           getThumbnailCacheEpoch(attempt.key.canonicalPath) !== attempt.cacheEpoch) {
-        rejectedByIdentityGuard = true;
         await fs.rm(temporaryPath, { force: true });
+        rejectedByIdentityGuard = true;
       } else {
         await fs.rename(temporaryPath, thumbPath);
         const afterRename = getDb().prepare("SELECT path, content_revision FROM files WHERE id = ?").get(row.id) as { path: string; content_revision: number } | undefined;
         if (!afterRename || afterRename.path !== attempt.key.canonicalPath || afterRename.content_revision !== attempt.key.contentRevision ||
             getThumbnailCacheEpoch(attempt.key.canonicalPath) !== attempt.cacheEpoch) {
-          rejectedByIdentityGuard = true;
           await fs.rm(thumbPath, { force: true });
+          rejectedByIdentityGuard = true;
         } else {
           thumbnailReadQuarantine.markFresh(thumbPath);
           savedPath = thumbPath;
