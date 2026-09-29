@@ -106,6 +106,7 @@ interface PolytrayAPI {
 
   startWatching: (folderPaths: string[], settings: RuntimeSettingsData) => Promise<void>;
   stopWatching: () => Promise<void>;
+  updateWatcherSettings: (settings: RuntimeSettingsData) => Promise<boolean>;
   getMetadataRestoreSnapshot: (snapshot: RendererRestoreSnapshot) => Promise<RendererRestoreSnapshot>;
   publishMetadataRestoreSnapshot: (snapshot: RendererRestoreSnapshot) => Promise<void>;
   completeMetadataRestoreStartup: (snapshot: RendererRestoreSnapshot) => Promise<MetadataImportRecoveryResult>;

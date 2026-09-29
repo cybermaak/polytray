@@ -133,6 +133,8 @@ contextBridge.exposeInMainWorld("polytray", {
   startWatching: (folderPaths: string[], settings: RuntimeSettingsData) =>
     ipcRenderer.invoke(IPC.START_WATCHING, folderPaths, settings),
   stopWatching: () => ipcRenderer.invoke(IPC.STOP_WATCHING),
+  updateWatcherSettings: (settings: RuntimeSettingsData) =>
+    ipcRenderer.invoke(IPC.UPDATE_WATCHER_SETTINGS, settings) as Promise<boolean>,
 
   // Recoverable metadata restore
   getMetadataRestoreSnapshot: (snapshot: RendererRestoreSnapshot) =>

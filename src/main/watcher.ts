@@ -41,6 +41,7 @@ interface WatchedStat { size: number; modifiedAt: number; }
 
 let watcherContext: ActiveWatcherContext | null = null;
 let watcherRun = 0;
+const watcherThumbnailSettings = new WeakMap<object, RuntimeSettingsData>();
 const rootAvailability = createWatcherRootAvailabilityTracker();
 const watcherNotifications = createWatcherNotificationBatcher((events: Array<{ type: string; filePath: string }>) => {
   const window = watcherContext?.mainWindow;
@@ -130,11 +131,14 @@ const watcherUpdates = createWatcherUpdateCoordinator<WatchedStat, MetadataSumma
     const context = watcherContext;
     if (!context) return null;
     const ext = path.extname(identity.path).toLowerCase().slice(1);
+    watcherThumbnailSettings.set(identity, context.settings);
     return scheduleSingleThumbnailGeneration(identity.path, ext, context.settings, 'watch');
   },
   applyThumbnail: (identity, thumbnailPath) => {
     const context = watcherContext;
     if (!context) return false;
+    const settings = watcherThumbnailSettings.get(identity) ?? context.settings;
+    watcherThumbnailSettings.delete(identity);
     const repository = createFileIndexRepository(context.db);
     const result = repository.updateThumbnailState({
       fileId: identity.id,
@@ -144,9 +148,9 @@ const watcherUpdates = createWatcherUpdateCoordinator<WatchedStat, MetadataSumma
     });
     if (result.status !== 'updated') return false;
     if (thumbnailPath && context.mainWindow && !context.mainWindow.isDestroyed()) {
-      const size = Number(context.settings.thumbQuality ?? 256) as 128 | 256 | 512;
+      const size = Number(settings.thumbQuality ?? 256) as 128 | 256 | 512;
       const { identity: thumbnailIdentity } = createThumbnailIdentity(
-        identity.path, identity.contentRevision, context.settings.thumbnailColor, size,
+        identity.path, identity.contentRevision, settings.thumbnailColor, size,
       );
       context.mainWindow.webContents.send(IPC.THUMBNAIL_READY, {
         fileId: identity.id, thumbnailPath, identity: thumbnailIdentity,
@@ -225,6 +229,14 @@ export async function stopWatcher(): Promise<void> {
   await watcherLifecycle.stop();
   watcherNotifications.flush();
   watcherContext = null;
+}
+
+/** Update future watch-triggered enrichment without restarting the utility watcher. */
+export function updateWatcherSettings(settings: RuntimeSettingsData): boolean {
+  const context = watcherContext;
+  if (!context) return false;
+  watcherContext = { ...context, settings };
+  return true;
 }
 
 /** Build the release callback that aligns the worker to restored roots/settings. */

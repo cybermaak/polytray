@@ -91,6 +91,7 @@ export const IPC = {
   GET_STATS: "get-stats",
   START_WATCHING: "start-watching",
   STOP_WATCHING: "stop-watching",
+  UPDATE_WATCHER_SETTINGS: "update-watcher-settings",
   RESCAN: "rescan",
   REFRESH_FOLDER_THUMBNAILS: "refresh-folder-thumbnails",
   UPDATE_SETTING: "update-setting",

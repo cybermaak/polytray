@@ -223,6 +223,12 @@ export const App: React.FC = () => {
   // Refs to get latest state in IPC callbacks
   const foldersRef = useRef(folders);
   foldersRef.current = folders;
+  const watcherOwnerConfigRef = useRef<{
+    folders: string[];
+    watch: boolean;
+    watcherStability: number;
+    shouldWatch: boolean;
+  } | null>(null);
   const hasBooted = useRef(false);
   const sortRef = useRef(sort);
   sortRef.current = sort;
@@ -1130,14 +1136,36 @@ export const App: React.FC = () => {
     [applySettingsToDocument, persistSettings, runRendererMutation],
   );
 
-  // ── Reactive watch toggle ──────────────────────────────────────
+  // ── Single watcher lifecycle and settings owner ────────────────
   useEffect(() => {
-    if (settings.watch && folders.length > 0) {
-      window.polytray.startWatching(folders, toRuntimeSettings(settingsRef.current));
-    } else {
-      window.polytray.stopWatching();
+    const nextConfig = {
+      folders: [...folders],
+      watch: settings.watch,
+      watcherStability: settings.watcher_stability,
+      shouldWatch: settings.watch && folders.length > 0,
+    };
+    const previous = watcherOwnerConfigRef.current;
+    const lifecycleChanged = !previous
+      || previous.watch !== nextConfig.watch
+      || previous.watcherStability !== nextConfig.watcherStability
+      || previous.folders.length !== nextConfig.folders.length
+      || previous.folders.some((folder, index) => folder !== nextConfig.folders[index]);
+    watcherOwnerConfigRef.current = nextConfig;
+    const runtimeSettings = toRuntimeSettings(settingsRef.current);
+
+    if (lifecycleChanged) {
+      if (nextConfig.shouldWatch) {
+        void window.polytray.startWatching(folders, runtimeSettings);
+      } else if (previous?.shouldWatch) {
+        void window.polytray.stopWatching();
+      }
+      return;
     }
-  }, [folders, settings.watch, settings.watcher_stability]);
+
+    if (nextConfig.shouldWatch) {
+      void window.polytray.updateWatcherSettings(runtimeSettings);
+    }
+  }, [folders, settings.watch, settings.watcher_stability, settings.thumbnail_timeout, settings.thumbnailColor, settings.thumbQuality]);
 
   // Context Menu Callbacks
   useEffect(() => {

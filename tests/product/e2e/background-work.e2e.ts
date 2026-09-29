@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import JSZip from 'jszip';
 import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
+import { createThumbnailIdentity, thumbnailCacheFilename } from '../../../src/main/thumbnailIdentity';
 
 const modelFixture = path.join(process.cwd(), 'tests/support/fixtures/test_model_a.stl');
 const settings = { thumbnail_timeout: 20_000, scanning_batch_size: 1, watcher_stability: 80, page_size: 50, thumbnailColor: '#607090', thumbQuality: '128' as const };
@@ -202,12 +203,29 @@ test('background job controls retain browse state and watch follows only watch s
     await expect.poll(() => page!.evaluate(() => (window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0)).toBe(1);
     await page.locator('.advanced-toggle').click();
     await page.locator('#setting-page-size').fill('120');
-    await page.locator('#setting-thumbnail-color').evaluate((element) => { const input = element as HTMLInputElement; input.value = '#336699'; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })); });
+    await page.locator('#setting-thumbnail-color').evaluate((element) => {
+      const input = element as HTMLInputElement;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '#336699');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.locator('#setting-thumb-quality').selectOption('512');
+    await page.locator('#setting-thumbnail-timeout').fill('30000');
     await expect(page.locator('#setting-page-size')).toHaveValue('120');
+    await expect(page.locator('#setting-thumb-quality')).toHaveValue('512');
+    await expect(page.locator('#setting-thumbnail-timeout')).toHaveValue('30000');
+    await expect.poll(() => page!.evaluate(() => JSON.parse(localStorage.getItem('polytray-settings') || '{}'))).toMatchObject({ thumbnailColor: '#336699', thumbQuality: '512', thumbnail_timeout: 30000 });
     await expect.poll(() => page!.evaluate(() => (window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0)).toBe(1);
     const watchedAdd = path.join(root, 'watcher-live.stl');
     fs.copyFileSync(modelFixture, watchedAdd);
-    await expect.poll(() => page!.evaluate(async (filePath) => (await window.polytray.getFiles({ limit: 500, offset: 0 })).files.some((file) => file.path === filePath), watchedAdd), { timeout: 15_000 }).toBe(true);
+    await expect.poll(() => page!.evaluate(async (filePath) => {
+      const record = (await window.polytray.getFiles({ limit: 500, offset: 0 })).files.find((file) => file.path === filePath);
+      return record?.thumbnail ?? null;
+    }, watchedAdd), { timeout: 20_000 }).toBeTruthy();
+    const watchedRecord = await page.evaluate(async (filePath) => (await window.polytray.getFiles({ limit: 500, offset: 0 })).files.find((file) => file.path === filePath) ?? null, watchedAdd);
+    expect(watchedRecord).toBeTruthy();
+    const expectedThumbnailName = thumbnailCacheFilename(createThumbnailIdentity(watchedAdd, watchedRecord!.content_revision, '#336699', 512).key);
+    expect(path.basename(watchedRecord!.thumbnail!)).toBe(expectedThumbnailName);
     fs.rmSync(watcherReachedPath, { force: true });
     await page.locator('#setting-watcher-stability').fill('160');
     await expect.poll(() => fs.existsSync(watcherReachedPath)).toBe(true);

@@ -11,7 +11,7 @@ import {
 } from "electron";
 import { join } from "path";
 import { getDb } from "../database";
-import { startWatcher, stopWatcher } from "../watcher";
+import { startWatcher, stopWatcher, updateWatcherSettings } from "../watcher";
 import { IPC, PreviewMetricData, RuntimeSettingsData } from "../../shared/types";
 import { ARCHIVE_ENTRY_SEPARATOR } from "../../shared/archivePaths";
 import { startWatcherThroughMutationGate } from "../watcherMutationGate";
@@ -173,5 +173,9 @@ export function registerSystemHandlers(
     if (options.runMutation) await options.runMutation(() => stopWatcher());
     else await stopWatcher();
   });
+
+  ipcMain.handle(IPC.UPDATE_WATCHER_SETTINGS, (_event, settings: RuntimeSettingsData) =>
+    updateWatcherSettings(parseRuntimeSettings(settings)),
+  );
 
 }
