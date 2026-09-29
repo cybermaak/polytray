@@ -95,6 +95,7 @@ export const App: React.FC = () => {
   const [folders, setFolders] = useState<string[]>([]);
   const [offlineRoots, setOfflineRoots] = useState<Map<string, string>>(() => new Map());
   const offlineRootRevisionsRef = useRef(new Map<string, number>());
+  const offlineRootUnavailableAtRef = useRef(new Map<string, number>());
   const [watcherError, setWatcherError] = useState<WatcherErrorData | null>(null);
   const [watcherRetryRevision, setWatcherRetryRevision] = useState(0);
   const [stats, setStats] = useState<LibraryStats>({
@@ -318,6 +319,7 @@ export const App: React.FC = () => {
     const currentRevision = getOfflineRootRevision(offlineRootRevisionsRef.current, rootKey);
     if (expectedRevision !== undefined && !canClearOfflineRootAfterScan(expectedRevision, currentRevision)) return false;
     if (advanceRevision) advanceOfflineRootRevision(offlineRootRevisionsRef.current, rootKey);
+    offlineRootUnavailableAtRef.current.delete(rootKey);
     setOfflineRoots((current) => {
       if (!current.has(rootKey)) return current;
       const next = new Map(current);
@@ -331,7 +333,16 @@ export const App: React.FC = () => {
     const rootKey = canonicalRootKey(folderPath);
     const scanStartedAt = getOfflineRootRevision(offlineRootRevisionsRef.current, rootKey);
     const result = await window.polytray.scanFolder(folderPath, getRuntimeSettings());
-    if (result.state === "completed" || result.state === "partial") clearOfflineRoot(folderPath, scanStartedAt);
+    if (result.state === "completed" || result.state === "partial") {
+      const currentRevision = getOfflineRootRevision(offlineRootRevisionsRef.current, rootKey);
+      const unavailableAt = offlineRootUnavailableAtRef.current.get(rootKey) ?? null;
+      const actualJobStartedAt = unavailableAt === null || !result.jobId
+        ? null
+        : (await window.polytray.getBackgroundJobs()).find((job) => job.jobId === result.jobId)?.startedAt ?? null;
+      if (canClearOfflineRootAfterScan(scanStartedAt, currentRevision, actualJobStartedAt, unavailableAt)) {
+        clearOfflineRoot(folderPath, scanStartedAt);
+      }
+    }
     return result;
   }, [clearOfflineRoot, getRuntimeSettings]);
 
@@ -339,7 +350,10 @@ export const App: React.FC = () => {
     const previousRootKeys = new Set(foldersRef.current.map(canonicalRootKey));
     const configuredRootKeys = new Set(nextState.libraryFolders.map(canonicalRootKey));
     for (const rootKey of previousRootKeys) {
-      if (!configuredRootKeys.has(rootKey)) advanceOfflineRootRevision(offlineRootRevisionsRef.current, rootKey);
+      if (!configuredRootKeys.has(rootKey)) {
+        advanceOfflineRootRevision(offlineRootRevisionsRef.current, rootKey);
+        offlineRootUnavailableAtRef.current.delete(rootKey);
+      }
     }
     libraryStateRef.current = nextState;
     setFolders(nextState.libraryFolders);
@@ -747,6 +761,7 @@ export const App: React.FC = () => {
           const configuredRoot = foldersRef.current.find((folder) => canonicalRootKey(folder) === rootKey);
           if (configuredRoot) {
             advanceOfflineRootRevision(offlineRootRevisionsRef.current, rootKey);
+            offlineRootUnavailableAtRef.current.delete(rootKey);
             clearOfflineRoot(configuredRoot, undefined, false);
           }
         } else if (notice.type === "root-unavailable") {
@@ -754,6 +769,7 @@ export const App: React.FC = () => {
           const configuredRoot = foldersRef.current.find((folder) => canonicalRootKey(folder) === rootKey);
           if (configuredRoot) {
             advanceOfflineRootRevision(offlineRootRevisionsRef.current, rootKey);
+            offlineRootUnavailableAtRef.current.set(rootKey, notice.timestamp ?? Date.now());
             setOfflineRoots((current) => {
               const next = new Map(current);
               next.set(rootKey, configuredRoot);

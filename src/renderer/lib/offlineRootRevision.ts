@@ -8,6 +8,13 @@ export function advanceOfflineRootRevision(revisions: Map<string, number>, rootK
   return nextRevision;
 }
 
-export function canClearOfflineRootAfterScan(scanStartedAt: number, currentRevision: number) {
-  return scanStartedAt === currentRevision;
+export function canClearOfflineRootAfterScan(
+  scanStartedAt: number,
+  currentRevision: number,
+  actualJobStartedAt?: number | null,
+  unavailableAt?: number | null,
+) {
+  if (scanStartedAt !== currentRevision) return false;
+  if (unavailableAt === undefined || unavailableAt === null) return true;
+  return actualJobStartedAt !== undefined && actualJobStartedAt !== null && actualJobStartedAt > unavailableAt;
 }

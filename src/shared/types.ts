@@ -193,6 +193,8 @@ export interface ScanCompleteData {
 export interface FilesUpdatedData {
   type: string;
   filePath: string;
+  /** Main-process event time for root status transitions; comparable to BackgroundJob.startedAt. */
+  timestamp?: number;
 }
 
 export interface WatcherErrorData {

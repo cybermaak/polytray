@@ -361,6 +361,7 @@ function handleRootStatus(folderPath: string, available: boolean, mainWindow: Br
   mainWindow.webContents.send(IPC.FILES_UPDATED, {
     type: available ? 'root-available' : 'root-unavailable',
     filePath: root,
+    timestamp: Date.now(),
   });
   if (recovered) {
     // Let the established scan service prove which rows disappeared while this root was offline.
