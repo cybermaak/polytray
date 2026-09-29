@@ -106,6 +106,13 @@ test('600-file pages cover every stable file key with exact total counts and nex
     if (second.status !== 'ok') return;
     assert.equal(second.items.length, 100);
     assert.equal(second.nextOffset, null);
+    const pastEnd = getLibraryPage(db, defaultQuery({ limit: 500, offset: 700 }));
+    assert.equal(pastEnd.status, 'ok');
+    if (pastEnd.status !== 'ok') return;
+    assert.deepEqual(pastEnd.items, []);
+    assert.equal(pastEnd.totalModels, 600);
+    assert.equal(pastEnd.totalItems, 600);
+    assert.equal(pastEnd.nextOffset, null);
     const keys = [...first.items, ...second.items].map((item) => item.key);
     assert.equal(new Set(keys).size, 600);
     assert.deepEqual(keys.sort(), fixture.collections.collections[0].filePaths
@@ -318,6 +325,35 @@ test('literal wildcard, quote, and backslash search values are bound and collect
     assert.equal(collectionPage.items[0].kind, 'file');
     assert.equal(collectionPage.items[0].file.path, targetPath);
     assert.equal((db.prepare('SELECT COUNT(*) AS count FROM files').get() as { count: number }).count, 2);
+    const tempTables = db.prepare("SELECT name FROM sqlite_temp_master WHERE type = 'table'").all() as Array<{ name: string }>;
+    assert.deepEqual(tempTables, []);
+  } finally {
+    db.close();
+  }
+});
+
+test('collection membership temp table is removed when a page query fails', () => {
+  const db = createDatabase();
+  try {
+    const root = path.resolve('/tmp/library-query-collection-failure');
+    const filePath = path.join(root, 'part.stl');
+    seed(db, [{ path: filePath, name: 'part', extension: 'stl', directory: root }]);
+    const databaseWithPrepare = db as unknown as { prepare(sql: string): Record<string, (...args: unknown[]) => unknown> };
+    const originalPrepare = databaseWithPrepare.prepare.bind(db);
+    databaseWithPrepare.prepare = (sql: string) => {
+      const statement = originalPrepare(sql);
+      if (!sql.includes('SELECT display_items.*')) return statement;
+      statement.all = () => {
+        const tempTable = db.prepare("SELECT COUNT(*) AS count FROM sqlite_temp_master WHERE type = 'table' AND name = '__polytray_library_collection_paths'").get() as { count: number };
+        assert.equal(tempTable.count, 1, 'collection membership should exist while the query is active');
+        throw new Error('injected page query failure');
+      };
+      return statement;
+    };
+
+    assert.throws(() => getLibraryPage(db, defaultQuery({ collectionPaths: [filePath], limit: 10 })), /injected page query failure/);
+    const tempTables = db.prepare("SELECT name FROM sqlite_temp_master WHERE type = 'table'").all() as Array<{ name: string }>;
+    assert.deepEqual(tempTables, []);
   } finally {
     db.close();
   }

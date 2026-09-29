@@ -317,16 +317,20 @@ export function getLibraryPage(db: Database, query: LibraryQuery): LibraryPageRe
     try {
       const filter = createFilterPlan(query);
       const filterSql = filteredCte(filter);
-      const totalModels = (db.prepare(`${filterSql} SELECT COUNT(*) AS count FROM filtered`)
-        .get(...filter.params) as { count: number }).count;
       const collapseArchives = shouldCollapseArchives(query);
       const itemsCte = displayItemsCte(filter, collapseArchives);
-      const totalItems = (db.prepare(`${itemsCte} SELECT COUNT(*) AS count FROM display_items`)
-        .get(...filter.params) as { count: number }).count;
       const pageRows = db.prepare(`${itemsCte}
-        SELECT * FROM display_items
+        SELECT display_items.*,
+          (SELECT COUNT(*) FROM filtered) AS total_models,
+          (SELECT COUNT(*) FROM display_items) AS total_items
+        FROM display_items
         ORDER BY ${sortExpression(query.sort)} ${query.direction}, item_key COLLATE BINARY ASC
-        LIMIT ? OFFSET ?`).all(...filter.params, query.limit, query.offset) as QueryRow[];
+        LIMIT ? OFFSET ?`).all(...filter.params, query.limit, query.offset) as Array<QueryRow & { total_models: number; total_items: number }>;
+      const totals = pageRows[0] ?? db.prepare(`${itemsCte}
+        SELECT (SELECT COUNT(*) FROM filtered) AS total_models,
+          (SELECT COUNT(*) FROM display_items) AS total_items`).get(...filter.params) as { total_models: number; total_items: number };
+      const totalModels = totals.total_models;
+      const totalItems = totals.total_items;
 
       const archivePaths = collapseArchives
         ? [...new Set(pageRows.filter((row) => row.kind === 'archive').map((row) => row.archive_path!))]
@@ -442,7 +446,10 @@ export function explainLibraryPageQuery(db: Database, query: LibraryQuery) {
       const filter = createFilterPlan(query);
       const cte = displayItemsCte(filter, shouldCollapseArchives(query));
       return db.prepare(`EXPLAIN QUERY PLAN ${cte}
-        SELECT * FROM display_items
+        SELECT display_items.*,
+          (SELECT COUNT(*) FROM filtered) AS total_models,
+          (SELECT COUNT(*) FROM display_items) AS total_items
+        FROM display_items
         ORDER BY ${sortExpression(query.sort)} ${query.direction}, item_key COLLATE BINARY ASC
         LIMIT ? OFFSET ?`).all(...filter.params, query.limit, query.offset) as Array<{ id: number; parent: number; notused: number; detail: string }>;
     } finally {

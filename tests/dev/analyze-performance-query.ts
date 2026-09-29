@@ -17,11 +17,10 @@ try {
     search: '', collectionPaths: null, limit: 500, offset: 0,
   };
   const plan = explainLibraryPageQuery(db, query).map((step) => step.detail);
-  const phases: Record<string, number[]> = { modelCount: [], displayCountAndArchiveGrouping: [], pageOrderingAndSelection: [], archiveRepresentativeSamples: [] };
-  const classify = (sql: string) => sql.includes('COUNT(*) AS count FROM filtered') ? 'modelCount'
-    : sql.includes('COUNT(*) AS count FROM display_items') ? 'displayCountAndArchiveGrouping'
+  const phases: Record<string, number[]> = { pageCountsGroupingAndSelection: [], archiveRepresentativeSamples: [] };
+  const classify = (sql: string) => sql.includes('SELECT display_items.*') ? 'pageCountsGroupingAndSelection'
       : sql.includes('ROW_NUMBER() OVER (PARTITION BY f.archive_path') ? 'archiveRepresentativeSamples'
-        : sql.includes('SELECT * FROM display_items') ? 'pageOrderingAndSelection' : null;
+        : null;
   const dbWithPrepare = db as unknown as { prepare(sql: string): Record<string, (...args: unknown[]) => unknown> };
   const originalPrepare = dbWithPrepare.prepare.bind(db);
   dbWithPrepare.prepare = (sql: string) => {
