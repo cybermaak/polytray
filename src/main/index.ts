@@ -1,12 +1,15 @@
 import { app, BrowserWindow, ipcMain, protocol, net } from "electron";
 import { join } from "path";
+import { randomUUID } from "node:crypto";
 import { getDb, initDatabase } from "./database";
 import { stopWatcher } from "./watcher";
 import { initThumbnailService } from "./thumbnails";
 import fs from "fs";
 import { getThumbnailDir } from "./thumbnails";
 import { toAllowedLocalFileUrl } from "./localFileProtocol";
-import { IPC, type IndexMutationResult, type MainWindowVisibilityData } from "../shared/types";
+import { IPC, METADATA_RESTORE_IPC, type IndexMutationResult, type MainWindowVisibilityData, type RuntimeSettingsData } from "../shared/types";
+import { DEFAULT_APP_SETTINGS, normalizeAppSettings, toRuntimeSettings } from "../shared/settings";
+import type { MetadataBackupSnapshot, StagedMetadataRestore } from "../shared/backupContracts";
 import { createFileIndexRuntime, type FileIndexRuntime } from "./fileIndexRuntime";
 import { createLibraryMutationPublisher, type LibraryMutationPublisher } from "./libraryMutationPublisher";
 
@@ -19,6 +22,11 @@ import { registerSystemHandlers } from "./ipc/system";
 import { registerSlicerHandlers, startSlicerStartupCleanup } from "./ipc/slicer";
 import { createElectronPreviewWindowManager } from "./previewWindow";
 import { registerPreviewParseHandler } from "./previewParseService";
+import { createMetadataRestoreService } from "./metadataRestoreService";
+import { createMetadataRestoreJournal } from "./metadataRestoreJournal";
+import { createMetadataRestoreLeaseReservation, createMetadataRestoreMutationGate } from "./metadataRestoreMutationGate";
+import { registerMetadataRestoreHandlers } from "./ipc/metadataBackup";
+import { createMetadataRestoreWatcherResumeHandler } from "./watcher";
 
 // Set the application name for macOS menu bar
 app.setName("PolyTray");
@@ -116,6 +124,70 @@ let previewParseRegistration: ReturnType<typeof registerPreviewParseHandler> | n
 let fileIndexRuntime: FileIndexRuntime | null = null;
 let scanningHandlers: ReturnType<typeof registerScanningHandlers> | null = null;
 let libraryMutationPublisher: LibraryMutationPublisher | null = null;
+let metadataRestoreService: ReturnType<typeof createMetadataRestoreService> | null = null;
+const metadataRestoreMutationGate = createMetadataRestoreMutationGate();
+const metadataRestoreLeaseReservation = createMetadataRestoreLeaseReservation();
+let rendererRestoreSnapshot: MetadataBackupSnapshot & { preferences: Record<string, unknown> } = {
+  rendererRevision: 0,
+  libraryRoots: [],
+  collections: [],
+  preferences: { ...DEFAULT_APP_SETTINGS },
+};
+let startupReadyResolve!: () => void;
+const startupReady = new Promise<void>(resolve => { startupReadyResolve = resolve; });
+let startupComplete = false;
+let blockedStartupMutationLeaseRelease: (() => Promise<void>) | null = null;
+let blockedStartupLeaseReservationRelease: (() => void) | null = null;
+let blockedStartupRendererLocked = false;
+const rendererCommandAcks = new Map<string, { resolve: () => void; timer: NodeJS.Timeout }>();
+
+function updateRendererRestoreSnapshot(snapshot: MetadataBackupSnapshot & { preferences: Record<string, unknown> }) {
+  rendererRestoreSnapshot = {
+    rendererRevision: snapshot.rendererRevision,
+    libraryRoots: [...snapshot.libraryRoots],
+    collections: snapshot.collections.map(collection => ({ ...collection, paths: [...collection.paths] })),
+    preferences: { ...snapshot.preferences },
+  };
+}
+
+async function runMainMutation<T>(operation: () => T | Promise<T>): Promise<T> {
+  await startupReady;
+  return metadataRestoreMutationGate.run(operation);
+}
+
+function requestRendererCommand(channel: string, payload: Record<string, unknown>): Promise<void> {
+  const target = mainWindow;
+  if (!target || target.isDestroyed() || target.webContents.isDestroyed()) {
+    return Promise.reject(new Error("Metadata restore renderer is unavailable"));
+  }
+  const requestId = randomUUID();
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      rendererCommandAcks.delete(requestId);
+      reject(new Error("Timed out waiting for renderer metadata restore acknowledgment"));
+    }, 30_000);
+    rendererCommandAcks.set(requestId, { resolve: () => { clearTimeout(timer); resolve(); }, timer });
+    target.webContents.send(channel, { ...payload, requestId });
+  });
+}
+
+function applyRendererRestoreState(state: StagedMetadataRestore) {
+  return requestRendererCommand(METADATA_RESTORE_IPC.applyEvent, { state });
+}
+
+function setRendererRestoreMutationLock(locked: boolean) {
+  return requestRendererCommand(METADATA_RESTORE_IPC.mutationLockEvent, { locked });
+}
+
+function acknowledgeRendererCommand(event: Electron.IpcMainInvokeEvent, requestId: unknown) {
+  if (!mainWindow || event.sender !== mainWindow.webContents || typeof requestId !== "string") {
+    throw new Error("Invalid metadata restore renderer acknowledgment");
+  }
+  const pending = rendererCommandAcks.get(requestId);
+  if (!pending) throw new Error("Metadata restore renderer acknowledgment is no longer pending");
+  rendererCommandAcks.delete(requestId);
+  pending.resolve();
+}
 
 function readMainWindowVisibility(target: BrowserWindow): MainWindowVisibilityData {
   return {
@@ -250,22 +322,44 @@ function registerIpcHandlers() {
     }
     return readMainWindowVisibility(currentWindow);
   });
-  registerLibraryHandlers(getMainWindow);
-  scanningHandlers = registerScanningHandlers(getMainWindow);
+  registerLibraryHandlers(getMainWindow, { runMutation: runMainMutation });
+  scanningHandlers = registerScanningHandlers(getMainWindow, undefined, { runMutation: runMainMutation });
   registerFileHandlers({
     isScopeIndexReady: () => fileIndexRuntime?.canUseScopeReader() === true,
     ensureScopeIndexReady: async () => {
       const runtime = fileIndexRuntime;
       if (!runtime) throw new Error("File index runtime is unavailable");
-      await runtime.startBackfill();
+      await runMainMutation(() => runtime.startBackfill());
       if (!runtime.canUseScopeReader()) throw new Error("Library scope index is not ready");
     },
+    runMutation: runMainMutation,
   });
   registerThumbnailHandlers(getMainWindow);
-  registerSystemHandlers(getMainWindow);
+  registerSystemHandlers(getMainWindow, { runMutation: runMainMutation });
   slicerHandlers = registerSlicerHandlers(getMainWindow);
   previewParseRegistration = registerPreviewParseHandler(ipcMain, getMainWindow, previewRuntime);
   initThumbnailService();
+}
+
+function registerMetadataRestoreCommandAcks() {
+  ipcMain.handle(METADATA_RESTORE_IPC.applyAck, (event, raw: unknown) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid metadata restore acknowledgment");
+    const payload = raw as { requestId?: unknown; snapshot?: unknown };
+    const snapshot = payload.snapshot as MetadataBackupSnapshot & { preferences: Record<string, unknown> };
+    if (!snapshot || typeof snapshot !== "object" || !Number.isSafeInteger(snapshot.rendererRevision) ||
+        !Array.isArray(snapshot.libraryRoots) || !Array.isArray(snapshot.collections) ||
+        !snapshot.preferences || typeof snapshot.preferences !== "object" || Array.isArray(snapshot.preferences)) {
+      throw new Error("Invalid metadata restore renderer snapshot");
+    }
+    updateRendererRestoreSnapshot(snapshot);
+    acknowledgeRendererCommand(event, payload.requestId);
+    return { status: "applied" };
+  });
+  ipcMain.handle(METADATA_RESTORE_IPC.mutationLockAck, (event, raw: unknown) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid metadata restore lock acknowledgment");
+    acknowledgeRendererCommand(event, (raw as { requestId?: unknown }).requestId);
+    return { status: "acknowledged" };
+  });
 }
 
 // ── App Lifecycle ─────────────────────────────────────────────
@@ -303,20 +397,120 @@ app.whenReady().then(() => {
       if (progress.status === "failed") log.error("[FileIndex] scope backfill failed", progress.error);
     },
   });
-  createWindow();
-  setImmediate(() => {
-    void fileIndexRuntime?.startBackfill().catch((error) => {
-      log.error("[FileIndex] scope backfill failed", error);
-    });
+  const userData = app.getPath("userData");
+  metadataRestoreService = createMetadataRestoreService({
+    db: getDb(),
+    journal: createMetadataRestoreJournal(join(userData, "metadata-restore", "journal")),
+    recoveryDirectory: join(userData, "metadata-restore", "backups"),
+    getRendererRevision: () => rendererRestoreSnapshot.rendererRevision,
+    getRendererState: () => ({
+      libraryRoots: [...rendererRestoreSnapshot.libraryRoots],
+      collections: rendererRestoreSnapshot.collections.map(collection => ({ ...collection, paths: [...collection.paths] })),
+      preferences: { ...rendererRestoreSnapshot.preferences },
+    }),
+    applyRendererState: applyRendererRestoreState,
+    acquireMutationLease: async () => {
+      const releaseReservation = await metadataRestoreLeaseReservation.acquire();
+      let releaseGate: (() => Promise<void>) | null = null;
+      let rendererLocked = false;
+      let resumeWatcher: ((restored: { folderPaths: string[]; settings: RuntimeSettingsData; watch: boolean; autoScan: boolean }) => Promise<void>) | null = null;
+      try {
+        await setRendererRestoreMutationLock(true);
+        rendererLocked = true;
+        releaseGate = await metadataRestoreMutationGate.acquire();
+        const activeWindow = mainWindow;
+        if (!activeWindow) throw new Error("Metadata restore renderer is unavailable");
+        resumeWatcher = createMetadataRestoreWatcherResumeHandler(activeWindow, getDb(), runMainMutation);
+        return async () => {
+          try {
+            if (rendererLocked) await setRendererRestoreMutationLock(false);
+          } finally {
+            try {
+              const restoredSettings = normalizeAppSettings(rendererRestoreSnapshot.preferences);
+              await resumeWatcher?.({
+                folderPaths: [...rendererRestoreSnapshot.libraryRoots],
+                settings: toRuntimeSettings(restoredSettings),
+                watch: restoredSettings.watch,
+                autoScan: restoredSettings.autoScan,
+              });
+            }
+            finally {
+              try { await releaseGate?.(); }
+              finally { releaseReservation(); }
+            }
+          }
+        };
+      } catch (error) {
+        if (releaseGate) await releaseGate().catch(() => undefined);
+        if (rendererLocked) await setRendererRestoreMutationLock(false).catch(() => undefined);
+        releaseReservation();
+        throw error;
+      }
+    },
+    withCommitBoundary: commit => commit(),
   });
-  createThumbnailWindow();
+
+  registerMetadataRestoreCommandAcks();
   registerIpcHandlers();
+  registerMetadataRestoreHandlers({
+    ipcMain,
+    service: metadataRestoreService,
+    updateRendererSnapshot: updateRendererRestoreSnapshot,
+    applyRendererState: applyRendererRestoreState,
+    runMutation: runMainMutation,
+    authorizeRenderer: event => {
+      if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Metadata restore is available only to the main window");
+    },
+    holdRendererStateOnBlocked: async () => {
+      if (metadataRestoreMutationGate.isLocked()) {
+        await setRendererRestoreMutationLock(true);
+        blockedStartupRendererLocked = true;
+        return;
+      }
+      const releaseReservation = await metadataRestoreLeaseReservation.acquire();
+      let rendererLocked = false;
+      try {
+        await setRendererRestoreMutationLock(true);
+        rendererLocked = true;
+        blockedStartupMutationLeaseRelease = await metadataRestoreMutationGate.acquire();
+        blockedStartupLeaseReservationRelease = releaseReservation;
+      } catch (error) {
+        if (rendererLocked) await setRendererRestoreMutationLock(false).catch(() => undefined);
+        releaseReservation();
+        throw error;
+      }
+      blockedStartupRendererLocked = true;
+    },
+    prepareRecoveryRetry: async () => {
+      const release = blockedStartupMutationLeaseRelease;
+      blockedStartupMutationLeaseRelease = null;
+      if (release) await release();
+      const releaseReservation = blockedStartupLeaseReservationRelease;
+      blockedStartupLeaseReservationRelease = null;
+      releaseReservation?.();
+    },
+    startAfterRecovery: async () => {
+      if (startupComplete) return;
+      const runtime = fileIndexRuntime;
+      if (!runtime) throw new Error("File index runtime is unavailable");
+      await metadataRestoreMutationGate.run(() => runtime.startBackfill());
+      startupComplete = true;
+      startupReadyResolve();
+      if (blockedStartupRendererLocked) {
+        blockedStartupRendererLocked = false;
+        await setRendererRestoreMutationLock(false);
+      }
+    },
+  });
+  createWindow();
+  createThumbnailWindow();
   startSlicerStartupCleanup(
     () => {
       app.once("will-quit", () => {
         slicerHandlers?.dispose();
         void scanningHandlers?.dispose();
         void fileIndexRuntime?.dispose();
+        metadataRestoreService?.dispose();
         libraryMutationPublisher?.flush();
         libraryMutationPublisher?.dispose();
         void previewParseRegistration?.dispose();

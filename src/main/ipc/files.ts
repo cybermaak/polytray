@@ -31,6 +31,7 @@ import { countIsolatedRequest } from "../testing/isolatedRequestCounters";
 export interface FileHandlerReadiness {
   isScopeIndexReady(): boolean;
   ensureScopeIndexReady(): Promise<void>;
+  runMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
 }
 
 export function registerLibrarySummaryHandlers(
@@ -157,19 +158,20 @@ export function registerFileHandlers(readiness: FileHandlerReadiness) {
     return db.prepare("SELECT * FROM files WHERE id = ?").get(id);
   });
 
-  ipcMain.handle(IPC.UPDATE_FILE_METADATA, (event, payload) => {
+  ipcMain.handle(IPC.UPDATE_FILE_METADATA, async (event, payload) => {
+    const update = () => {
     const db = getDb();
-    const update = parseFileMetadataUpdate(payload);
+    const parsed = parseFileMetadataUpdate(payload);
     const repository = createFileIndexRepository(db);
-    let expectedContentRevision = repository.getFileContentRevision(update.id);
+    let expectedContentRevision = repository.getFileContentRevision(parsed.id);
     if (expectedContentRevision === null) throw new Error("File not found");
 
     for (let attempt = 0; attempt < 3; attempt++) {
       const result = repository.updateFileMetadata({
-        fileId: update.id,
+        fileId: parsed.id,
         expectedContentRevision,
-        tags: update.tags,
-        notes: update.notes,
+        tags: parsed.tags,
+        notes: parsed.notes,
       });
       if (result.status === "updated") return result.file;
       if (result.status === "missing") throw new Error("File not found");
@@ -178,6 +180,8 @@ export function registerFileHandlers(readiness: FileHandlerReadiness) {
     }
 
     throw new Error("File changed while metadata was being updated");
+    };
+    return readiness.runMutation ? readiness.runMutation(update) : update();
   });
 
   ipcMain.handle(IPC.READ_FILE_BUFFER, async (event, filePath) => {

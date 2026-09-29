@@ -7,8 +7,13 @@ import { IPC } from "../../shared/types";
 import { filterContainedPaths } from "../pathContainment";
 import { createFileIndexRepository } from "../fileIndexing";
 
+interface LibraryMutationOptions {
+  runMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
+}
+
 export function registerLibraryHandlers(
   getMainWindow: () => BrowserWindow | null,
+  options: LibraryMutationOptions = {},
 ) {
   ipcMain.handle(IPC.SELECT_FOLDER, async () => {
     const mainWindow = getMainWindow();
@@ -25,7 +30,8 @@ export function registerLibraryHandlers(
     return getSetting<string[]>("library_folders", []);
   });
 
-  ipcMain.handle(IPC.REMOVE_LIBRARY_FOLDER, (event, folderPath) => {
+  ipcMain.handle(IPC.REMOVE_LIBRARY_FOLDER, async (event, folderPath) => {
+    const remove = () => {
     const db = getDb();
     const rows = db.prepare("SELECT path, content_revision, scan_generation FROM files").all() as Array<{
       path: string;
@@ -45,6 +51,8 @@ export function registerLibraryHandlers(
         scanGeneration: row.scan_generation,
       })));
     return true;
+    };
+    return options.runMutation ? options.runMutation(remove) : remove();
   });
 
   ipcMain.handle(IPC.GET_LAST_FOLDER, () => {

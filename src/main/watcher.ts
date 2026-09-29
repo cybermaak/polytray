@@ -12,11 +12,16 @@ import { createUnavailableMeasurement } from '../shared/model/measurement';
 import { isPathContained } from './pathContainment';
 import { createThumbnailIdentity } from './thumbnailIdentity';
 import {
+  createMetadataRestoreWatcherResumePlan,
   createWatcherNotificationBatcher,
   createWatcherRootAvailabilityTracker,
   createWatcherUpdateCoordinator,
   type WatcherFileEvent,
 } from './watcherLifecycle';
+
+type WatcherMutationRunner = <T>(operation: () => T | Promise<T>) => Promise<T>;
+const immediateMutationRunner: WatcherMutationRunner = operation => Promise.resolve().then(operation);
+let watcherMutationRunner: WatcherMutationRunner = immediateMutationRunner;
 
 const watcherLifecycle = createWatcherLifecycleManager<UtilityProcess>({
   createProcess: () => {
@@ -48,6 +53,7 @@ const watcherNotifications = createWatcherNotificationBatcher((events: Array<{ t
 });
 
 const watcherUpdates = createWatcherUpdateCoordinator<WatchedStat, MetadataSummary>({
+  runMutation: (operation) => watcherMutationRunner(operation),
   stat: async (filePath) => {
     try {
       const stat = await fs.promises.stat(filePath);
@@ -63,7 +69,7 @@ const watcherUpdates = createWatcherUpdateCoordinator<WatchedStat, MetadataSumma
   },
   commit: (event, stat, current) => {
     const context = watcherContext;
-    if (!context) return null;
+    if (!context || !context.roots.some((root) => isPathContained(root, event.filePath))) return null;
     const ext = path.extname(event.filePath).toLowerCase().slice(1);
     const result = createFileIndexRepository(context.db).applyWatchUpdate({
       kind: event.type as 'add' | 'change',
@@ -160,6 +166,8 @@ export async function startWatcher(
   mainWindow: BrowserWindow,
   db: Database,
   settings: RuntimeSettingsData,
+  runMutation: WatcherMutationRunner = immediateMutationRunner,
+  preservePending = false,
 ) {
   if (folderPaths.length === 0) {
     rootAvailability.retainConfiguredRoots([]);
@@ -167,9 +175,10 @@ export async function startWatcher(
     return;
   }
 
-  watcherUpdates.invalidatePending();
+  if (!preservePending) watcherUpdates.invalidatePending();
   watcherNotifications.flush();
   const run = ++watcherRun;
+  watcherMutationRunner = runMutation;
   const roots = [...new Set(folderPaths.map((folderPath) => path.resolve(folderPath)))];
   watcherContext = { mainWindow, db, settings, roots };
   rootAvailability.retainConfiguredRoots(roots);
@@ -216,6 +225,39 @@ export async function stopWatcher(): Promise<void> {
   await watcherLifecycle.stop();
   watcherNotifications.flush();
   watcherContext = null;
+}
+
+/** Build the release callback that aligns the worker to restored roots/settings. */
+export function createMetadataRestoreWatcherResumeHandler(mainWindow: BrowserWindow, db: Database, runMutation: WatcherMutationRunner): (
+  restored: { folderPaths: string[]; settings: RuntimeSettingsData; watch: boolean; autoScan: boolean },
+) => Promise<void> {
+  let resumed = false;
+  return async (restored) => {
+    if (resumed) return;
+    resumed = true;
+    if (mainWindow.isDestroyed()) return;
+    const plan = createMetadataRestoreWatcherResumePlan(restored.folderPaths, {
+      watch: restored.watch,
+      autoScan: restored.autoScan,
+    });
+    if (plan.watchRoots.length > 0) {
+      const current = watcherContext;
+      const sameRoots = current && current.roots.length === plan.watchRoots.length &&
+        current.roots.every((root, index) => root === plan.watchRoots[index]);
+      const sameStability = current?.settings.watcher_stability === restored.settings.watcher_stability;
+      if (current && sameRoots && sameStability) {
+        watcherMutationRunner = runMutation;
+        watcherContext = { ...current, settings: restored.settings };
+      } else {
+        await startWatcher(plan.watchRoots, mainWindow, db, restored.settings, runMutation, true);
+      }
+    } else {
+      await stopWatcher();
+    }
+    for (const root of plan.scanRoots) {
+      if (!mainWindow.isDestroyed()) mainWindow.webContents.send('trigger-rescan-folder', root);
+    }
+  };
 }
 
 async function handleFileChange(

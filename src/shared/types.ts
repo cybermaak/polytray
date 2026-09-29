@@ -119,6 +119,23 @@ export const IPC = {
   LIBRARY_CHANGED: "library-changed",
 } as const;
 
+export const METADATA_RESTORE_IPC = {
+  snapshot: 'get-metadata-restore-snapshot',
+  publishSnapshot: 'publish-metadata-restore-snapshot',
+  bootstrap: 'complete-metadata-restore-startup',
+  preview: 'preview-metadata-backup-import',
+  commit: 'commit-metadata-backup-import',
+  acknowledge: 'acknowledge-metadata-backup-import',
+  cancel: 'cancel-metadata-backup-import',
+  status: 'get-metadata-restore-status',
+  retry: 'retry-pending-metadata-annotations',
+  applyRequest: 'apply-metadata-restore-state',
+  applyEvent: 'metadata-restore-apply-state',
+  applyAck: 'metadata-restore-apply-ack',
+  mutationLockEvent: 'metadata-restore-mutation-lock',
+  mutationLockAck: 'metadata-restore-mutation-lock-ack',
+} as const;
+
 // ── IPC Payload Types (single source of truth) ──────────────────────
 
 /** Options for the GET_FILES query */

@@ -13,6 +13,17 @@ export interface StartWatcherPayload {
   watcherStability: number;
 }
 
+export function createMetadataRestoreWatcherResumePlan(
+  restoredRoots: string[],
+  settings: { watch?: unknown; autoScan?: unknown },
+) {
+  const roots = [...new Set(restoredRoots)];
+  return {
+    watchRoots: settings.watch === true ? roots : [],
+    scanRoots: settings.autoScan === true ? roots : [],
+  };
+}
+
 export interface WatcherFileEvent {
   type: 'add' | 'change' | 'unlink';
   filePath: string;
@@ -25,11 +36,12 @@ export interface WatcherFileIdentity {
 }
 
 export interface WatcherUpdateCoordinatorOptions<TStat, TMetadata, TIdentity extends WatcherFileIdentity> {
+  runMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
   stat: (filePath: string) => Promise<TStat | null>;
   getIdentity: (filePath: string) => TIdentity | null;
   /** Commit the observed identity before returning it; a null return means no current row. */
-  commit: (event: WatcherFileEvent, stat: TStat, current: TIdentity | null) => TIdentity | null;
-  remove: (identity: TIdentity) => void;
+  commit: (event: WatcherFileEvent, stat: TStat, current: TIdentity | null) => TIdentity | null | Promise<TIdentity | null>;
+  remove: (identity: TIdentity) => void | Promise<void>;
   isRemovalSafe: (filePath: string) => Promise<boolean>;
   extractMetadata: (identity: TIdentity) => Promise<TMetadata>;
   applyMetadata: (identity: TIdentity, metadata: TMetadata) => boolean | Promise<boolean>;
@@ -157,6 +169,7 @@ export function createWatcherUpdateCoordinator<
   const enrichments = new Set<Promise<void>>();
   let nextGeneration = 1;
   let lifecycleGeneration = 1;
+  const runMutation = options.runMutation ?? (<T>(operation: () => T | Promise<T>) => Promise.resolve().then(operation));
 
   function maybeCleanup(filePath: string, slot: PathState) {
     if (slot.queued !== 0 || slot.enriching !== 0 || slot.pendingEvent || slot.pendingWaiters.length || slot.timer) return;
@@ -199,7 +212,10 @@ export function createWatcherUpdateCoordinator<
       try {
         const result = await options.extractMetadata(identity);
         if (!isCurrent(event.filePath, identity, generation, lifecycle)) return;
-        await options.applyMetadata(identity, result);
+        await runMutation(async () => {
+          if (!isCurrent(event.filePath, identity, generation, lifecycle)) return;
+          await options.applyMetadata(identity, result);
+        });
       } catch {
         // Enrichment failure must not undo the already committed file identity.
       }
@@ -212,7 +228,10 @@ export function createWatcherUpdateCoordinator<
         result = null;
       }
       if (!isCurrent(event.filePath, identity, generation, lifecycle)) return;
-      await options.applyThumbnail(identity, result);
+      await runMutation(async () => {
+        if (!isCurrent(event.filePath, identity, generation, lifecycle)) return;
+        await options.applyThumbnail(identity, result);
+      });
     })();
     const combined = Promise.all([metadata, thumbnail]).then(() => undefined).finally(() => {
       slot.enriching--;
@@ -249,7 +268,15 @@ export function createWatcherUpdateCoordinator<
       if (event.type === 'unlink') {
         if (!await options.isRemovalSafe(event.filePath) || lifecycle !== lifecycleGeneration) return;
         const current = options.getIdentity(event.filePath) as TIdentity | null;
-        if (current) options.remove(current);
+        if (current) {
+          await runMutation(async () => {
+            if (lifecycle !== lifecycleGeneration) return;
+            const latest = options.getIdentity(event.filePath) as TIdentity | null;
+            if (latest?.id === current.id && latest.path === current.path && latest.contentRevision === current.contentRevision) {
+              await options.remove(current);
+            }
+          });
+        }
         options.onCommitted?.(event, null);
         return;
       }
@@ -257,7 +284,10 @@ export function createWatcherUpdateCoordinator<
       const stat = await options.stat(event.filePath);
       if (!stat || lifecycle !== lifecycleGeneration) return;
       const current = options.getIdentity(event.filePath) as TIdentity | null;
-      const identity = options.commit(event, stat, current);
+      const identity = await runMutation(() => {
+        if (lifecycle !== lifecycleGeneration || slot.generation !== generation) return null;
+        return options.commit(event, stat, current);
+      });
       if (!identity) return;
       options.onCommitted?.(event, identity);
       if (slot.generation === generation && lifecycle === lifecycleGeneration) {

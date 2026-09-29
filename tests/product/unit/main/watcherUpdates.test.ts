@@ -7,6 +7,7 @@ import {
   createWatcherUpdateCoordinator,
   type WatcherRootPollTimer,
 } from '../../../../src/main/watcherLifecycle';
+import { createMetadataRestoreMutationGate } from '../../../../src/main/metadataRestoreMutationGate';
 
 interface Identity { id: number; path: string; contentRevision: number; }
 interface Stat { size: number; modifiedAt: number; }
@@ -193,6 +194,35 @@ test('restart invalidation prevents a queued watcher event from committing later
   assert.equal(commits, 0);
   assert.equal(rows.has(filePath), false);
   assert.equal(coordinator.getTrackedPathCount(), 0);
+});
+
+test('watcher database writes wait behind a restore lease and replay on release', async () => {
+  const gate = createMetadataRestoreMutationGate();
+  const release = await gate.acquire();
+  let committed = false;
+  const coordinator = createWatcherUpdateCoordinator<Stat, Metadata>({
+    runMutation: operation => gate.run(operation),
+    stat: async () => ({ size: 1, modifiedAt: 1 }),
+    getIdentity: () => null,
+    commit: (_event, _stat) => {
+      committed = true;
+      return { id: 1, path: '/models/queued.stl', contentRevision: 1 };
+    },
+    remove: () => undefined,
+    isRemovalSafe: async () => true,
+    extractMetadata: async () => ({ vertices: 1 }),
+    applyMetadata: () => true,
+    generateThumbnail: async () => null,
+    applyThumbnail: () => true,
+  });
+
+  const pending = coordinator.handle({ type: 'add', filePath: '/models/queued.stl' });
+  await new Promise<void>(resolve => setTimeout(resolve, 30));
+  assert.equal(committed, false);
+  await release();
+  await pending;
+  assert.equal(committed, true);
+  await coordinator.drain();
 });
 
 test('root status polling owns one unref timer, avoids overlapping checks, and clears on stop', async () => {

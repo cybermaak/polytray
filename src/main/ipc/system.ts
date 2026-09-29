@@ -14,6 +14,7 @@ import { getDb } from "../database";
 import { startWatcher, stopWatcher } from "../watcher";
 import { IPC, PreviewMetricData, RuntimeSettingsData } from "../../shared/types";
 import { ARCHIVE_ENTRY_SEPARATOR } from "../../shared/archivePaths";
+import { startWatcherThroughMutationGate } from "../watcherMutationGate";
 import {
   parseFilePath,
   parseFolderPath,
@@ -22,8 +23,13 @@ import {
   parseRuntimeSettings,
 } from "./runtimeValidation";
 
+interface SystemMutationOptions {
+  runMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
+}
+
 export function registerSystemHandlers(
   getMainWindow: () => BrowserWindow | null,
+  options: SystemMutationOptions = {},
 ) {
   ipcMain.on(IPC.ON_DRAG_START, (event, filePath) => {
     const parsedFilePath = parseFilePath(filePath);
@@ -156,12 +162,16 @@ export function registerSystemHandlers(
     const parsedSettings = parseRuntimeSettings(settings);
     const mainWindow = getMainWindow();
     if (mainWindow) {
-      await startWatcher(parsedFolderPaths, mainWindow, getDb(), parsedSettings);
+      await startWatcherThroughMutationGate(
+        (runMutation) => startWatcher(parsedFolderPaths, mainWindow, getDb(), parsedSettings, runMutation),
+        options.runMutation,
+      );
     }
   });
 
   ipcMain.handle(IPC.STOP_WATCHING, async () => {
-    await stopWatcher();
+    if (options.runMutation) await options.runMutation(() => stopWatcher());
+    else await stopWatcher();
   });
 
 }

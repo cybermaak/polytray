@@ -61,9 +61,11 @@ import {
 } from "../shared/libraryCollections";
 import { normalizeFileTags, parseStoredFileTags } from "../shared/fileTags";
 import type { FileRecord, ScanProgressData, ThumbnailReadyData } from "../shared/types";
+import type { MetadataBackupSnapshot, StagedMetadataRestore } from "../shared/backupContracts";
 import type { LibraryQuery, LibraryItem } from "../shared/libraryQuery";
 import type { PreviewTarget } from "../shared/previewTarget";
 import { thumbnailImageCache } from "./lib/thumbnailImageCache";
+import { createRendererMutationGate } from "./rendererMutationGate";
 import {
   applyThumbnailReadyToRecord,
   invalidateThumbnailImages,
@@ -84,6 +86,9 @@ interface ProgressState {
   text: string;
   count: string;
 }
+
+const RENDERER_STATE_REVISION_KEY = "polytray-renderer-state-revision";
+type RendererRestoreSnapshot = MetadataBackupSnapshot & { preferences: Record<string, unknown> };
 
 export const App: React.FC = () => {
   // ── State ───────────────────────────────────────────────────────
@@ -119,6 +124,8 @@ export const App: React.FC = () => {
   const compareFocusReturnRef = useRef<HTMLElement | null>(null);
   const [comparisonFiles, setComparisonFiles] = useState<FileRecord[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [restoreRecoveryError, setRestoreRecoveryError] = useState<string | null>(null);
+  const [rendererStateLocked, setRendererStateLocked] = useState(false);
   const [collectionsState, setCollectionsState] = useState<CollectionsState>(
     DEFAULT_COLLECTIONS_STATE,
   );
@@ -209,6 +216,12 @@ export const App: React.FC = () => {
   settingsRef.current = settings;
   const libraryStateRef = useRef<LibraryState>(DEFAULT_LIBRARY_STATE);
   const collectionsStateRef = useRef<CollectionsState>(DEFAULT_COLLECTIONS_STATE);
+  const rendererStateRevisionRef = useRef(0);
+  const rendererStateSnapshotReadyRef = useRef(false);
+  const restoreMutationLockedRef = useRef(false);
+  const applyingRestoreStateRef = useRef(false);
+  const pendingRendererStateWritesRef = useRef(false);
+  const rendererMutationGateRef = useRef(createRendererMutationGate());
   collectionsStateRef.current = collectionsState;
   const selectedFilesRef = useRef(selectedFilesById);
   selectedFilesRef.current = selectedFilesById;
@@ -256,13 +269,6 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  const persistSettings = useCallback((nextSettings: AppSettings) => {
-    localStorage.setItem(
-      SETTINGS_STORAGE_KEY,
-      serializeAppSettings(nextSettings),
-    );
-  }, []);
-
   const getRuntimeSettings = useCallback(
     () => toRuntimeSettings(settingsRef.current),
     [],
@@ -274,25 +280,162 @@ export const App: React.FC = () => {
     foldersRef.current = nextState.libraryFolders;
   }, []);
 
-  const persistLibraryState = useCallback((nextState: LibraryState) => {
-    localStorage.setItem(
-      LIBRARY_STATE_STORAGE_KEY,
-      serializeLibraryState(nextState),
-    );
-  }, []);
-
   const applyCollectionsState = useCallback((nextState: CollectionsState) => {
     const normalized = normalizeCollectionsState(nextState);
     collectionsStateRef.current = normalized;
     setCollectionsState(normalized);
   }, []);
 
+  const buildRendererRestoreSnapshot = useCallback((rendererRevision = rendererStateRevisionRef.current): RendererRestoreSnapshot => ({
+    rendererRevision,
+    libraryRoots: [...libraryStateRef.current.libraryFolders],
+    collections: collectionsStateRef.current.collections.map(collection => ({
+      id: collection.id,
+      name: collection.name,
+      paths: [...collection.filePaths],
+    })),
+    preferences: { ...settingsRef.current },
+  }), []);
+
+  const publishRendererRestoreSnapshot = useCallback(async (snapshot = buildRendererRestoreSnapshot()) => {
+    localStorage.setItem(RENDERER_STATE_REVISION_KEY, String(snapshot.rendererRevision));
+    await window.polytray.publishMetadataRestoreSnapshot(snapshot);
+  }, [buildRendererRestoreSnapshot]);
+
+  const advanceRendererStateRevision = useCallback(() => {
+    if (!rendererStateSnapshotReadyRef.current || applyingRestoreStateRef.current) return;
+    if (restoreMutationLockedRef.current) {
+      pendingRendererStateWritesRef.current = true;
+      return;
+    }
+    rendererStateRevisionRef.current++;
+    const snapshot = buildRendererRestoreSnapshot();
+    void publishRendererRestoreSnapshot(snapshot).catch(error => {
+      console.error("Failed to publish metadata restore snapshot", error);
+    });
+  }, [buildRendererRestoreSnapshot, publishRendererRestoreSnapshot]);
+
+  const runRendererMutation = useCallback(<T,>(operation: () => T | Promise<T>) =>
+    rendererMutationGateRef.current.run(operation), []);
+
+  const flushQueuedRendererMutations = useCallback(() => {
+    void rendererMutationGateRef.current.unlock().catch(error => {
+      console.error("Failed to replay queued renderer mutations", error);
+    });
+  }, []);
+
+  const persistSettings = useCallback((nextSettings: AppSettings) => {
+    settingsRef.current = nextSettings;
+    if (restoreMutationLockedRef.current && !applyingRestoreStateRef.current) {
+      pendingRendererStateWritesRef.current = true;
+      return;
+    }
+    localStorage.setItem(SETTINGS_STORAGE_KEY, serializeAppSettings(nextSettings));
+    advanceRendererStateRevision();
+  }, [advanceRendererStateRevision]);
+
+  const persistLibraryState = useCallback((nextState: LibraryState) => {
+    libraryStateRef.current = nextState;
+    if (restoreMutationLockedRef.current && !applyingRestoreStateRef.current) {
+      pendingRendererStateWritesRef.current = true;
+      return;
+    }
+    localStorage.setItem(LIBRARY_STATE_STORAGE_KEY, serializeLibraryState(nextState));
+    advanceRendererStateRevision();
+  }, [advanceRendererStateRevision]);
+
   const persistCollectionsState = useCallback((nextState: CollectionsState) => {
+    collectionsStateRef.current = normalizeCollectionsState(nextState);
+    if (restoreMutationLockedRef.current && !applyingRestoreStateRef.current) {
+      pendingRendererStateWritesRef.current = true;
+      return;
+    }
     localStorage.setItem(
       COLLECTIONS_STORAGE_KEY,
       serializeCollectionsState(nextState),
     );
-  }, []);
+    advanceRendererStateRevision();
+  }, [advanceRendererStateRevision]);
+
+  const handleRestoreApply = useCallback(async (request: { requestId: string; state: StagedMetadataRestore }) => {
+    const staged = request.state;
+    applyingRestoreStateRef.current = true;
+    try {
+      const nextSettings = normalizeAppSettings(staged.settings);
+      const currentLastFolder = libraryStateRef.current.lastFolder;
+      const nextLibraryState = normalizeLibraryState({
+        libraryFolders: staged.libraryRoots,
+        lastFolder: currentLastFolder && staged.libraryRoots.includes(currentLastFolder)
+          ? currentLastFolder
+          : staged.libraryRoots[0] ?? null,
+      });
+      const nextCollectionsState = normalizeCollectionsState({
+        collections: staged.collections.map(collection => ({
+          id: collection.id,
+          name: collection.name,
+          filePaths: collection.paths,
+        })),
+        activeCollectionId: collectionsStateRef.current.activeCollectionId,
+      });
+
+      settingsRef.current = nextSettings;
+      setSettings(nextSettings);
+      applySettingsToDocument(nextSettings);
+      applyLibraryState(nextLibraryState);
+      applyCollectionsState(nextCollectionsState);
+      localStorage.setItem(SETTINGS_STORAGE_KEY, serializeAppSettings(nextSettings));
+      localStorage.setItem(LIBRARY_STATE_STORAGE_KEY, serializeLibraryState(nextLibraryState));
+      localStorage.setItem(COLLECTIONS_STORAGE_KEY, serializeCollectionsState(nextCollectionsState));
+      rendererStateRevisionRef.current = staged.rendererRevision;
+      rendererStateSnapshotReadyRef.current = true;
+      const snapshot = buildRendererRestoreSnapshot(staged.rendererRevision);
+      await publishRendererRestoreSnapshot(snapshot);
+      await window.polytray.acknowledgeMetadataRestoreApply(request.requestId, snapshot);
+    } catch (error) {
+      console.error("Failed to apply recovered metadata restore state", error);
+      throw error;
+    } finally {
+      applyingRestoreStateRef.current = false;
+    }
+  }, [applyCollectionsState, applyLibraryState, applySettingsToDocument, buildRendererRestoreSnapshot, publishRendererRestoreSnapshot]);
+
+  useEffect(() => {
+    const stopApply = window.polytray.onMetadataRestoreApply(request => {
+      void handleRestoreApply(request).catch(error => console.error("Metadata restore application failed", error));
+    });
+    const stopLock = window.polytray.onMetadataRestoreMutationLock(request => {
+      void (async () => {
+        restoreMutationLockedRef.current = request.locked;
+        setRendererStateLocked(request.locked);
+        if (request.locked) {
+          await rendererMutationGateRef.current.lock();
+          await publishRendererRestoreSnapshot(buildRendererRestoreSnapshot());
+        }
+        if (!request.locked && pendingRendererStateWritesRef.current) {
+          pendingRendererStateWritesRef.current = false;
+          localStorage.setItem(SETTINGS_STORAGE_KEY, serializeAppSettings(settingsRef.current));
+          localStorage.setItem(LIBRARY_STATE_STORAGE_KEY, serializeLibraryState(libraryStateRef.current));
+          localStorage.setItem(COLLECTIONS_STORAGE_KEY, serializeCollectionsState(collectionsStateRef.current));
+          rendererStateRevisionRef.current++;
+          await publishRendererRestoreSnapshot(buildRendererRestoreSnapshot());
+        }
+        if (!request.locked) flushQueuedRendererMutations();
+        await window.polytray.acknowledgeMetadataRestoreMutationLock(request.requestId);
+      })().catch(error => console.error("Failed to update metadata restore mutation lock", error));
+    });
+    const blockMutationEvent = (event: Event) => {
+      if (!restoreMutationLockedRef.current && !rendererMutationGateRef.current.isLocked()) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    const mutationEvents = ["click", "pointerdown", "keydown", "submit", "input", "change"];
+    mutationEvents.forEach(type => document.addEventListener(type, blockMutationEvent, true));
+    return () => {
+      stopApply();
+      stopLock();
+      mutationEvents.forEach(type => document.removeEventListener(type, blockMutationEvent, true));
+    };
+  }, [buildRendererRestoreSnapshot, flushQueuedRendererMutations, handleRestoreApply, publishRendererRestoreSnapshot]);
 
   const clearSelection = useCallback((announcement = "Selection cleared because the library query changed.") => {
     if (selectedFilesRef.current.size === 0) return;
@@ -593,6 +736,10 @@ export const App: React.FC = () => {
     hasBooted.current = true;
 
     (async () => {
+      const savedRendererRevision = Number(localStorage.getItem(RENDERER_STATE_REVISION_KEY));
+      rendererStateRevisionRef.current = Number.isSafeInteger(savedRendererRevision) && savedRendererRevision >= 0
+        ? savedRendererRevision
+        : 0;
       const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
       let loadedSettings = DEFAULT_APP_SETTINGS;
 
@@ -651,14 +798,32 @@ export const App: React.FC = () => {
       applyCollectionsState(loadedCollectionsState);
       persistCollectionsState(loadedCollectionsState);
 
+      rendererStateSnapshotReadyRef.current = true;
+      const bootSnapshot = buildRendererRestoreSnapshot();
+      await publishRendererRestoreSnapshot(bootSnapshot);
+      const recovery = await window.polytray.completeMetadataRestoreStartup(bootSnapshot);
+      if (recovery.status === "blocked") {
+        restoreMutationLockedRef.current = true;
+        await rendererMutationGateRef.current.lock();
+        setRendererStateLocked(true);
+        setRestoreRecoveryError(recovery.message);
+        console.error("Metadata restore recovery is blocked", recovery.message);
+        setLibraryReady(true);
+        return;
+      }
+
+      const currentSettings = settingsRef.current;
+      const currentLibraryState = libraryStateRef.current;
+      const currentCollectionsState = collectionsStateRef.current;
+
       try {
         const [legacyResult, nextStats, nextDirectories] = await Promise.all([
-          window.polytray.getFiles({ limit: loadedSettings.page_size, offset: 0 }),
+          window.polytray.getFiles({ limit: currentSettings.page_size, offset: 0 }),
           window.polytray.getStats(),
           window.polytray.getDirectories(),
         ]);
-        const activeCollection = loadedCollectionsState.collections.find(
-          (collection) => collection.id === loadedCollectionsState.activeCollectionId,
+        const activeCollection = currentCollectionsState.collections.find(
+          (collection) => collection.id === currentCollectionsState.activeCollectionId,
         );
         const fallbackFiles = activeCollection
           ? legacyResult.files.filter((file) => activeCollection.filePaths.includes(file.path))
@@ -673,14 +838,14 @@ export const App: React.FC = () => {
         setLibraryReady(true);
       }
 
-      if (loadedLibraryState.libraryFolders.length > 0 && loadedSettings.watch) {
+      if (currentLibraryState.libraryFolders.length > 0 && currentSettings.watch) {
         window.polytray.startWatching(
-          loadedLibraryState.libraryFolders,
-          toRuntimeSettings(loadedSettings),
+          currentLibraryState.libraryFolders,
+          toRuntimeSettings(currentSettings),
         );
       }
 
-      if (loadedLibraryState.libraryFolders.length > 0 && loadedSettings.autoScan) {
+      if (currentLibraryState.libraryFolders.length > 0 && currentSettings.autoScan) {
         handleRescan();
       }
     })();
@@ -692,10 +857,12 @@ export const App: React.FC = () => {
     persistCollectionsState,
     persistLibraryState,
     persistSettings,
+    buildRendererRestoreSnapshot,
+    publishRendererRestoreSnapshot,
   ]);
 
   // ── Handlers ────────────────────────────────────────────────────
-  const handleAddFolder = useCallback(async () => {
+  const handleAddFolder = useCallback(() => runRendererMutation(async () => {
     const folder = await window.polytray.selectFolder();
     if (!folder) return;
     const nextLibraryState = withAddedLibraryFolder(
@@ -718,15 +885,16 @@ export const App: React.FC = () => {
       count: "",
     });
     await window.polytray.scanFolder(folder, getRuntimeSettings());
-  }, [
+  }), [
     applyLibraryState,
     getRuntimeSettings,
     persistLibraryState,
+    runRendererMutation,
     settings.watch,
   ]);
 
   const handleRemoveFolder = useCallback(
-    async (folderPath: string) => {
+    (folderPath: string) => runRendererMutation(async () => {
       await window.polytray.removeLibraryFolder(folderPath);
       const nextLibraryState = withRemovedLibraryFolder(
         libraryStateRef.current,
@@ -748,12 +916,13 @@ export const App: React.FC = () => {
         activeFolderRef.current = null;
       }
       await refreshLibrary();
-    },
+    }),
     [
       applyLibraryState,
       clearSelection,
       getRuntimeSettings,
       persistLibraryState,
+      runRendererMutation,
       refreshLibrary,
       settings.watch,
     ],
@@ -902,7 +1071,7 @@ export const App: React.FC = () => {
     setBatchTagsInput("");
   }, [batchTagsInput, handleFileRecordUpdate, selectedFiles]);
 
-  const handleCollectionSelect = useCallback((collectionId: string | null) => {
+  const handleCollectionSelect = useCallback((collectionId: string | null) => runRendererMutation(() => {
     if (collectionsStateRef.current.activeCollectionId !== collectionId) clearSelection();
     const nextState = normalizeCollectionsState({
       ...collectionsStateRef.current,
@@ -910,10 +1079,10 @@ export const App: React.FC = () => {
     });
     applyCollectionsState(nextState);
     persistCollectionsState(nextState);
-  }, [applyCollectionsState, clearSelection, persistCollectionsState]);
+  }), [applyCollectionsState, clearSelection, persistCollectionsState, runRendererMutation]);
 
   const handleCreateCollection = useCallback(
-    (name: string, filePaths: string[]) => {
+    (name: string, filePaths: string[]) => runRendererMutation(() => {
       const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || `collection-${Date.now()}`;
       let nextState = upsertCollection(collectionsStateRef.current, {
         id,
@@ -927,12 +1096,12 @@ export const App: React.FC = () => {
       clearSelection();
       applyCollectionsState(nextState);
       persistCollectionsState(nextState);
-    },
-    [applyCollectionsState, clearSelection, persistCollectionsState],
+    }),
+    [applyCollectionsState, clearSelection, persistCollectionsState, runRendererMutation],
   );
 
   const handleAddFilesToCollection = useCallback(
-    (collectionId: string, filePaths: string[]) => {
+    (collectionId: string, filePaths: string[]) => runRendererMutation(() => {
       const nextState = addFilesToCollection(
         collectionsStateRef.current,
         collectionId,
@@ -944,8 +1113,8 @@ export const App: React.FC = () => {
         clearSelection();
         void refreshLibrary();
       }
-    },
-    [applyCollectionsState, clearSelection, persistCollectionsState, refreshLibrary],
+    }),
+    [applyCollectionsState, clearSelection, persistCollectionsState, refreshLibrary, runRendererMutation],
   );
 
   const handleBatchAddToCollection = useCallback(() => {
@@ -1020,17 +1189,17 @@ export const App: React.FC = () => {
   const handleRetryPage = useCallback(() => { void libraryPages.retry(); }, [libraryPages.retry]);
 
   const handleRemoveCollection = useCallback(
-    (collectionId: string) => {
+    (collectionId: string) => runRendererMutation(() => {
       const nextState = removeCollection(collectionsStateRef.current, collectionId);
       if (collectionsStateRef.current.activeCollectionId === collectionId) clearSelection();
       applyCollectionsState(nextState);
       persistCollectionsState(nextState);
-    },
-    [applyCollectionsState, clearSelection, persistCollectionsState],
+    }),
+    [applyCollectionsState, clearSelection, persistCollectionsState, runRendererMutation],
   );
 
   const handleSettingsChange = useCallback(
-    (newSettings: Partial<AppSettings>) => {
+    (newSettings: Partial<AppSettings>) => runRendererMutation(() => {
       setSettings((prev) => {
         const merged = normalizeAppSettings({ ...prev, ...newSettings });
         settingsRef.current = merged;
@@ -1038,8 +1207,8 @@ export const App: React.FC = () => {
         applySettingsToDocument(merged, prev.previewColor !== merged.previewColor);
         return merged;
       });
-    },
-    [applySettingsToDocument, persistSettings],
+    }),
+    [applySettingsToDocument, persistSettings, runRendererMutation],
   );
 
   // ── Reactive watch toggle ──────────────────────────────────────
@@ -1117,6 +1286,11 @@ export const App: React.FC = () => {
           onPreferredWidthChange={(sidebarWidth) => handleSettingsChange({ sidebarWidth })}
         />
         <main id="content">
+          {restoreRecoveryError && (
+            <div role="alert" className="scan-error">
+              Metadata restore recovery is blocked. Your saved metadata is protected; resolve this recovery issue before changing library settings. {restoreRecoveryError}
+            </div>
+          )}
           <Toolbar
             sort={sort}
             order={order}
@@ -1216,6 +1390,17 @@ export const App: React.FC = () => {
           onClose={handleClosePreview}
         />
       </div>
+      {rendererStateLocked && (
+        <div
+          role="status"
+          aria-live="assertive"
+          style={{ position: "fixed", inset: 0, zIndex: 9999, display: "grid", placeItems: "center", padding: 24, background: "rgba(0, 0, 0, 0.56)", color: "white", textAlign: "center" }}
+        >
+          {restoreRecoveryError
+            ? `Metadata restore recovery is blocked. ${restoreRecoveryError}`
+            : "Applying metadata restore. Please wait…"}
+        </div>
+      )}
       <SettingsModal
         open={settingsOpen}
         settings={settings}

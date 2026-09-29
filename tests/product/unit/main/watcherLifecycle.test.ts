@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
-import { createWatcherLifecycleManager } from '../../../../src/main/watcherLifecycle';
+import { createMetadataRestoreWatcherResumePlan, createWatcherLifecycleManager } from '../../../../src/main/watcherLifecycle';
 
 class FakeWorker extends EventEmitter {
   public postMessages: unknown[] = [];
@@ -17,6 +17,18 @@ class FakeWorker extends EventEmitter {
     this.emit('exit', null);
   }
 }
+
+test('restore watcher release uses only restored roots and enabled watch/scan preferences', () => {
+  assert.deepEqual(createMetadataRestoreWatcherResumePlan(['/restored'], { watch: false, autoScan: false }), {
+    watchRoots: [], scanRoots: [],
+  });
+  assert.deepEqual(createMetadataRestoreWatcherResumePlan(['/restored'], { watch: true, autoScan: false }), {
+    watchRoots: ['/restored'], scanRoots: [],
+  });
+  assert.deepEqual(createMetadataRestoreWatcherResumePlan(['/restored'], { watch: false, autoScan: true }), {
+    watchRoots: [], scanRoots: ['/restored'],
+  });
+});
 
 test('stop sends stop message and waits for exit', async () => {
   const worker = new FakeWorker();

@@ -18,9 +18,14 @@ import { parseFolderPath, parseRuntimeSettings } from "./runtimeValidation";
 import { getThumbnailBackgroundJobs, onThumbnailBackgroundJobChanged, pauseThumbnailJob, resumeThumbnailJob, cancelThumbnailJob, retryThumbnailJobFailures } from "../thumbnails";
 import type { BackgroundJob } from "../../shared/backgroundJobs";
 
+interface ScanningMutationOptions {
+  runMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
+}
+
 export function registerScanningHandlers(
   getMainWindow: () => BrowserWindow | null,
   metadataWorker = new MetadataWorkerClient({ maxQueuedRequests: 2 }),
+  options: ScanningMutationOptions = {},
 ) {
   const scanService = createScanService({
     db: getDb(),
@@ -70,7 +75,8 @@ export function registerScanningHandlers(
     },
   ) {
     const mainWindow = getMainWindow();
-    const result = await scanService.scan(folderPath, { batchSize: settings.scanning_batch_size });
+    const scan = () => scanService.scan(folderPath, { batchSize: settings.scanning_batch_size });
+    const result = options.runMutation ? await options.runMutation(scan) : await scan();
 
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(IPC.SCAN_COMPLETE, {

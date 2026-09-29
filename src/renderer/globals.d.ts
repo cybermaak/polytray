@@ -26,6 +26,19 @@ import type {
   BackgroundJob,
 } from "../shared/types";
 import type { PreparedPreview, PreviewParseRequest } from "../shared/previewContracts";
+import type {
+  MetadataBackupSnapshot,
+  MetadataImportCommitResult,
+  MetadataImportPlan,
+  MetadataImportRecoveryResult,
+  MetadataRestoreStatus,
+  StagedMetadataRestore,
+} from "../shared/backupContracts";
+
+type RendererRestoreSnapshot = MetadataBackupSnapshot & { preferences: Record<string, unknown> };
+type MetadataRestorePreviewResult =
+  | { status: "preview"; plan: MetadataImportPlan }
+  | { status: "failed"; message: string };
 
 export type { FileRecord };
 
@@ -88,6 +101,20 @@ interface PolytrayAPI {
 
   startWatching: (folderPaths: string[], settings: RuntimeSettingsData) => Promise<void>;
   stopWatching: () => Promise<void>;
+  getMetadataRestoreSnapshot: (snapshot: RendererRestoreSnapshot) => Promise<RendererRestoreSnapshot>;
+  publishMetadataRestoreSnapshot: (snapshot: RendererRestoreSnapshot) => Promise<void>;
+  completeMetadataRestoreStartup: (snapshot: RendererRestoreSnapshot) => Promise<MetadataImportRecoveryResult>;
+  previewMetadataRestore: (request: { backup: unknown; currentSnapshot: RendererRestoreSnapshot; options?: { replaceSettings?: boolean; replaceRoots?: boolean } }) => Promise<MetadataRestorePreviewResult>;
+  commitMetadataRestore: (transactionId: string) => Promise<MetadataImportCommitResult>;
+  acknowledgeMetadataRestore: (transactionId: string, rendererRevision: number) => Promise<void>;
+  cancelMetadataRestore: (transactionId: string) => Promise<void>;
+  getMetadataRestoreStatus: () => Promise<MetadataRestoreStatus>;
+  retryPendingMetadataAnnotations: () => Promise<{ appliedCount: number; conflictCount: number }>;
+  applyMetadataRestoreState: (state: StagedMetadataRestore) => Promise<void>;
+  onMetadataRestoreApply: (callback: (request: { requestId: string; state: StagedMetadataRestore }) => void) => () => void;
+  acknowledgeMetadataRestoreApply: (requestId: string, snapshot: RendererRestoreSnapshot) => Promise<void>;
+  onMetadataRestoreMutationLock: (callback: (request: { requestId: string; locked: boolean }) => void) => () => void;
+  acknowledgeMetadataRestoreMutationLock: (requestId: string) => Promise<void>;
   getMainWindowVisibility: () => Promise<MainWindowVisibilityData>;
   onMainWindowVisibility: (
     callback: (data: MainWindowVisibilityData) => void,

@@ -23,7 +23,11 @@ import {
   SlicerHandoffResult,
   SlicerConfiguration,
   BackgroundJob,
+  METADATA_RESTORE_IPC,
 } from "../shared/types";
+import type { MetadataBackupSnapshot, StagedMetadataRestore } from "../shared/backupContracts";
+
+type RendererRestoreSnapshot = MetadataBackupSnapshot & { preferences: Record<string, unknown> };
 
 function onChannel<T>(channel: string, callback: (data: T) => void) {
   const subscription = (_event: IpcRendererEvent, data: T) => callback(data);
@@ -124,6 +128,34 @@ contextBridge.exposeInMainWorld("polytray", {
   startWatching: (folderPaths: string[], settings: RuntimeSettingsData) =>
     ipcRenderer.invoke(IPC.START_WATCHING, folderPaths, settings),
   stopWatching: () => ipcRenderer.invoke(IPC.STOP_WATCHING),
+
+  // Recoverable metadata restore
+  getMetadataRestoreSnapshot: (snapshot: RendererRestoreSnapshot) =>
+    ipcRenderer.invoke(METADATA_RESTORE_IPC.snapshot, snapshot) as Promise<RendererRestoreSnapshot>,
+  publishMetadataRestoreSnapshot: (snapshot: RendererRestoreSnapshot) =>
+    ipcRenderer.invoke(METADATA_RESTORE_IPC.publishSnapshot, snapshot) as Promise<void>,
+  completeMetadataRestoreStartup: (snapshot: RendererRestoreSnapshot) =>
+    ipcRenderer.invoke(METADATA_RESTORE_IPC.bootstrap, snapshot),
+  previewMetadataRestore: (request: { backup: unknown; currentSnapshot: RendererRestoreSnapshot; options?: { replaceSettings?: boolean; replaceRoots?: boolean } }) =>
+    ipcRenderer.invoke(METADATA_RESTORE_IPC.preview, request),
+  commitMetadataRestore: (transactionId: string) =>
+    ipcRenderer.invoke(METADATA_RESTORE_IPC.commit, { transactionId }),
+  acknowledgeMetadataRestore: (transactionId: string, rendererRevision: number) =>
+    ipcRenderer.invoke(METADATA_RESTORE_IPC.acknowledge, { transactionId, rendererRevision }),
+  cancelMetadataRestore: (transactionId: string) =>
+    ipcRenderer.invoke(METADATA_RESTORE_IPC.cancel, { transactionId }),
+  getMetadataRestoreStatus: () => ipcRenderer.invoke(METADATA_RESTORE_IPC.status),
+  retryPendingMetadataAnnotations: () => ipcRenderer.invoke(METADATA_RESTORE_IPC.retry),
+  applyMetadataRestoreState: (state: StagedMetadataRestore) =>
+    ipcRenderer.invoke(METADATA_RESTORE_IPC.applyRequest, state),
+  onMetadataRestoreApply: (callback: (request: { requestId: string; state: StagedMetadataRestore }) => void) =>
+    onChannel(METADATA_RESTORE_IPC.applyEvent, callback),
+  acknowledgeMetadataRestoreApply: (requestId: string, snapshot: RendererRestoreSnapshot) =>
+    ipcRenderer.invoke(METADATA_RESTORE_IPC.applyAck, { requestId, snapshot }),
+  onMetadataRestoreMutationLock: (callback: (request: { requestId: string; locked: boolean }) => void) =>
+    onChannel(METADATA_RESTORE_IPC.mutationLockEvent, callback),
+  acknowledgeMetadataRestoreMutationLock: (requestId: string) =>
+    ipcRenderer.invoke(METADATA_RESTORE_IPC.mutationLockAck, { requestId }),
   getMainWindowVisibility: () =>
     ipcRenderer.invoke(IPC.GET_MAIN_WINDOW_VISIBILITY) as Promise<MainWindowVisibilityData>,
   onMainWindowVisibility,

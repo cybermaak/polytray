@@ -56,13 +56,17 @@ test('startup rolls a committed restore forward after only part of renderer loca
     expect(file).toBeTruthy();
     await first.window.evaluate(({ id }) => window.polytray.updateFileMetadata({ id, tags: ['before'], notes: 'keep this note' }), { id: file.id });
 
-    const restore = await first.window.evaluate(async ({ targetPath }) => {
+    const restore = await first.window.evaluate(async ({ targetPath, library, importedLibrary }) => {
       const bridge = window.polytray as typeof window.polytray & {
-        getMetadataRestoreSnapshot(): Promise<{ rendererRevision: number; libraryRoots: string[]; collections: Array<{ id: string; name: string; paths: string[] }>; preferences: Record<string, unknown> }>;
+        getMetadataRestoreSnapshot(snapshot: { rendererRevision: number; libraryRoots: string[]; collections: Array<{ id: string; name: string; paths: string[] }>; preferences: Record<string, unknown> }): Promise<{ rendererRevision: number; libraryRoots: string[]; collections: Array<{ id: string; name: string; paths: string[] }>; preferences: Record<string, unknown> }>;
         previewMetadataRestore(input: { backup: unknown; currentSnapshot: unknown; options?: unknown }): Promise<{ status: string; plan?: { transactionId: string } }>;
         commitMetadataRestore(transactionId: string): Promise<{ status: string; rendererState?: { libraryRoots: string[]; collections: Array<{ id: string; name: string; paths: string[] }>; settings: Record<string, unknown> } }>;
       };
-      const currentSnapshot = await bridge.getMetadataRestoreSnapshot();
+      const currentSnapshot = await bridge.getMetadataRestoreSnapshot({
+        rendererRevision: Number(localStorage.getItem('polytray-renderer-state-revision')) || 0,
+        libraryRoots: [library], collections: [],
+        preferences: JSON.parse(localStorage.getItem('polytray-settings') || '{}'),
+      });
       const backup = {
         format: 'polytray-metadata-backup', version: 1, exportedAt: '2026-09-28T00:00:00.000Z', appVersion: '1.1.1',
         annotations: [{ path: targetPath, tags: ['after'], notes: 'imported note' }],
@@ -78,11 +82,16 @@ test('startup rolls a committed restore forward after only part of renderer loca
       // Simulate a process crash after one renderer-owned key changed and before acknowledgment.
       localStorage.setItem('polytray-library-state', JSON.stringify({ libraryFolders: result.rendererState.libraryRoots, lastFolder: targetPath.slice(0, targetPath.lastIndexOf('/')) }));
       return { transactionId: preview.plan.transactionId, expectedSettings: result.rendererState.settings };
-    }, { targetPath: modelPath });
+    }, { targetPath: modelPath, library, importedLibrary });
     await first.app.close();
     first = undefined;
 
     restarted = await launch(userData);
+    await expect.poll(async () => restarted!.window.evaluate(async () => (
+      await (window.polytray as typeof window.polytray & {
+        getMetadataRestoreStatus(): Promise<{ unresolved: boolean }>;
+      }).getMetadataRestoreStatus()
+    ).unresolved), { timeout: 15_000 }).toBe(false);
     const recovered = await restarted.window.evaluate(async () => {
       const status = await (window.polytray as typeof window.polytray & {
         getMetadataRestoreStatus(): Promise<{ unresolved: boolean; pendingAnnotationCount: number; conflicts: unknown[] }>;
@@ -93,7 +102,7 @@ test('startup rolls a committed restore forward after only part of renderer loca
       const files = await window.polytray.getFiles({ limit: 50, offset: 0 });
       return { status, settings, libraryState, collections, file: files.files[0] ?? null };
     });
-    expect(recovered.status.unresolved).toBe(false);
+    expect(recovered.status.unresolved, JSON.stringify(recovered.status)).toBe(false);
     expect(recovered.status.pendingAnnotationCount).toBe(1);
     expect(recovered.settings.lightMode).toBe(true);
     expect(recovered.settings.autoScan).toBe(false);
@@ -101,7 +110,7 @@ test('startup rolls a committed restore forward after only part of renderer loca
     expect(recovered.settings.slicerConfiguration).toEqual({ applicationPath: '/local/Example.app', useSystemDefault: false });
     expect(recovered.libraryState.libraryFolders).toEqual([library, importedLibrary]);
     expect(recovered.collections.collections).toContainEqual({ id: 'restore-collection', name: 'Restored', filePaths: [modelPath] });
-    expect(recovered.file.tags).toBe('["after","before"]');
+    expect(recovered.file.tags).toBe('["before","after"]');
     expect(recovered.file.notes).toBe('keep this note');
     expect((await restarted.window.evaluate(async () => (await window.polytray.getFiles({ limit: 50, offset: 0 })).files)).some((entry) => entry.path.endsWith('must-not-scan.stl'))).toBe(false);
   } finally {
