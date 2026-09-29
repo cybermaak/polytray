@@ -2,7 +2,7 @@
 
 [Execution plan](../2026-09-26-performance-ux-execution-plan.md) | [Shared contracts](contracts.md) | [Handoff template](handoff-template.md)
 
-**Execution active:** S06 is DONE on local `main` at `e0cb46a`, with serial source and bridge reviews, Build, and full Product complete. U05 is next in dependency order. No push, release, or publication is authorized.
+**Execution active:** S06 is DONE on local `main` at `e0cb46a`; U05 is the single active implementation task on `codex/perf-u05` based on `2a917ee`. One Luna/medium worker owns the specified renderer UI/hook/reducer/E2E paths. No push, release, or publication is authorized.
 
 **Coordination handoff:** [Luna execution plan](../2026-09-27-luna-coordinator-handoff.md). The sequential policy is authoritative: implementation, independent reviews, integration, and verification run serially. Astra is reserved for final integration review. No push to `origin/main`, release, or publication is authorized.
 
@@ -70,7 +70,7 @@
 | U02 | [Search state and targeted refresh](browsing.md#u02---unify-search-state-and-refresh-only-what-changed) | P2 | U01, D03 | DONE | sequential recovery candidate | [U02](handoffs/U02.md); spec/quality PASS; focused search/pagination E2Es and Product PASS on `0c5496d` |
 | U03 | [Responsive panel layout](browsing.md#u03---keep-browsing-usable-at-every-supported-window-size) | P2 | F01, F02 | DONE | Luna/medium chat `01a0e202-8608-7f21-a52d-5e89ef92806b` | [U03](handoffs/U03.md); both reviews and full Product PASS; integrated `890e4ba` through `b84ba09` |
 | U04 | [Keyboard navigation and focus](browsing.md#u04---support-keyboard-navigation-and-predictable-focus) | P2 | U01, U03, V02 | DONE | u04_integration_repair, Luna/medium | [U04](handoffs/U04.md); spec/quality PASS; final integrated repair `db32506`; Build, focused E2Es, and full Product PASS: 383 units/1 skip, 51 E2Es/1 optional skip |
-| U05 | [Background work UI and watch preferences](browsing.md#u05---present-useful-progress-and-respect-watcher-preferences) | P2 | U02, S06, T04 | PLANNED | Unassigned | - |
+| U05 | [Background work UI and watch preferences](browsing.md#u05---present-useful-progress-and-respect-watcher-preferences) | P2 | U02, S06, T04 | IN_PROGRESS | u05_background_ui, Luna/medium | [U05](handoffs/U05.md); `/Users/maak/.codex/worktrees/u04-keyboard-focus/polytray` / `codex/perf-u05` at `2a917ee`; one worker owns renderer UI/hook/reducer/E2E |
 | U06 | [Workflow and measurement UI integration](browsing.md#u06---integrate-slicer-backuprestore-and-honest-measurements) | P2 | U04, P01, P02, P04, S04 | PLANNED | Unassigned | - |
 | P01 | [Local slicer and archive handoff](product.md#p01---add-explicit-local-slicer-handoff-including-zip-members) | P2 | F01, F02 | DONE | Luna/medium chat `01a0e204-6183-7ee2-a2ac-0bbd43568fa3` | [P01](handoffs/P01.md); source/reviews and combined startup Product PASS at T01 merge `9479c7f`; U06 owns explicit UI activation |
 | P02 | [Versioned metadata export](product.md#p02---export-complete-versioned-metadata-backups) | P2 | F01, F02 | DONE | s01_safe_scanning (Luna/medium) | [P02](handoffs/P02.md); producer reviewed/integrated `e1c66e8`, `6de841f`; consumer binding P04/U06 |
@@ -100,6 +100,7 @@
 | V05 | `/root/v05_part_thumbnails`, Luna/medium | `/Users/maak/.codex/worktrees/u04-keyboard-focus/polytray` / `codex/perf-v05` | DONE: implementation integrated as `bcde06d`; spec/quality PASS; final combined Product passed on identical code/test tree `db32506` |
 | P04 | `/root/p04_recoverable_restore`, Luna/medium | `/Users/maak/.codex/worktrees/u04-keyboard-focus/polytray` / `codex/perf-p04`, integrated `96a2128` | DONE: reviews PASS; migration/journal/service, typed renderer bridge, startup recovery, and main/renderer mutation leases integrated; full Product PASS |
 | S06 | `/root/s06_scan_controls`, Luna/medium | `/Users/maak/.codex/worktrees/u04-keyboard-focus/polytray` / `codex/perf-s06` at `ea22f4e`; integrated local main `e0cb46a` | DONE: serial service/bridge spec and quality PASS; coordinator bridge and narrow responsive-test repair integrated; Build/Product PASS; fixture baseline restored |
+| U05 | `/root/u05_background_ui`, Luna/medium | `/Users/maak/.codex/worktrees/u04-keyboard-focus/polytray` / `codex/perf-u05` at `2a917ee` | IN_PROGRESS: scan/job presentation, lifecycle-aware controls, event reducer, and watch-preference ownership per browsing.md U05 |
 | P01 | Registered Luna/medium chat | `/Users/maak/.codex/worktrees/polytray-slicer/polytray` / `codex/perf-p01` | DONE; checkout available for later P04 after status check |
 | Independent review | Luna/medium chat `01a0e1fe-a466-7810-9892-71009a512cc2` | Read-only exact candidate checkouts | U01/V02, Stage 4 U02/T04, and S04 spec/quality plus scanner-harness follow-up PASS |
 | U03 old dispatch | Superseded draft, no usable chat ID | `/Users/maak/.codex/worktrees/1221/polytray`, `3a3b13c` | Preserved unreviewed alternative; active owner is the registered layout chat |
