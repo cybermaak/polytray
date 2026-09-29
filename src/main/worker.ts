@@ -28,6 +28,28 @@ async function inspectRoot(rootPath: string, generationAtStart: number) {
   }
 }
 
+async function waitForIsolatedRootStartRelease(roots: string[], generationAtStart: number) {
+  if (process.env.POLYTRAY_ISOLATED_TEST !== '1') return;
+  const rootPath = process.env.POLYTRAY_WATCHER_TEST_ROOT_PATH;
+  const releasePath = process.env.POLYTRAY_WATCHER_TEST_ROOT_RELEASE_PATH;
+  const scratchDir = process.env.POLYTRAY_PERF_SCRATCH;
+  if (!rootPath || !releasePath || !scratchDir || !path.isAbsolute(rootPath) ||
+      !path.isAbsolute(releasePath) || !path.isAbsolute(scratchDir) ||
+      !roots.includes(path.resolve(rootPath))) return;
+  const relativeReleasePath = path.relative(path.resolve(scratchDir), path.resolve(releasePath));
+  if (!relativeReleasePath || relativeReleasePath === '..' || relativeReleasePath.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relativeReleasePath)) return;
+
+  while (generationAtStart === generation) {
+    try {
+      await fs.access(releasePath);
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+}
+
 async function closeWatcher() {
   rootStatusPoller?.stop();
   rootStatusPoller = null;
@@ -54,6 +76,8 @@ if (process.parentPort) {
       await closeWatcher();
       watchedRoots = [...new Set((msg.folderPaths as string[]).map((folderPath) => path.resolve(folderPath)))];
       rootAvailability = new Map();
+      await waitForIsolatedRootStartRelease(watchedRoots, generationAtStart);
+      if (generationAtStart !== generation) return;
 
       watcher = chokidar.watch(watchedRoots, {
         ignored: /(^|[/\\])\./,

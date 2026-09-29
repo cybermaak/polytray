@@ -49,6 +49,7 @@ test('utility watcher indexes before enrichment, fences scan churn, and recovers
   let seedPath = '';
   let releasePath = '';
   let reachedPath = '';
+  let rootStatusReleasePath = '';
   let outsidePath = '';
   let offlineRoot = '';
   let isolated: Awaited<ReturnType<typeof launchIsolatedApp>> | null = null;
@@ -63,14 +64,18 @@ test('utility watcher indexes before enrichment, fences scan churn, and recovers
         seedPath = path.join(beforeScan, 'seed.stl');
         releasePath = path.join(scratchDir, 'release-scan');
         reachedPath = path.join(scratchDir, 'scan-held');
+        rootStatusReleasePath = path.join(scratchDir, 'release-watcher-root-check');
         outsidePath = path.join(scratchDir, 'outside.stl');
         offlineRoot = `${root}-offline`;
         fs.mkdirSync(beforeScan, { recursive: true });
         copyModel(path.join(process.cwd(), 'tests/support/fixtures/test_model_a.stl'), seedPath);
         copyModel(path.join(process.cwd(), 'tests/support/fixtures/test_model_b.stl'), outsidePath);
+        fs.writeFileSync(rootStatusReleasePath, 'release');
         env.POLYTRAY_SCAN_TEST_HOLD_PATH = root;
         env.POLYTRAY_SCAN_TEST_RELEASE_PATH = releasePath;
         env.POLYTRAY_SCAN_TEST_REACHED_PATH = reachedPath;
+        env.POLYTRAY_WATCHER_TEST_ROOT_PATH = root;
+        env.POLYTRAY_WATCHER_TEST_ROOT_RELEASE_PATH = rootStatusReleasePath;
       },
     });
     const page = await findMainWindow(isolated.app);
@@ -167,9 +172,13 @@ test('utility watcher indexes before enrichment, fences scan churn, and recovers
     expect(await readRow(page, beforeScan, seedPath)).toBeTruthy();
 
     const noticeCountBeforeOfflineRestart = await page.evaluate(() => (window as Window & { __watchNotices?: WatchNotice[] }).__watchNotices?.length ?? 0);
+    fs.rmSync(releasePath, { force: true });
+    fs.rmSync(reachedPath, { force: true });
+    fs.rmSync(rootStatusReleasePath, { force: true });
     await page.evaluate(() => window.polytray.stopWatching());
     await page.evaluate(({ folder, runtime }) => window.polytray.startWatching([folder], runtime), { folder: root, runtime: settings });
     fs.renameSync(offlineRoot, root);
+    fs.writeFileSync(rootStatusReleasePath, 'release');
     await expect.poll(() => page.evaluate(({ folder, after }) =>
       (window as Window & { __watchNotices?: WatchNotice[] }).__watchNotices?.slice(after).some(
         (notice) => notice.type === 'root-available' && notice.filePath === folder,
@@ -178,6 +187,9 @@ test('utility watcher indexes before enrichment, fences scan churn, and recovers
       (window as Window & { __folderActions?: Array<{ action: string; path: string }> }).__folderActions?.some(
         (entry) => entry.action === 'rescan' && entry.path === rootPath,
       ) ?? false, root), { timeout: 15_000 }).toBe(true);
+    await expect.poll(() => fs.existsSync(reachedPath), { timeout: 15_000 }).toBe(true);
+    expect(await readRow(page, beforeScan, seedPath)).toBeTruthy();
+    fs.writeFileSync(releasePath, 'release');
     await expect.poll(() => page.evaluate((before) =>
       ((window as Window & { __scanCompleteCount?: number }).__scanCompleteCount ?? 0) > before,
     scanCountBeforeReconnect), { timeout: 20_000 }).toBe(true);
@@ -219,8 +231,9 @@ test('utility watcher indexes before enrichment, fences scan churn, and recovers
     copyModel(path.join(process.cwd(), 'tests/support/fixtures/test_model_a.stl'), restartedAgainPath);
     await expect.poll(async () => (await readRow(page, beforeScan, restartedAgainPath))?.thumbnail ?? null, { timeout: 20_000 }).toBeTruthy();
   } finally {
-    if (isolated && releasePath && !fs.existsSync(releasePath)) fs.writeFileSync(releasePath, 'release');
     if (offlineRoot && fs.existsSync(offlineRoot) && root && !fs.existsSync(root)) fs.renameSync(offlineRoot, root);
+    if (isolated && rootStatusReleasePath && !fs.existsSync(rootStatusReleasePath)) fs.writeFileSync(rootStatusReleasePath, 'release');
+    if (isolated && releasePath && !fs.existsSync(releasePath)) fs.writeFileSync(releasePath, 'release');
     await isolated?.close();
   }
 });
