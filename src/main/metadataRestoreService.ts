@@ -11,6 +11,7 @@ import { normalizeAppSettings } from '../shared/settings';
 import { advanceLibraryRevisions, getBrowseRevision } from './libraryRevisions';
 import { createMetadataRestoreJournal, type MetadataRestoreJournalRecord, type MetadataRestoreLocalState } from './metadataRestoreJournal';
 import { createFileIndexRepository, subscribeToFileIndexMutations, type CommittedFileMutation, type FileIndexRepository } from './fileIndexing';
+import { syncDirectorySync } from './directorySync';
 
 export interface MetadataRestoreJournal {
   write(record: MetadataRestoreJournalRecord): Promise<void>;
@@ -77,8 +78,7 @@ function atomicWrite(target: string, contents: string) {
     fd = fs.openSync(temporary, 'wx', 0o600);
     fs.writeFileSync(fd, contents, 'utf8'); fs.fsyncSync(fd); fs.closeSync(fd); fd = undefined;
     fs.renameSync(temporary, target);
-    const directoryFd = fs.openSync(directory, 'r');
-    try { fs.fsyncSync(directoryFd); } finally { fs.closeSync(directoryFd); }
+    syncDirectorySync(directory);
   } catch (error) {
     if (fd !== undefined) fs.closeSync(fd);
     try { fs.unlinkSync(temporary); } catch { /* retain the primary error */ }

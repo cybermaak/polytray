@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { MetadataImportPlan } from '../shared/backupContracts';
+import { syncDirectoryAsync } from './directorySync';
 
 export type MetadataRestoreJournalState = 'prepared' | 'database-applied' | 'renderer-applied' | 'complete';
 export interface MetadataRestoreLocalState {
@@ -87,8 +88,7 @@ async function writeAtomic(target: string, value: string) {
     await handle.close();
     handle = undefined;
     await fs.promises.rename(temporary, target);
-    const directoryHandle = await fs.promises.open(directory, 'r');
-    try { await directoryHandle.sync(); } finally { await directoryHandle.close(); }
+    await syncDirectoryAsync(directory);
   } catch (error) {
     if (handle) await handle.close().catch(() => undefined);
     await fs.promises.unlink(temporary).catch(() => undefined);
