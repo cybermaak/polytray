@@ -27,7 +27,7 @@ import {
   BackgroundJobCommandResult,
   METADATA_RESTORE_IPC,
 } from "../shared/types";
-import type { MetadataBackupSnapshot, StagedMetadataRestore } from "../shared/backupContracts";
+import type { MetadataBackupExportResult, MetadataBackupSnapshot, StagedMetadataRestore } from "../shared/backupContracts";
 
 type RendererRestoreSnapshot = MetadataBackupSnapshot & { preferences: Record<string, unknown> };
 
@@ -142,6 +142,8 @@ contextBridge.exposeInMainWorld("polytray", {
   // Recoverable metadata restore
   getMetadataRestoreSnapshot: (snapshot: RendererRestoreSnapshot) =>
     ipcRenderer.invoke(METADATA_RESTORE_IPC.snapshot, snapshot) as Promise<RendererRestoreSnapshot>,
+  exportMetadataBackup: (snapshot: MetadataBackupSnapshot) =>
+    ipcRenderer.invoke(IPC.EXPORT_METADATA_BACKUP, snapshot) as Promise<MetadataBackupExportResult>,
   publishMetadataRestoreSnapshot: (snapshot: RendererRestoreSnapshot) =>
     ipcRenderer.invoke(METADATA_RESTORE_IPC.publishSnapshot, snapshot) as Promise<void>,
   completeMetadataRestoreStartup: (snapshot: RendererRestoreSnapshot) =>

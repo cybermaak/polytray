@@ -73,6 +73,7 @@ export const IPC = {
   UPDATE_FILE_METADATA: "update-file-metadata",
   REQUEST_THUMBNAIL_GENERATION: "request-thumbnail-generation",
   GET_BACKGROUND_JOBS: "get-background-jobs",
+  EXPORT_METADATA_BACKUP: "export-metadata-backup",
   PAUSE_BACKGROUND_JOB: "pause-background-job",
   RESUME_BACKGROUND_JOB: "resume-background-job",
   CANCEL_BACKGROUND_JOB: "cancel-background-job",

@@ -30,6 +30,7 @@ import type {
 import type { PreparedPreview, PreviewParseRequest } from "../shared/previewContracts";
 import type {
   MetadataBackupSnapshot,
+  MetadataBackupExportResult,
   MetadataImportCommitResult,
   MetadataImportPlan,
   MetadataImportRecoveryResult,
@@ -110,6 +111,7 @@ interface PolytrayAPI {
   updateWatcherSettings: (settings: RuntimeSettingsData) => Promise<boolean>;
   onWatcherError: (callback: (error: WatcherErrorData) => void) => () => void;
   getMetadataRestoreSnapshot: (snapshot: RendererRestoreSnapshot) => Promise<RendererRestoreSnapshot>;
+  exportMetadataBackup: (snapshot: MetadataBackupSnapshot) => Promise<MetadataBackupExportResult>;
   publishMetadataRestoreSnapshot: (snapshot: RendererRestoreSnapshot) => Promise<void>;
   completeMetadataRestoreStartup: (snapshot: RendererRestoreSnapshot) => Promise<MetadataImportRecoveryResult>;
   previewMetadataRestore: (request: { backup: unknown; currentSnapshot: RendererRestoreSnapshot; options?: { replaceSettings?: boolean; replaceRoots?: boolean } }) => Promise<MetadataRestorePreviewResult>;

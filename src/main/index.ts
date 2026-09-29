@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, protocol, net } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, protocol, net } from "electron";
 import { join } from "path";
 import { randomUUID } from "node:crypto";
 import { getDb, initDatabase } from "./database";
@@ -17,6 +17,7 @@ import { toAllowedLocalFileUrl } from "./localFileProtocol";
 import { IPC, METADATA_RESTORE_IPC, type IndexMutationResult, type MainWindowVisibilityData, type RuntimeSettingsData } from "../shared/types";
 import { DEFAULT_APP_SETTINGS, normalizeAppSettings, toRuntimeSettings } from "../shared/settings";
 import type { MetadataBackupSnapshot, StagedMetadataRestore } from "../shared/backupContracts";
+import { createFileIndexRepository } from "./fileIndexing";
 import { createFileIndexRuntime, type FileIndexRuntime } from "./fileIndexRuntime";
 import { createLibraryMutationPublisher, type LibraryMutationPublisher } from "./libraryMutationPublisher";
 
@@ -33,7 +34,7 @@ import { registerPreviewParseHandler } from "./previewParseService";
 import { createMetadataRestoreService } from "./metadataRestoreService";
 import { createMetadataRestoreJournal } from "./metadataRestoreJournal";
 import { createMetadataRestoreLeaseReservation, createMetadataRestoreMutationGate } from "./metadataRestoreMutationGate";
-import { registerMetadataRestoreHandlers } from "./ipc/metadataBackup";
+import { registerMetadataBackupHandlers, registerMetadataRestoreHandlers } from "./ipc/metadataBackup";
 import { createMetadataRestoreWatcherResumeHandler } from "./watcher";
 
 // Set the application name for macOS menu bar
@@ -471,6 +472,14 @@ app.whenReady().then(() => {
 
   registerMetadataRestoreCommandAcks();
   registerIpcHandlers();
+  registerMetadataBackupHandlers({
+    ipcMain,
+    db: getDb(),
+    dialog,
+    appVersion: app.getVersion(),
+    getCurrentRendererRevision: () => rendererRestoreSnapshot.rendererRevision,
+    getPendingAnnotations: (db) => createFileIndexRepository(db).getPendingAnnotations(),
+  });
   registerMetadataRestoreHandlers({
     ipcMain,
     service: metadataRestoreService,

@@ -2,10 +2,10 @@ import type { Dialog, IpcMain, IpcMainInvokeEvent } from 'electron';
 import type { Database } from 'better-sqlite3';
 import type { MetadataBackupAnnotation } from '../../shared/metadataBackup';
 import type { MetadataBackupSnapshot, MetadataRestoreService, StagedMetadataRestore } from '../../shared/backupContracts';
-import { METADATA_RESTORE_IPC } from '../../shared/types';
+import { IPC, METADATA_RESTORE_IPC } from '../../shared/types';
 import { createMetadataBackupService } from '../metadataBackupService';
 
-export const METADATA_BACKUP_EXPORT_CHANNEL = 'export-metadata-backup';
+export const METADATA_BACKUP_EXPORT_CHANNEL = IPC.EXPORT_METADATA_BACKUP;
 export const METADATA_RESTORE_CHANNELS = {
   snapshot: METADATA_RESTORE_IPC.snapshot,
   preview: METADATA_RESTORE_IPC.preview,
@@ -24,7 +24,7 @@ export interface MetadataBackupIpcDependencies {
   dialog: Pick<Dialog, 'showSaveDialog'>;
   appVersion: string;
   getCurrentRendererRevision: () => number;
-  getPendingAnnotations?: () => MetadataBackupAnnotation[];
+  getPendingAnnotations?: (db: Database) => MetadataBackupAnnotation[];
 }
 
 export function registerMetadataBackupHandlers(dependencies: MetadataBackupIpcDependencies) {

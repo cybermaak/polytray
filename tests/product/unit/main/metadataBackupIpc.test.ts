@@ -4,8 +4,10 @@ import Database from 'better-sqlite3';
 import type { IpcMain } from 'electron';
 import { registerMetadataBackupHandlers, METADATA_BACKUP_EXPORT_CHANNEL } from '../../../../src/main/ipc/metadataBackup';
 import { createFilesTableForTests } from '../../../../src/main/fileIndexing';
+import { IPC } from '../../../../src/shared/types';
 
 test('export IPC validates renderer snapshot and registers no import stubs', async () => {
+  assert.equal(METADATA_BACKUP_EXPORT_CHANNEL, IPC.EXPORT_METADATA_BACKUP);
   const db = new Database(':memory:');
   createFilesTableForTests(db);
   db.exec('ALTER TABLE files ADD COLUMN tags TEXT; ALTER TABLE files ADD COLUMN notes TEXT; ALTER TABLE files ADD COLUMN print_status TEXT;');
