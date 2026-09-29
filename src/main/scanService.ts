@@ -193,6 +193,7 @@ function mapScopeError(event: Extract<DiscoveryEvent, { type: 'scope-error' }>):
 
 export class ScanService {
   private readonly jobs = new Map<string, ActiveJob>();
+  private readonly activeRetryJobs = new Set<ActiveJob>();
   private readonly recentJobs: BackgroundJob[] = [];
   private readonly terminalJobRecords = new Map<string, ActiveJob>();
   private readonly jobListeners = new Set<(job: BackgroundJob) => void>();
@@ -294,7 +295,9 @@ export class ScanService {
   }
 
   cancel(jobId: string) {
-    const job = [...this.jobs.values()].find((active) => active.jobId === jobId) ?? this.terminalJobRecords.get(jobId);
+    const job = [...this.jobs.values()].find((active) => active.jobId === jobId)
+      ?? [...this.activeRetryJobs].find((active) => active.jobId === jobId)
+      ?? this.terminalJobRecords.get(jobId);
     if (!job || (['completed', 'partial', 'failed', 'cancelled'].includes(job.state) && !job.retryPromise)) return false;
     job.state = 'cancelling'; job.updatedAt = Date.now(); job.controller.abort(); job.retryController?.abort();
     job.releaseResume();
@@ -347,9 +350,11 @@ export class ScanService {
         if (job.retryController === retryController) job.retryController = undefined;
         this.retryOperations.delete(operation);
         this.retryControllers.delete(retryController);
+        this.activeRetryJobs.delete(job);
       });
     job.retryPromise = operation;
     this.retryOperations.add(operation);
+    this.activeRetryJobs.add(job);
     return operation;
   }
 
@@ -408,6 +413,7 @@ export class ScanService {
   getBackgroundJobs(): BackgroundJob[] {
     const jobs = new Map(this.recentJobs.map((job) => [job.jobId, job]));
     for (const job of this.jobs.values()) jobs.set(job.jobId, this.snapshot(job));
+    for (const job of this.activeRetryJobs) jobs.set(job.jobId, this.snapshot(job));
     return [...jobs.values()];
   }
 

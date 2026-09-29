@@ -386,6 +386,56 @@ test('dispose aborts and awaits a held metadata retry before returning', async (
   }
 });
 
+test('active retry remains visible and cancellable after terminal history rolls over', async () => {
+  const fixture = createTestDb();
+  const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-retry-retention-'));
+  const filePath = path.join(rootPath, 'retry.stl');
+  const retryStarted = createBarrier<void>();
+  const releaseRetry = createBarrier<void>();
+  let retrySignal: AbortSignal | undefined;
+  let attempts = 0;
+  const newerRoots = Array.from({ length: 21 }, () => fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-newer-')));
+  const service = createScanService({
+    db: fixture.db,
+    discover: async function* (root, _signal, generation) {
+      if (root === rootPath) yield discovered(rootPath, filePath);
+      yield { type: 'scope-complete', rootPath: root, scopePath: root, generation, kind: 'directory' };
+      yield { type: 'discovery-complete', rootPath: root, cancelled: false };
+    },
+    extractMetadata: async (_path, _extension, context) => {
+      attempts++;
+      if (attempts === 1) throw new Error('initial failure');
+      retrySignal = context.signal;
+      retryStarted.release();
+      await releaseRetry.wait(context.signal);
+      return { vertexCount: 1, faceCount: 1, dimensions: null };
+    },
+  });
+  try {
+    const initial = await service.scan(rootPath, { batchSize: 1 });
+    assert.equal(initial.state, 'partial');
+    const retry = service.retryFailures(initial.jobId);
+    await retryStarted.wait();
+    for (const newerRoot of newerRoots) await service.scan(newerRoot);
+
+    const visibleJobs = service.getBackgroundJobs();
+    const visible = visibleJobs.find((job) => job.jobId === initial.jobId);
+    assert.equal(visible?.state, 'running');
+    assert.equal(visibleJobs.length, 21);
+    assert.equal(visibleJobs.filter((job) => job.state === 'completed').length, 20);
+    assert.equal(service.cancel(initial.jobId), true);
+    assert.equal(retrySignal?.aborted, true);
+    assert.equal(await retry, true);
+    assert.equal(service.getBackgroundJobs().find((job) => job.jobId === initial.jobId)?.state, 'cancelled');
+  } finally {
+    releaseRetry.release();
+    await service.dispose();
+    fixture.cleanup();
+    fs.rmSync(rootPath, { recursive: true, force: true });
+    for (const newerRoot of newerRoots) fs.rmSync(newerRoot, { recursive: true, force: true });
+  }
+});
+
 test('retryFailures reopens only the failed archive scope and preserves healthy siblings', async () => {
   const fixture = createTestDb();
   const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-archive-retry-'));
