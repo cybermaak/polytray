@@ -5,6 +5,7 @@ import {
   ScanProgressData,
   ScanCompleteData,
   FilesUpdatedData,
+  WatcherErrorData,
   FileIndexedData,
   ThumbnailReadyData,
   ThumbnailInvalidatedData,
@@ -135,6 +136,8 @@ contextBridge.exposeInMainWorld("polytray", {
   stopWatching: () => ipcRenderer.invoke(IPC.STOP_WATCHING),
   updateWatcherSettings: (settings: RuntimeSettingsData) =>
     ipcRenderer.invoke(IPC.UPDATE_WATCHER_SETTINGS, settings) as Promise<boolean>,
+  onWatcherError: (callback: (error: WatcherErrorData) => void) =>
+    onChannel<WatcherErrorData>(IPC.WATCHER_ERROR, callback),
 
   // Recoverable metadata restore
   getMetadataRestoreSnapshot: (snapshot: RendererRestoreSnapshot) =>

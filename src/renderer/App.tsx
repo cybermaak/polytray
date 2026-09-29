@@ -59,7 +59,7 @@ import {
   addFilesToCollection,
 } from "../shared/libraryCollections";
 import { normalizeFileTags, parseStoredFileTags } from "../shared/fileTags";
-import type { FileRecord, ThumbnailReadyData } from "../shared/types";
+import type { FileRecord, ThumbnailReadyData, WatcherErrorData } from "../shared/types";
 import type { MetadataBackupSnapshot, StagedMetadataRestore } from "../shared/backupContracts";
 import type { LibraryQuery, LibraryItem } from "../shared/libraryQuery";
 import type { PreviewTarget } from "../shared/previewTarget";
@@ -93,6 +93,8 @@ export const App: React.FC = () => {
   // ── State ───────────────────────────────────────────────────────
   const [folders, setFolders] = useState<string[]>([]);
   const [offlineRoots, setOfflineRoots] = useState<Map<string, string>>(() => new Map());
+  const [watcherError, setWatcherError] = useState<WatcherErrorData | null>(null);
+  const [watcherRetryRevision, setWatcherRetryRevision] = useState(0);
   const [stats, setStats] = useState<LibraryStats>({
     total: 0,
     stl: 0,
@@ -576,6 +578,8 @@ export const App: React.FC = () => {
   useEffect(() => {
     const cleanups: (() => void)[] = [];
 
+    cleanups.push(window.polytray.onWatcherError(setWatcherError));
+
     cleanups.push(
       window.polytray.onScanComplete(async () => {
         await refreshLibrary();
@@ -710,14 +714,13 @@ export const App: React.FC = () => {
 
     cleanups.push(
       window.polytray.onFilesUpdated(async (notice) => {
-        if (notice.type === "root-available" || notice.type === "root-unavailable") {
+        if (notice.type === "root-unavailable") {
           const rootKey = canonicalRootKey(notice.filePath);
           const configuredRoot = foldersRef.current.find((folder) => canonicalRootKey(folder) === rootKey);
           if (configuredRoot) {
             setOfflineRoots((current) => {
               const next = new Map(current);
-              if (notice.type === "root-unavailable") next.set(rootKey, configuredRoot);
-              else next.delete(rootKey);
+              next.set(rootKey, configuredRoot);
               return next;
             });
           }
@@ -959,7 +962,16 @@ export const App: React.FC = () => {
 
   const handleRescanFolder = useCallback(
     async (folderPath: string) => {
-      await window.polytray.scanFolder(folderPath, getRuntimeSettings());
+      const result = await window.polytray.scanFolder(folderPath, getRuntimeSettings());
+      if (result.state === "completed") {
+        const rootKey = canonicalRootKey(folderPath);
+        setOfflineRoots((current) => {
+          if (!current.has(rootKey)) return current;
+          const next = new Map(current);
+          next.delete(rootKey);
+          return next;
+        });
+      }
     },
     [getRuntimeSettings],
   );
@@ -1157,6 +1169,12 @@ export const App: React.FC = () => {
     [applySettingsToDocument, persistSettings, runRendererMutation],
   );
 
+  const handleRetryWatcher = useCallback(() => {
+    setWatcherError(null);
+    watcherOwnerConfigRef.current = null;
+    setWatcherRetryRevision((revision) => revision + 1);
+  }, []);
+
   // ── Single watcher lifecycle and settings owner ────────────────
   useEffect(() => {
     const nextConfig = {
@@ -1173,20 +1191,30 @@ export const App: React.FC = () => {
       || previous.folders.some((folder, index) => folder !== nextConfig.folders[index]);
     watcherOwnerConfigRef.current = nextConfig;
     const runtimeSettings = toRuntimeSettings(settingsRef.current);
+    const reportFailure = (message: string, error: unknown) => setWatcherError({
+      rootPaths: [...folders],
+      message: `${message}: ${error instanceof Error ? error.message : String(error)}`,
+    });
 
     if (lifecycleChanged) {
       if (nextConfig.shouldWatch) {
-        void window.polytray.startWatching(folders, runtimeSettings);
+        void window.polytray.startWatching(folders, runtimeSettings)
+          .then(() => setWatcherError(null))
+          .catch((error: unknown) => reportFailure("Could not start folder watching", error));
       } else if (previous?.shouldWatch) {
-        void window.polytray.stopWatching();
+        void window.polytray.stopWatching()
+          .then(() => setWatcherError(null))
+          .catch((error: unknown) => reportFailure("Could not stop folder watching", error));
       }
       return;
     }
 
     if (nextConfig.shouldWatch) {
-      void window.polytray.updateWatcherSettings(runtimeSettings);
+      void window.polytray.updateWatcherSettings(runtimeSettings)
+        .then((updated) => { if (updated) setWatcherError(null); })
+        .catch((error: unknown) => reportFailure("Could not update folder watching settings", error));
     }
-  }, [folders, settings.watch, settings.watcher_stability, settings.thumbnail_timeout, settings.thumbnailColor, settings.thumbQuality]);
+  }, [folders, settings.watch, settings.watcher_stability, settings.thumbnail_timeout, settings.thumbnailColor, settings.thumbQuality, watcherRetryRevision]);
 
   // Context Menu Callbacks
   useEffect(() => {
@@ -1249,11 +1277,30 @@ export const App: React.FC = () => {
               Metadata restore recovery is blocked. Your saved metadata is protected; resolve this recovery issue before changing library settings. {restoreRecoveryError}
             </div>
           )}
+          {watcherError && (
+            <div className="watcher-error" role="alert">
+              <div>
+                <strong>Folder watching needs attention</strong>
+                <p>{watcherError.message}</p>
+                {watcherError.rootPaths.length > 0 && <ul>{watcherError.rootPaths.map((folder) => <li key={canonicalRootKey(folder)}>{folder}</li>)}</ul>}
+              </div>
+              {settings.watch && folders.length > 0
+                ? <button type="button" onClick={handleRetryWatcher}>Retry watching</button>
+                : <button type="button" onClick={() => setWatcherError(null)}>Dismiss</button>}
+            </div>
+          )}
           {offlineRoots.size > 0 && (
             <div className="offline-root-status" role="status" aria-live="polite" aria-atomic="true">
               <strong>{offlineRoots.size === 1 ? "Library folder unavailable" : `${offlineRoots.size} library folders unavailable`}</strong>
-              <ul>{[...offlineRoots.values()].map((folder) => <li key={canonicalRootKey(folder)}>{folder}</li>)}</ul>
-              <span>Indexed models remain available. Scanning resumes when each folder reconnects.</span>
+              <ul>{[...offlineRoots.values()].map((folder) => (
+                <li key={canonicalRootKey(folder)}>
+                  <span>{folder}</span>
+                  <button type="button" aria-label={`Rescan ${folder}`} onClick={() => void handleRescanFolder(folder)}>Rescan</button>
+                </li>
+              ))}</ul>
+              <span>{settings.watch
+                ? "Indexed models remain available. Scanning resumes when a folder reconnects."
+                : "Indexed models remain available. Reconnect a folder, then rescan it to check for changes."}</span>
             </div>
           )}
           <Toolbar

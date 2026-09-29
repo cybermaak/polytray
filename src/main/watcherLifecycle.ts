@@ -368,6 +368,27 @@ export function createSerializedTransitionQueue() {
   };
 }
 
+export async function runWithWatcherStartRollback<T>(start: () => Promise<T>, rollback: (error: unknown) => void | Promise<void>): Promise<T> {
+  try {
+    return await start();
+  } catch (error) {
+    try { await rollback(error); } catch { /* preserve the startup error */ }
+    throw error;
+  }
+}
+
+export function handleCurrentWatcherExit<TContext>(
+  exitRun: number,
+  currentRun: number,
+  context: TContext | null,
+  code: number | null,
+  onUnexpectedExit: (context: TContext, code: number | null) => void,
+) {
+  if (exitRun !== currentRun || context === null) return false;
+  onUnexpectedExit(context, code);
+  return true;
+}
+
 export function createWatcherLifecycleManager<TProcess extends WatcherProcessLike>(
   options: WatcherLifecycleOptions<TProcess>,
 ) {

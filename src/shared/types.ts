@@ -92,6 +92,7 @@ export const IPC = {
   START_WATCHING: "start-watching",
   STOP_WATCHING: "stop-watching",
   UPDATE_WATCHER_SETTINGS: "update-watcher-settings",
+  WATCHER_ERROR: "watcher-error",
   RESCAN: "rescan",
   REFRESH_FOLDER_THUMBNAILS: "refresh-folder-thumbnails",
   UPDATE_SETTING: "update-setting",
@@ -192,6 +193,11 @@ export interface ScanCompleteData {
 export interface FilesUpdatedData {
   type: string;
   filePath: string;
+}
+
+export interface WatcherErrorData {
+  rootPaths: string[];
+  message: string;
 }
 
 /** FILE_INDEXED event payload */

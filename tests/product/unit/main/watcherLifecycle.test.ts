@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
-import { createMetadataRestoreWatcherResumePlan, createSerializedTransitionQueue, createWatcherLifecycleManager } from '../../../../src/main/watcherLifecycle';
+import { createMetadataRestoreWatcherResumePlan, createSerializedTransitionQueue, createWatcherLifecycleManager, handleCurrentWatcherExit, runWithWatcherStartRollback } from '../../../../src/main/watcherLifecycle';
 
 class FakeWorker extends EventEmitter {
   public postMessages: unknown[] = [];
@@ -106,4 +106,60 @@ test('watcher lifecycle transitions run in request order and do not overlap', as
   releaseFirst();
   await Promise.all([first, stop, reconfigure]);
   assert.deepEqual(order, ['start-enter', 'start-exit', 'stop', 'reconfigure']);
+});
+
+test('failed watcher start rolls back caller-owned context and leaves no worker', async () => {
+  const manager = createWatcherLifecycleManager({
+    createProcess: () => { throw new Error('utility process launch failed'); },
+  });
+  let context: { root: string } | null = { root: '/models' };
+  await assert.rejects(
+    runWithWatcherStartRollback(
+      () => manager.restart({ folderPaths: ['/models'], watcherStability: 100 }),
+      () => { context = null; },
+    ),
+    /utility process launch failed/,
+  );
+  assert.equal(manager.getCurrentProcess(), null);
+  assert.equal(context, null);
+});
+
+test('unexpected current worker exit clears context while expected stop exit stays silent', async () => {
+  const worker = new FakeWorker();
+  const manager = createWatcherLifecycleManager({ createProcess: () => worker });
+  let currentRun = 1;
+  let context: { root: string } | null = { root: '/models' };
+  const errors: Array<{ root: string; code: number | null }> = [];
+  manager.start({ folderPaths: ['/models'], watcherStability: 100 }, {
+    onExit: (code) => {
+      handleCurrentWatcherExit(1, currentRun, context, code, (active, exitCode) => {
+        errors.push({ root: active.root, code: exitCode });
+        context = null;
+      });
+    },
+  });
+  worker.emit('exit', 9);
+  assert.equal(manager.getCurrentProcess(), null);
+  assert.equal(context, null);
+  assert.deepEqual(errors, [{ root: '/models', code: 9 }]);
+
+  const expectedWorker = new FakeWorker();
+  const expectedManager = createWatcherLifecycleManager({ createProcess: () => expectedWorker });
+  let expectedContext: { root: string } | null = { root: '/models' };
+  const expectedErrors: number[] = [];
+  expectedManager.start({ folderPaths: ['/models'], watcherStability: 100 }, {
+    onExit: (code) => {
+      handleCurrentWatcherExit(1, currentRun, expectedContext, code, (_active, exitCode) => {
+        expectedErrors.push(exitCode ?? -1);
+        expectedContext = null;
+      });
+    },
+  });
+  currentRun = 2;
+  const stopping = expectedManager.stop();
+  expectedWorker.emit('exit', 0);
+  await stopping;
+  expectedContext = null;
+  assert.equal(expectedContext, null);
+  assert.deepEqual(expectedErrors, []);
 });

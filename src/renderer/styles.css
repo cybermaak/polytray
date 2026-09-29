@@ -178,7 +178,26 @@ body {
 
 .offline-root-status strong { color: var(--text-primary); }
 .offline-root-status ul { grid-column: 2; margin: 0; padding-left: 16px; overflow-wrap: anywhere; }
+.offline-root-status li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.offline-root-status li + li { margin-top: var(--space-1); }
+.offline-root-status button { flex: 0 0 auto; padding: 3px 8px; border: 1px solid var(--border-subtle); border-radius: 5px; background: var(--bg-surface); color: var(--text-primary); cursor: pointer; font-size: inherit; }
 .offline-root-status > span { grid-column: 1 / -1; color: var(--text-secondary); }
+
+.watcher-error {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 9px var(--space-4);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-danger, #e76f72) 45%, var(--border-subtle));
+  background: color-mix(in srgb, var(--bg-surface) 90%, var(--color-danger, #e76f72) 10%);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+}
+.watcher-error p { margin: 3px 0 0; color: var(--text-secondary); }
+.watcher-error ul { margin: 3px 0 0; padding-left: 18px; overflow-wrap: anywhere; }
+.watcher-error button { flex: 0 0 auto; padding: 5px 9px; border: 1px solid var(--border-subtle); border-radius: 5px; background: var(--bg-surface); color: var(--text-primary); cursor: pointer; font-size: inherit; }
 
 /* ── Sidebar ───────────────────────────────────────────────────── */
 #sidebar {

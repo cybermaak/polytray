@@ -5,7 +5,7 @@ import { BrowserWindow } from 'electron';
 import { Database } from 'better-sqlite3';
 import { extractMetadata, type MetadataSummary } from './metadata';
 import { scheduleSingleThumbnailGeneration } from './thumbnails';
-import { EXT_SET, IPC, RuntimeSettingsData } from '../shared/types';
+import { EXT_SET, IPC, RuntimeSettingsData, WatcherErrorData } from '../shared/types';
 import { createWatcherLifecycleManager } from './watcherLifecycle';
 import { createFileIndexRepository } from './fileIndexing';
 import { createUnavailableMeasurement } from '../shared/model/measurement';
@@ -16,6 +16,8 @@ import {
   createWatcherNotificationBatcher,
   createWatcherRootAvailabilityTracker,
   createSerializedTransitionQueue,
+  handleCurrentWatcherExit,
+  runWithWatcherStartRollback,
   createWatcherUpdateCoordinator,
   type WatcherFileEvent,
 } from './watcherLifecycle';
@@ -54,6 +56,12 @@ const watcherNotifications = createWatcherNotificationBatcher((events: Array<{ t
     filePath: last.filePath,
   });
 });
+
+function publishWatcherError(mainWindow: BrowserWindow, rootPaths: string[], message: string) {
+  if (mainWindow.isDestroyed()) return;
+  const error: WatcherErrorData = { rootPaths, message };
+  mainWindow.webContents.send(IPC.WATCHER_ERROR, error);
+}
 
 const watcherUpdates = createWatcherUpdateCoordinator<WatchedStat, MetadataSummary>({
   runMutation: (operation) => watcherMutationRunner(operation),
@@ -189,38 +197,61 @@ async function startWatcherNow(
   watcherContext = { mainWindow, db, settings, roots };
   rootAvailability.retainConfiguredRoots(roots);
 
-  await watcherLifecycle.restart(
-    {
-      folderPaths: roots,
-      watcherStability: settings.watcher_stability,
-    },
-    {
-      onMessage: (msg) => {
-        if (run !== watcherRun) return;
-        const data = msg as { type?: string; filePath?: string; folderPath?: string; available?: boolean };
-        if (data.type === 'root-status' && typeof data.folderPath === 'string' && typeof data.available === 'boolean') {
-          handleRootStatus(data.folderPath, data.available, mainWindow);
-          return;
-        }
-        if (!data.type || !data.filePath) return;
-
-        if (path.extname(data.filePath).toLowerCase() === '.zip' &&
-            (data.type === 'add' || data.type === 'change' || data.type === 'unlink')) {
-          void handleArchiveChange(data.filePath, data.type, mainWindow, roots);
-          return;
-        }
-
-        if (data.type === 'add' || data.type === 'change') {
-          void handleFileChange(data.filePath, data.type);
-        } else if (data.type === 'unlink') {
-          void handleFileRemove(data.filePath);
-        }
+  await runWithWatcherStartRollback(
+    () => watcherLifecycle.restart(
+      {
+        folderPaths: roots,
+        watcherStability: settings.watcher_stability,
       },
-      onExit: (code) => {
-        if (code !== 0 && code !== null) {
-          console.warn(`Watcher worker exited suspiciously with code ${code}`);
-        }
+      {
+        onMessage: (msg) => {
+          if (run !== watcherRun) return;
+          const data = msg as { type?: string; filePath?: string; folderPath?: string; available?: boolean };
+          if (data.type === 'root-status' && typeof data.folderPath === 'string' && typeof data.available === 'boolean') {
+            handleRootStatus(data.folderPath, data.available, mainWindow);
+            return;
+          }
+          if (!data.type || !data.filePath) return;
+
+          if (path.extname(data.filePath).toLowerCase() === '.zip' &&
+              (data.type === 'add' || data.type === 'change' || data.type === 'unlink')) {
+            void handleArchiveChange(data.filePath, data.type, mainWindow, roots);
+            return;
+          }
+
+          if (data.type === 'add' || data.type === 'change') {
+            void handleFileChange(data.filePath, data.type);
+          } else if (data.type === 'unlink') {
+            void handleFileRemove(data.filePath);
+          }
+        },
+        onExit: (code) => {
+          void runWatcherTransition(() => {
+            const context = watcherContext;
+            handleCurrentWatcherExit(run, watcherRun, context, code, (failedContext, exitCode) => {
+              watcherRun++;
+              watcherUpdates.invalidatePending();
+              watcherNotifications.flush();
+              watcherContext = null;
+              publishWatcherError(
+                failedContext.mainWindow,
+                failedContext.roots,
+                `File watching stopped unexpectedly${exitCode === null ? "" : ` (exit code ${exitCode})`}. Retry watching to resume file monitoring.`,
+              );
+            });
+          });
+        },
       },
+    ),
+    async (error) => {
+      if (run !== watcherRun) return;
+      watcherRun++;
+      watcherUpdates.invalidatePending();
+      try { await watcherLifecycle.stop(); } catch { /* keep the context rollback even if worker cleanup fails */ }
+      watcherNotifications.flush();
+      watcherContext = null;
+      const reason = error instanceof Error ? error.message : String(error);
+      publishWatcherError(mainWindow, roots, `Could not start file watching: ${reason}. Retry watching to try again.`);
     },
   );
 }

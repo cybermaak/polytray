@@ -16,6 +16,7 @@ import type {
   PreviewMetricData,
   MainWindowVisibilityData,
   RuntimeSettingsData,
+  WatcherErrorData,
   UpdateFileMetadataData,
   IndexMutationResult,
   LibraryQuery,
@@ -50,7 +51,7 @@ interface PolytrayAPI {
   getDirectories: () => Promise<string[]>;
   removeLibraryFolder: (path: string) => Promise<boolean>;
 
-  scanFolder: (folderPath: string, settings: RuntimeSettingsData) => Promise<void>;
+  scanFolder: (folderPath: string, settings: RuntimeSettingsData) => Promise<ScanCompleteData>;
   rescan: () => Promise<void>;
   clearThumbnails: (settings: RuntimeSettingsData) => Promise<void>;
   refreshFolderThumbnails: (folderPath: string, settings: RuntimeSettingsData) => Promise<void>;
@@ -107,6 +108,7 @@ interface PolytrayAPI {
   startWatching: (folderPaths: string[], settings: RuntimeSettingsData) => Promise<void>;
   stopWatching: () => Promise<void>;
   updateWatcherSettings: (settings: RuntimeSettingsData) => Promise<boolean>;
+  onWatcherError: (callback: (error: WatcherErrorData) => void) => () => void;
   getMetadataRestoreSnapshot: (snapshot: RendererRestoreSnapshot) => Promise<RendererRestoreSnapshot>;
   publishMetadataRestoreSnapshot: (snapshot: RendererRestoreSnapshot) => Promise<void>;
   completeMetadataRestoreStartup: (snapshot: RendererRestoreSnapshot) => Promise<MetadataImportRecoveryResult>;
