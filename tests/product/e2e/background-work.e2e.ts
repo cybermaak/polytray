@@ -265,7 +265,7 @@ test('background job controls retain browse state and watch follows only watch s
     await expect.poll(() => page!.evaluate(() => (window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0)).toBe(2);
     await expect(offlineStatus).toBeVisible();
     await expect(offlineCard).toBeVisible();
-    await offlineStatus.getByRole('button', { name: `Rescan ${root}` }).click();
+    await page.locator('#btn-rescan').click();
     await expect.poll(() => fs.existsSync(reachedPath), { timeout: 15_000 }).toBe(true);
     await expect(offlineStatus).toBeVisible();
     await expect(offlineCard).toBeVisible();
@@ -308,6 +308,33 @@ test('background job controls retain browse state and watch follows only watch s
     const rapidRecord = await page.evaluate(async (filePath) => (await window.polytray.getFiles({ limit: 500, offset: 0 })).files.find((file) => file.path === filePath) ?? null, rapidFile);
     expect(rapidRecord).toBeTruthy();
     expect(path.basename(rapidRecord!.thumbnail!)).toBe(thumbnailCacheFilename(createThumbnailIdentity(rapidFile, rapidRecord!.content_revision, '#336699', 512).key));
+
+    // A watch-on reconnect clears only availability state; partial scan errors remain visible.
+    await page.locator('#settings-close').click();
+    const unavailableBeforePartial = await page.evaluate(() => (window as Window & { __rootUnavailableCount?: number }).__rootUnavailableCount ?? 0);
+    const partiallyOfflineRoot = `${root}-partial-offline`;
+    fs.renameSync(root, partiallyOfflineRoot);
+    await expect.poll(() => page!.evaluate((before) => ((window as Window & { __rootUnavailableCount?: number }).__rootUnavailableCount ?? 0) > before, unavailableBeforePartial), { timeout: 15_000 }).toBe(true);
+    const partialOfflineStatus = page.locator('.offline-root-status');
+    await expect(partialOfflineStatus).toBeVisible();
+    fs.writeFileSync(path.join(partiallyOfflineRoot, 'unreadable.zip'), 'invalid archive bytes');
+    fs.rmSync(releasePath, { force: true });
+    fs.rmSync(reachedPath, { force: true });
+    const availableBeforePartial = await page.evaluate(() => (window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0);
+    fs.renameSync(partiallyOfflineRoot, root);
+    await expect.poll(() => page!.evaluate((before) => ((window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0) > before, availableBeforePartial), { timeout: 15_000 }).toBe(true);
+    await expect(partialOfflineStatus).toHaveCount(0);
+    await expect.poll(() => fs.existsSync(reachedPath), { timeout: 15_000 }).toBe(true);
+    fs.writeFileSync(releasePath, 'release partial reconnect scan');
+    await expect.poll(() => page!.evaluate(async (folder) => (await window.polytray.getBackgroundJobs()).some((job) => job.rootPath === folder && job.state === 'partial'), root), { timeout: 20_000 }).toBe(true);
+    await expect(partialOfflineStatus).toHaveCount(0);
+    await page.locator('.background-work-details').evaluate((element) => { (element as HTMLDetailsElement).open = true; });
+    const partialScanJobId = await page.evaluate(async (folder) => (await window.polytray.getBackgroundJobs()).find((job) => job.rootPath === folder && job.kind === 'scan' && job.state === 'partial')?.jobId ?? null, root);
+    expect(partialScanJobId).toBeTruthy();
+    const partialScanCard = page.locator(`.background-job[data-job-id="${partialScanJobId}"]`);
+    await expect(partialScanCard).toContainText('Discovery partially complete');
+    await partialScanCard.locator('.background-job-errors > summary').click();
+    await expect(partialScanCard.locator('.background-job-errors')).toContainText('unreadable.zip');
   } finally {
     if (isolated) await isolated.close();
   }

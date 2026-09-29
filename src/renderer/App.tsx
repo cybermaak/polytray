@@ -311,6 +311,22 @@ export const App: React.FC = () => {
     [],
   );
 
+  const clearOfflineRoot = useCallback((folderPath: string) => {
+    const rootKey = canonicalRootKey(folderPath);
+    setOfflineRoots((current) => {
+      if (!current.has(rootKey)) return current;
+      const next = new Map(current);
+      next.delete(rootKey);
+      return next;
+    });
+  }, []);
+
+  const scanLibraryFolder = useCallback(async (folderPath: string) => {
+    const result = await window.polytray.scanFolder(folderPath, getRuntimeSettings());
+    if (result.state === "completed" || result.state === "partial") clearOfflineRoot(folderPath);
+    return result;
+  }, [clearOfflineRoot, getRuntimeSettings]);
+
   const applyLibraryState = useCallback((nextState: LibraryState) => {
     libraryStateRef.current = nextState;
     setFolders(nextState.libraryFolders);
@@ -714,7 +730,9 @@ export const App: React.FC = () => {
 
     cleanups.push(
       window.polytray.onFilesUpdated(async (notice) => {
-        if (notice.type === "root-unavailable") {
+        if (notice.type === "root-available") {
+          clearOfflineRoot(notice.filePath);
+        } else if (notice.type === "root-unavailable") {
           const rootKey = canonicalRootKey(notice.filePath);
           const configuredRoot = foldersRef.current.find((folder) => canonicalRootKey(folder) === rootKey);
           if (configuredRoot) {
@@ -732,7 +750,7 @@ export const App: React.FC = () => {
     return () => {
       cleanups.forEach((c) => c());
     };
-  }, [libraryPages.patchFile, refreshLibrary, removeSelectedFiles, updateSelectedFile]);
+  }, [clearOfflineRoot, libraryPages.patchFile, refreshLibrary, removeSelectedFiles, updateSelectedFile]);
 
   // ── Boot ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -868,12 +886,12 @@ export const App: React.FC = () => {
     );
     applyLibraryState(nextLibraryState);
     persistLibraryState(nextLibraryState);
-    await window.polytray.scanFolder(folder, getRuntimeSettings());
+    await scanLibraryFolder(folder);
   }), [
     applyLibraryState,
-    getRuntimeSettings,
     persistLibraryState,
     runRendererMutation,
+    scanLibraryFolder,
   ]);
 
   const handleRemoveFolder = useCallback(
@@ -903,18 +921,18 @@ export const App: React.FC = () => {
 
   const handleRescan = useCallback(async () => {
     for (const folder of foldersRef.current) {
-      await window.polytray.scanFolder(folder, getRuntimeSettings());
+      await scanLibraryFolder(folder);
     }
-  }, [getRuntimeSettings]);
+  }, [scanLibraryFolder]);
 
   const handleClearThumbnails = useCallback(async () => {
     if (confirm("Regenerate all thumbnails? This may take a while.")) {
       await window.polytray.clearThumbnails(getRuntimeSettings());
       for (const folder of foldersRef.current) {
-        await window.polytray.scanFolder(folder, getRuntimeSettings());
+        await scanLibraryFolder(folder);
       }
     }
-  }, [getRuntimeSettings]);
+  }, [getRuntimeSettings, scanLibraryFolder]);
 
   const handleSortChange = useCallback(
     async (newSort: string) => {
@@ -962,18 +980,9 @@ export const App: React.FC = () => {
 
   const handleRescanFolder = useCallback(
     async (folderPath: string) => {
-      const result = await window.polytray.scanFolder(folderPath, getRuntimeSettings());
-      if (result.state === "completed") {
-        const rootKey = canonicalRootKey(folderPath);
-        setOfflineRoots((current) => {
-          if (!current.has(rootKey)) return current;
-          const next = new Map(current);
-          next.delete(rootKey);
-          return next;
-        });
-      }
+      await scanLibraryFolder(folderPath);
     },
-    [getRuntimeSettings],
+    [scanLibraryFolder],
   );
 
   const handleRefreshFolderThumbnails = useCallback(
