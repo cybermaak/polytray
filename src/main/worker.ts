@@ -1,8 +1,36 @@
 import chokidar, { FSWatcher } from 'chokidar';
+import path from 'node:path';
+import fs from 'node:fs/promises';
+import { createWatcherRootStatusPoller } from './watcherLifecycle';
 
 let watcher: FSWatcher | null = null;
+let watchedRoots: string[] = [];
+let rootAvailability = new Map<string, boolean>();
+let generation = 0;
+let rootStatusPoller: ReturnType<typeof createWatcherRootStatusPoller> | null = null;
+
+function post(generationAtStart: number, message: unknown) {
+  if (generationAtStart === generation) process.parentPort?.postMessage(message);
+}
+
+async function reportRootAvailability(rootPath: string, available: boolean, generationAtStart: number) {
+  if (generationAtStart !== generation || rootAvailability.get(rootPath) === available) return;
+  rootAvailability.set(rootPath, available);
+  post(generationAtStart, { type: 'root-status', folderPath: rootPath, available });
+}
+
+async function inspectRoot(rootPath: string, generationAtStart: number) {
+  try {
+    const stat = await fs.stat(rootPath);
+    await reportRootAvailability(rootPath, stat.isDirectory(), generationAtStart);
+  } catch {
+    await reportRootAvailability(rootPath, false, generationAtStart);
+  }
+}
 
 async function closeWatcher() {
+  rootStatusPoller?.stop();
+  rootStatusPoller = null;
   if (!watcher) {
     return;
   }
@@ -12,13 +40,22 @@ async function closeWatcher() {
   await currentWatcher.close();
 }
 
+process.once('exit', () => {
+  rootStatusPoller?.stop();
+  rootStatusPoller = null;
+});
+
 if (process.parentPort) {
   process.parentPort.on('message', async (e: Electron.MessageEvent) => {
     const msg = e.data;
     if (msg.type === 'start') {
+      generation++;
+      const generationAtStart = generation;
       await closeWatcher();
+      watchedRoots = [...new Set((msg.folderPaths as string[]).map((folderPath) => path.resolve(folderPath)))];
+      rootAvailability = new Map();
 
-      watcher = chokidar.watch(msg.folderPaths, {
+      watcher = chokidar.watch(watchedRoots, {
         ignored: /(^|[/\\])\./,
         persistent: true,
         ignoreInitial: true,
@@ -29,12 +66,31 @@ if (process.parentPort) {
         },
       });
 
-      watcher.on('add', (filePath) => process.parentPort?.postMessage({ type: 'add', filePath }));
-      watcher.on('change', (filePath) => process.parentPort?.postMessage({ type: 'change', filePath }));
-      watcher.on('unlink', (filePath) => process.parentPort?.postMessage({ type: 'unlink', filePath }));
+      watcher.on('add', (filePath) => post(generationAtStart, { type: 'add', filePath }));
+      watcher.on('change', (filePath) => post(generationAtStart, { type: 'change', filePath }));
+      watcher.on('unlink', (filePath) => post(generationAtStart, { type: 'unlink', filePath }));
+      watcher.on('addDir', (filePath) => {
+        const root = watchedRoots.find((rootPath) => path.resolve(filePath) === rootPath);
+        if (root) void reportRootAvailability(root, true, generationAtStart);
+      });
+      watcher.on('unlinkDir', (filePath) => {
+        const root = watchedRoots.find((rootPath) => path.resolve(filePath) === rootPath);
+        if (root) void reportRootAvailability(root, false, generationAtStart);
+      });
+      watcher.on('ready', () => {
+        for (const root of watchedRoots) void inspectRoot(root, generationAtStart);
+      });
       watcher.on('error', (error) => console.error('Worker chokidar error:', error));
+      rootStatusPoller = createWatcherRootStatusPoller(
+        watchedRoots,
+        (rootPath) => inspectRoot(rootPath, generationAtStart),
+      );
+      rootStatusPoller.start();
     } else if (msg.type === 'stop') {
+      generation++;
       await closeWatcher();
+      watchedRoots = [];
+      rootAvailability.clear();
       process.exit(0);
     }
   });
