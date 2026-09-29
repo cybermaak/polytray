@@ -859,6 +859,7 @@ export const PreviewPanel: React.FC<Props> = ({
                 disabled={slicerHandoff?.status === "preparing"} aria-label={`Open ${currentFile.name}.${currentFile.extension} in slicer`}>
                 Open in slicer
               </button>
+              {slicerHandoff?.status === "preparing" && <span role="status" aria-live="polite">Preparing slicer handoff…</span>}
               {slicerHandoff?.status === "preparing" && <button type="button" id="cancel-slicer-handoff" onClick={() => void cancelSlicerHandoff()}>Cancel</button>}
               {slicerHandoff?.message && <span role={slicerHandoff.status === "failed" ? "alert" : "status"} aria-live="polite">{slicerHandoff.message}</span>}
             </div>}

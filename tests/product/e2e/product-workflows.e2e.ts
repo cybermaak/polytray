@@ -13,6 +13,9 @@ let scratch = '';
 let userData = '';
 let library = '';
 let launchLog = '';
+let launchHoldPath = '';
+let launchReachedPath = '';
+let launchReleasePath = '';
 
 async function launchWorkflowApp() {
   const args = buildElectronLaunchArgs(path.join(appRoot, 'out/main/index.js'), userData,
@@ -21,6 +24,7 @@ async function launchWorkflowApp() {
     ELECTRON_USER_DATA: userData,
     POLYTRAY_ISOLATED_TEST: '1',
     POLYTRAY_PERF_SCRATCH: scratch,
+    POLYTRAY_SLICER_TEST_HOLD_LAUNCH: '1',
   }) });
 }
 
@@ -33,6 +37,9 @@ test.beforeAll(async () => {
   userData = path.join(scratch, 'user-data');
   library = path.join(scratch, 'library');
   launchLog = path.join(scratch, 'mock-slicer-launches.jsonl');
+  launchHoldPath = path.join(scratch, 'slicer-launch-hold');
+  launchReachedPath = path.join(scratch, 'slicer-launch-reached');
+  launchReleasePath = path.join(scratch, 'slicer-launch-release');
   fs.mkdirSync(userData); fs.mkdirSync(library);
   writeStl(path.join(library, 'regular.stl'), 'regular');
   writeStl(path.join(library, 'second.stl'), 'second');
@@ -89,6 +96,28 @@ test('explicitly hands off an indexed model and only a chosen archive member', a
   expect(launches[1].modelPath).toMatch(/\.stl$/i);
   expect(fs.existsSync(launches[1].modelPath)).toBe(true);
   expect(launches.every(launch => launch.configuration.applicationPath.startsWith(scratch))).toBe(true);
+});
+
+test('announces slicer preparation while the isolated mock launch is held', async () => {
+  fs.writeFileSync(launchHoldPath, 'hold');
+  try {
+    const regularCard = page.locator('.file-card').filter({ has: page.locator('.card-name[title="regular"]') });
+    await regularCard.click();
+    const open = page.locator('#open-in-slicer');
+    await expect(open).toBeVisible();
+    await open.click();
+    const preparing = page.getByRole('status').filter({ hasText: 'Preparing slicer handoff…' });
+    await expect(preparing).toBeVisible();
+    await expect(open).toBeDisabled();
+    await expect.poll(() => fs.existsSync(launchReachedPath)).toBe(true);
+    fs.writeFileSync(launchReleasePath, 'release');
+    await expect(page.getByRole('status').filter({ hasText: 'Model opened in the selected application.' })).toBeVisible();
+  } finally {
+    fs.writeFileSync(launchReleasePath, 'release');
+    fs.rmSync(launchHoldPath, { force: true });
+    fs.rmSync(launchReleasePath, { force: true });
+    fs.rmSync(launchReachedPath, { force: true });
+  }
 });
 
 test('shows honest measurement labels and compare uses the same file-size terminology', async () => {

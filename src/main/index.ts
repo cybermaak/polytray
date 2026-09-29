@@ -131,6 +131,9 @@ function getIsolatedNativeTestAdapters() {
     ? "mock-slicer-application.app"
     : process.platform === "win32" ? "mock-slicer-application.exe" : "mock-slicer-application");
   const launchLog = containedPath("mock-slicer-launches.jsonl");
+  const launchHold = containedPath("slicer-launch-hold");
+  const launchReached = containedPath("slicer-launch-reached");
+  const launchRelease = containedPath("slicer-launch-release");
   return {
     dialog: {
       showSaveDialog: async () => ({ canceled: false, filePath: containedPath("metadata-backup.json") }),
@@ -139,6 +142,31 @@ function getIsolatedNativeTestAdapters() {
       dialog: { showOpenDialog: async () => ({ canceled: false, filePaths: [selectedApplication] }) },
       validateApplication: async () => true,
       launch: async (configuration: unknown, modelPath: string) => {
+        if (process.env.POLYTRAY_SLICER_TEST_HOLD_LAUNCH === "1" && fs.existsSync(launchHold)) {
+          fs.writeFileSync(launchReached, "mock launcher reached");
+          await new Promise<void>((resolveHold, rejectHold) => {
+            let settled = false;
+            let watcher: fs.FSWatcher | null = null;
+            const finish = (error?: Error) => {
+              if (settled) return;
+              settled = true;
+              watcher?.close();
+              if (error) rejectHold(error);
+              else resolveHold();
+            };
+            const checkReleased = () => { if (fs.existsSync(launchRelease)) finish(); };
+            try {
+              watcher = fs.watch(scratchRoot, (_event, filename) => {
+                if (filename?.toString() === "slicer-launch-release") checkReleased();
+              });
+              watcher.on("error", error => finish(error));
+              checkReleased();
+            } catch (error) {
+              finish(error instanceof Error ? error : new Error(String(error)));
+            }
+          });
+          fs.rmSync(launchReached, { force: true });
+        }
         fs.appendFileSync(launchLog, `${JSON.stringify({ configuration, modelPath })}\n`);
       },
     },
