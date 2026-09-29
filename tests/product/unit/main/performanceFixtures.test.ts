@@ -9,7 +9,7 @@ import { createPerformanceDatabase } from '../../../support/fixtures/performance
 test('performance database creates deterministic rows, folders, sort ties, and collection seed', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-performance-fixture-test-'));
   try {
-    const fixture = createPerformanceDatabase({ root, count: 600 });
+    const fixture = createPerformanceDatabase({ root, count: 600, archiveMemberShare: 0.2, archiveGroupCount: 12 });
     const db = fixture.openDatabase();
     try {
       assert.equal((db.prepare('SELECT COUNT(*) AS count FROM files').get() as { count: number }).count, 600);
@@ -21,6 +21,10 @@ test('performance database creates deterministic rows, folders, sort ties, and c
       assert.equal(fixture.collections.collections[0].filePaths.length, 600);
       assert.equal(fixture.lastOnlyCollection.collections[0].filePaths.length, 1);
       assert.equal(fixture.lastOnlyCollection.collections[0].filePaths[0], fixture.collections.collections[0].filePaths[599]);
+      const flat = createPerformanceDatabase({ root: path.join(root, 'flat'), count: 600, archiveMemberShare: 0 });
+      const flatDb = flat.openDatabase();
+      try { assert.equal((flatDb.prepare('SELECT COUNT(*) AS count FROM files WHERE archive_path IS NOT NULL').get() as { count: number }).count, 0); }
+      finally { flatDb.close(); }
     } finally { db.close(); }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

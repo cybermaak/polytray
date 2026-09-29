@@ -17,7 +17,7 @@ export interface PerformanceDatabaseFixture {
 }
 
 /** Creates a portable migrated database. Paths, folders, timestamps, ties and collection membership are deterministic. */
-export function createPerformanceDatabase(options: { root?: string; count: number }): PerformanceDatabaseFixture {
+export function createPerformanceDatabase(options: { root?: string; count: number; archiveMemberShare?: number; archiveGroupCount?: number }): PerformanceDatabaseFixture {
   const ownsRoot = !options.root;
   const root = options.root ?? fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-perf-'));
   fs.mkdirSync(root, { recursive: true });
@@ -45,14 +45,17 @@ export function createPerformanceDatabase(options: { root?: string; count: numbe
     }
   });
   insertBatch();
-  // Match D02's reference shape: one fifth of the rows belong to ZIP summaries,
-  // spread across twelve archives. This makes the production page query pay
-  // the archive count/grouping and representative-sample costs.
+  // Preserve F02's original flat shape by default. Grouped-query diagnostics
+  // opt into the D02 reference distribution explicitly.
+  const archiveMemberShare = options.archiveMemberShare ?? 0;
+  const archiveGroupCount = options.archiveGroupCount ?? 12;
+  if (!Number.isFinite(archiveMemberShare) || archiveMemberShare < 0 || archiveMemberShare > 1) throw new Error('archiveMemberShare must be between 0 and 1');
+  if (!Number.isInteger(archiveGroupCount) || archiveGroupCount < 1) throw new Error('archiveGroupCount must be a positive integer');
   const archiveUpdate = db.prepare('UPDATE files SET archive_path = ? WHERE id = ?');
   const archiveRoot = path.join(root, 'library', 'archives');
   const markArchives = db.transaction(() => {
-    for (let i = 0; i < options.count / 5; i++) {
-      const archiveIndex = i % 12;
+    for (let i = 0; i < Math.floor(options.count * archiveMemberShare); i++) {
+      const archiveIndex = i % archiveGroupCount;
       archiveUpdate.run(path.join(archiveRoot, `archive-${String(archiveIndex).padStart(2, '0')}.zip`), i + 1);
     }
   });
