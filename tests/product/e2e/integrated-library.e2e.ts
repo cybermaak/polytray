@@ -159,9 +159,65 @@ test('integrated 600-record library keeps paging and annotations through archive
       throw error;
     }
     await expect(tailCard.locator('.card-name')).toBeVisible();
-    await tailCard.locator('.file-select-toggle').click();
+    const tailId = String(tail.items[0].file.id);
+    const tailTogglePoint = () => page.evaluate((fileId) => {
+      const button = document.querySelector<HTMLButtonElement>(`.file-card[data-file-id="${fileId}"] .file-select-toggle`);
+      const scroller = button?.closest<HTMLElement>('[data-virtuoso-scroller]');
+      if (!button || !scroller) return null;
+      const rect = button.getBoundingClientRect();
+      const viewport = scroller.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      return {
+        x, y,
+        scrollTop: scroller.scrollTop,
+        scrollerX: viewport.left + viewport.width / 2,
+        scrollerY: viewport.top + viewport.height / 2,
+        deltaY: y - (viewport.top + viewport.height / 2),
+        inViewport: x >= viewport.left && x <= viewport.right && y >= viewport.top && y <= viewport.bottom,
+        hit: button.contains(document.elementFromPoint(x, y)),
+      };
+    }, tailId);
+    const waitForReachableTail = async () => {
+      const deadline = Date.now() + 1_500;
+      let previousScrollTop: number | null = null;
+      while (Date.now() < deadline) {
+        const point = await tailTogglePoint();
+        if (point?.inViewport && point.hit && point.scrollTop === previousScrollTop) return point;
+        previousScrollTop = point?.scrollTop ?? null;
+        await page.waitForTimeout(50);
+      }
+      return null;
+    };
+    const clickMountedTailToggle = async () => {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        await expect.poll(async () => Boolean(await tailTogglePoint()), { timeout: 2_000 }).toBe(true);
+        const point = await tailTogglePoint();
+        if (!point) continue;
+        if (point.inViewport && point.hit) {
+          const stable = await waitForReachableTail();
+          if (stable) {
+            await page.mouse.click(stable.x, stable.y);
+            return;
+          }
+        }
+        const current = await tailTogglePoint();
+        if (!current) continue;
+        await page.mouse.move(current.scrollerX, current.scrollerY);
+        await page.mouse.wheel(0, Math.round(current.deltaY || 120));
+        const settled = await waitForReachableTail();
+        if (settled) {
+          await page.mouse.click(settled.x, settled.y);
+          return;
+        }
+      }
+      throw new Error('Exact tail toggle did not become pointer reachable inside the grid');
+    };
+    await clickMountedTailToggle();
     await expect(page.locator('#batch-selection-count')).toHaveText('1 selected');
-    await tailCard.locator('.file-select-toggle').click();
+    await expect(tailCard.locator('.file-select-toggle')).toHaveAttribute('aria-pressed', 'true');
+    await clickMountedTailToggle();
+    await expect(page.locator('#batch-actions')).toHaveCount(0);
 
     const visibleCards = page.locator('.file-card:not(.archive-summary)');
     await page.locator('[data-virtuoso-scroller]').evaluate(element => element.scrollTo({ top: 0, behavior: 'instant' }));
