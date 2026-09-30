@@ -128,7 +128,7 @@ test('selective invalidation removes only absolute PNGs contained by the owned c
     { id: 2, path: '/models/b.stl', contentRevision: 1, thumbnail: '/outside/b.png' },
     { id: 3, path: '/models/c.stl', contentRevision: 1, thumbnail: '/user-data/thumbnails/cache-meta.json' },
   ];
-  assert.deepEqual(selectThumbnailCachePathsToRemove('/user-data/thumbnails', rows), ['/user-data/thumbnails/a.png']);
+  assert.deepEqual(selectThumbnailCachePathsToRemove('/user-data/thumbnails', rows), [path.resolve('/user-data/thumbnails/a.png')]);
 });
 
 test('selective invalidation notices chunk both identity lists at 256 entries', () => {
@@ -158,10 +158,10 @@ test('invalidation advances epochs and cancels queued work before clearing, dele
     queue(scope) { order.push(`queue:${scope.kind}`); },
   });
   assert.deepEqual(order, [
-    'epoch:false:/models/a.stl',
-    'cancel:/models/a.stl',
+    `epoch:false:${path.resolve('/models/a.stl')}`,
+    `cancel:${path.resolve('/models/a.stl')}`,
     'clear:false:1',
-    'remove:false:/cache/a.png',
+    `remove:false:${path.resolve('/cache/a.png')}`,
     'publish:paths',
     'queue:files',
   ]);
@@ -385,7 +385,7 @@ test('an unknown full-clear failure uses one global quarantine bit instead of a 
   assert.equal(quarantine.isGloballyQuarantined(), true);
   assert.equal(quarantine.getTrackedReadPathCount(), 0);
 
-  const databaseReferences = new Set(['/cache/new-output.png']);
+  const databaseReferences = new Set([path.resolve('/cache/new-output.png')]);
   const isUnreadable = (filePath: string) => quarantine.isPathQuarantined(filePath) ||
     (quarantine.isGloballyQuarantined() && !databaseReferences.has(path.resolve(filePath)));
   assert.equal(isUnreadable('/cache/old-unreached.png'), true);
