@@ -287,6 +287,8 @@ test('previews, cancels, and applies portable metadata restore with conflicts an
   await expect(page.locator('#metadata-backup-title').locator('..')).toContainText('1 annotations waiting for matching files');
   await expect(page.locator('#metadata-backup-title').locator('..')).toContainText('Recovery backup:');
   await expect(page.locator('#settings-overlay')).not.toContainText('Import committed. Waiting');
+  await expect(page.locator('#metadata-backup-title').locator('..'))
+    .toContainText('Metadata import applied. The library and local settings are in sync.', { timeout: 30_000 });
   await page.reload();
   await expect(page.locator('#search-input')).toBeVisible();
   const recovered = await page.evaluate(async id => window.polytray.getFileById(id), regular!.id);
