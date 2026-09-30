@@ -16,6 +16,7 @@ export interface PreviewWindowRuntime {
   markParseSettled(senderId: number, settlement: PreviewParseSettlementData): boolean;
   markLost(senderId: number, error?: Error): boolean;
   getCurrentWindow(): BrowserWindow | null;
+  getPendingCounts(): Readonly<{ settlements: number; settlementTimers: number; previewWindows: number }>;
   restart(): Promise<void>;
   close(): Promise<void>;
 }
@@ -117,6 +118,14 @@ export function createElectronPreviewWindowManager(getProtectedProcessIds: () =>
   });
   return {
     ...manager,
+    getPendingCounts() {
+      const previewWindow = manager.getCurrentWindow();
+      return Object.freeze({
+        settlements: settlements.size,
+        settlementTimers: settlements.size,
+        previewWindows: previewWindow && !previewWindow.isDestroyed() ? 1 : 0,
+      });
+    },
     parse(request, responsePort, sourceBuffer) {
       return manager.parse(request, responsePort, sourceBuffer);
     },

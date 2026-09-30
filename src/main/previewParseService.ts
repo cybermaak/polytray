@@ -96,6 +96,18 @@ interface ArchiveReadJob {
   signalAbort: () => void;
 }
 
+export interface PreviewParsePendingCounts {
+  readonly jobs: number;
+  readonly activeJobs: number;
+  readonly queuedJobs: number;
+  /** One requester reply port and one timeout are owned by each unsettled job. */
+  readonly replyPorts: number;
+  readonly jobTimers: number;
+  readonly archiveReads: number;
+  readonly tombstones: number;
+  readonly tombstoneTimers: number;
+}
+
 function requestKey(ownerId: number, requestId: string) {
   return `${ownerId}\u0000${requestId}`;
 }
@@ -465,7 +477,25 @@ export function createPreviewParseService(dependencies: PreviewParseServiceDepen
     await Promise.all(pending.map((job) => cancelJob(job, 'disposed')));
   }
 
-  return { request, cancel, cancelRequester, readPreviewArchiveBufferForRenderer, dispose };
+  return {
+    request,
+    cancel,
+    cancelRequester,
+    readPreviewArchiveBufferForRenderer,
+    dispose,
+    getPendingCounts(): Readonly<PreviewParsePendingCounts> {
+      return Object.freeze({
+        jobs: jobs.size,
+        activeJobs: activeJob ? 1 : 0,
+        queuedJobs: queuedJob ? 1 : 0,
+        replyPorts: jobs.size,
+        jobTimers: jobs.size,
+        archiveReads: archiveReads.size,
+        tombstones: tombstones.size,
+        tombstoneTimers: tombstones.size,
+      });
+    },
+  };
 }
 
 export { collectTransferables as collectPreviewTransferables };
@@ -515,6 +545,21 @@ export function registerPreviewParseHandler(
     readArchiveEntryBuffer: (request, signal) => readIndexedPreviewArchiveBuffer(getDb(), request, signal),
   });
   const requesterCleanup = new Map<number, () => void>();
+  const isolatedMetrics = () => Object.freeze({
+    ...service.getPendingCounts(),
+    ...previewRuntime.getPendingCounts(),
+    requesterListenerOwners: requesterCleanup.size,
+  });
+  const isolatedMetricsGlobal = globalThis as typeof globalThis & {
+    __POLYTRAY_ISOLATED_PREVIEW_PARSE_METRICS?: typeof isolatedMetrics;
+  };
+  if (process.env.POLYTRAY_ISOLATED_TEST === '1') {
+    Object.defineProperty(isolatedMetricsGlobal, '__POLYTRAY_ISOLATED_PREVIEW_PARSE_METRICS', {
+      configurable: true,
+      enumerable: false,
+      value: isolatedMetrics,
+    });
+  }
 
   const assertMainRequester = (sender: WebContents) => {
     const mainWindow = getMainWindow();
@@ -598,6 +643,9 @@ export function registerPreviewParseHandler(
       ipcMain.removeListener(IPC.CANCEL_PREVIEW_PARSE, cancelHandler);
       ipcMain.removeListener(IPC.PREVIEW_RUNTIME_READY, readyHandler);
       ipcMain.removeListener(IPC.PREVIEW_PARSE_SETTLED, settledHandler);
+      if (isolatedMetricsGlobal.__POLYTRAY_ISOLATED_PREVIEW_PARSE_METRICS === isolatedMetrics) {
+        delete isolatedMetricsGlobal.__POLYTRAY_ISOLATED_PREVIEW_PARSE_METRICS;
+      }
     },
   };
 }
