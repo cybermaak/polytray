@@ -5,9 +5,9 @@ const { launchIsolatedApp } = require("../../support/helpers/isolatedApp");
 
 const APP_DIR = path.resolve(__dirname, "../../..");
 
-function seedLibrary(userDataDir) {
+function seedLibrary(userDataDir, mode = "") {
   const seeded = spawnSync(require("electron"), [
-    "--import", "tsx", path.join(APP_DIR, "tests/support/fixtures/seedLibraryPages.ts"), userDataDir,
+    "--import", "tsx", path.join(APP_DIR, "tests/support/fixtures/seedLibraryPages.ts"), userDataDir, mode,
   ], {
     cwd: APP_DIR,
     encoding: "utf8",
@@ -323,8 +323,86 @@ test("ArrowDown across a loaded page edge preserves the focused column", async (
   }
 });
 
+test("End focuses a distant loaded card in a virtualized grid", async () => {
+  test.setTimeout(90_000);
+  let fixtureInfo;
+  const isolated = await launchIsolatedApp({
+    mainEntry: path.join(APP_DIR, "out/main/index.js"),
+    beforeLaunch: ({ userDataDir }) => { fixtureInfo = seedLibrary(userDataDir, "--flat"); },
+  });
+  try {
+    const page = await findMainWindow(isolated.app);
+    await page.setViewportSize({ width: 900, height: 700 });
+    await applyKeyboardFixtureState(page, fixtureInfo);
+    await page.evaluate(() => {
+      const settings = JSON.parse(localStorage.getItem("polytray-settings") || "{}");
+      localStorage.setItem("polytray-settings", JSON.stringify({ ...settings, page_size: 500 }));
+    });
+    await page.reload();
+    await page.locator("#search-input").waitFor();
+    await expect(page.locator("#file-grid [data-item-key][tabindex='0']")).toHaveCount(1);
+    await tabTo(page, "#file-grid [data-item-key][tabindex='0']");
+    const sort = await page.locator("#sort-select").inputValue();
+    const direction = await page.locator("#sort-order").evaluate((element) =>
+      element.classList.contains("desc") ? "DESC" : "ASC",
+    );
+    const firstPage = await page.evaluate(({ sort, direction }) => window.polytray.getLibraryPage({
+      sort, direction, extension: null, folder: null, search: "",
+      collectionPaths: null, limit: 500, offset: 0,
+    }), { sort, direction });
+    const expectedLastKey = firstPage.status === "ok" ? firstPage.items[499]?.key : null;
+    expect(expectedLastKey).toBeTruthy();
+    await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>("[data-virtuoso-scroller]");
+      if (!scroller) throw new Error("Virtual grid scroller is missing");
+      const scrollTo = scroller.scrollTo.bind(scroller);
+      let dropped = false;
+      scroller.scrollTo = (...args) => {
+        if (!dropped) {
+          dropped = true;
+          (window as Window & { __gridFirstScrollDropped?: boolean }).__gridFirstScrollDropped = true;
+          return;
+        }
+        scrollTo(...args);
+      };
+    });
+    await pressWithDeadline(page, "End", "focus the last loaded virtualized card");
+    expect(await page.evaluate(() => (window as Window & { __gridFirstScrollDropped?: boolean }).__gridFirstScrollDropped)).toBe(true);
+    await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement).dataset.itemKey), { timeout: 5_000 })
+      .toBe(expectedLastKey);
+
+    await pressWithDeadline(page, "Home", "return to the first card");
+    const firstKey = firstPage.status === "ok" ? firstPage.items[0]?.key : null;
+    const replacementFocusKey = firstPage.status === "ok" ? firstPage.items[1]?.key : null;
+    await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement).dataset.itemKey), { timeout: 5_000 })
+      .toBe(firstKey);
+    expect(replacementFocusKey).toBeTruthy();
+    await expect(page.locator(`#file-grid [data-item-key="${replacementFocusKey}"]`)).toBeVisible();
+    await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>("[data-virtuoso-scroller]");
+      if (!scroller) throw new Error("Virtual grid scroller is missing");
+      const scrollTo = scroller.scrollTo.bind(scroller);
+      scroller.scrollTo = () => {};
+      (window as Window & { __restoreGridScroll?: () => void }).__restoreGridScroll = () => { scroller.scrollTo = scrollTo; };
+    });
+    await pressWithDeadline(page, "End", "start a pending virtual focus move");
+    await page.evaluate((key) => {
+      const card = Array.from(document.querySelectorAll<HTMLElement>("#file-grid [data-item-key]"))
+        .find((element) => element.dataset.itemKey === key);
+      if (!card) throw new Error("Replacement card unmounted before focus");
+      card.focus({ preventScroll: true });
+    }, replacementFocusKey);
+    await page.evaluate(() => (window as Window & { __restoreGridScroll?: () => void }).__restoreGridScroll?.());
+    await page.waitForTimeout(1_200);
+    expect(await page.evaluate(() => (document.activeElement as HTMLElement).dataset.itemKey)).toBe(replacementFocusKey);
+  } finally {
+    await isolated.close();
+  }
+});
+
 test("Delete on a focused library root uses the tree action without a per-item Tab stop", async () => {
-  test.setTimeout(30_000);
+  // Windows hosted fixture seeding can exceed 30 seconds before Electron launches.
+  test.setTimeout(90_000);
   let fixtureInfo;
   const isolated = await launchIsolatedApp({
     mainEntry: path.join(APP_DIR, "out/main/index.js"),

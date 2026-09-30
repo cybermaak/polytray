@@ -9,6 +9,10 @@ if (!userDataDir) throw new Error('Expected the isolated app userData directory'
 
 const fixture = create600Database(userDataDir);
 fs.mkdirSync(path.join(fixture.root, 'library'), { recursive: true });
+if (process.argv[3] === '--flat') {
+  console.log(JSON.stringify({ libraryRoot: path.join(fixture.root, 'library') }));
+  process.exit(0);
+}
 const thumbnailTestFolder = path.join(fixture.root, 'library', 'thumbnail-fixture');
 fs.mkdirSync(thumbnailTestFolder, { recursive: true });
 const thumbnailTestPath = path.join(thumbnailTestFolder, 'test_model_a.stl');
