@@ -183,7 +183,12 @@ test('does not carry completed or in-flight slicer state to a different archive 
     await expect.poll(() => fs.existsSync(launchReachedPath)).toBe(true);
 
     const archiveCard = page.locator('.file-card.archive-summary').filter({ has: page.locator('.card-name[title="models.zip"]') });
-    try { await archiveCard.click(); }
+    try {
+      await page.locator('#file-grid [data-item-key]').first().focus();
+      await page.keyboard.press('Home');
+      await expect(archiveCard).toBeVisible({ timeout: 10_000 });
+      await archiveCard.click();
+    }
     catch (error) {
       await attachGridFailureEvidence(page, 'archive-switch', '.file-card.archive-summary .card-name[title="models.zip"]');
       throw error;

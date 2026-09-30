@@ -494,7 +494,12 @@ test('dense and transformed multipart previews report first-frame and render-sub
 
         await page.evaluate(() => { (window as Window & { __V05_PROBE?: { inactive: boolean } }).__V05_PROBE!.inactive = false; });
         const reopenMultipart = page.locator('.file-card').filter({ has: page.locator('.card-name[title="multipart"]') }).first();
-        try { await reopenMultipart.click(); }
+        try {
+          await page.locator('#file-grid [data-item-key]').first().focus();
+          await page.keyboard.press('End');
+          await expect(reopenMultipart).toBeVisible({ timeout: 10_000 });
+          await reopenMultipart.click();
+        }
         catch (error) {
           await attachGridFailureEvidence(page, 'multipart-reopen', '.card-name[title="multipart"]');
           throw error;

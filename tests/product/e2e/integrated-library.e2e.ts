@@ -118,13 +118,42 @@ test('integrated 600-record library keeps paging and annotations through archive
       .toBe(before.items[0].file.id);
 
     const tailCard = page.locator(`.file-card[data-file-id="${tail.items[0].file.id}"]`);
-    await page.locator('[data-virtuoso-scroller]').hover();
     try {
+      const scroller = page.locator('[data-virtuoso-scroller]');
+      await scroller.hover();
+      const firstPageHeight = await scroller.evaluate((element) => element.scrollHeight);
+      await page.mouse.wheel(0, firstPageHeight);
+      const pageOneLastCard = page.locator(`[data-item-key="${before.items[499].key}"]`);
+      const orderedKeys = [...before.items, ...tail.items].map((item) => item.key);
+      let navigationState = 'waiting';
       await expect.poll(async () => {
-        if (await tailCard.isVisible().catch(() => false)) return true;
-        await page.locator('[data-virtuoso-scroller]').evaluate(element => element.scrollTo({ top: element.scrollHeight, behavior: 'instant' }));
-        return false;
-      }, { timeout: 30_000, intervals: [100, 250, 500] }).toBe(true);
+        if (await tailCard.count()) return navigationState = 'target';
+        if (await pageOneLastCard.count()) {
+          return navigationState = await page.locator('.library-page-footer').count() ? 'edge' : 'loaded';
+        }
+        const firstMountedKey = await page.locator('#file-grid [data-item-key]').first().getAttribute('data-item-key');
+        if (firstMountedKey && orderedKeys.indexOf(firstMountedKey) > 500) return navigationState = 'beyond';
+        return navigationState;
+      }, { timeout: 15_000 }).not.toBe('waiting');
+      if (navigationState === 'edge') {
+        await pageOneLastCard.focus();
+        await page.keyboard.press('ArrowDown');
+        await expect(tailCard).toBeVisible({ timeout: 15_000 });
+      } else if (navigationState === 'loaded') {
+        await page.mouse.wheel(0, 500);
+      } else if (navigationState === 'beyond') {
+        const delta = await page.evaluate((keys) => {
+          const grid = document.querySelector<HTMLElement>('#file-grid');
+          const first = grid?.querySelector<HTMLElement>('[data-item-key]');
+          if (!grid || !first) return 0;
+          const firstIndex = keys.indexOf(first.dataset.itemKey ?? '');
+          const columns = getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/).length;
+          const rowGap = Number.parseFloat(getComputedStyle(grid).rowGap) || 0;
+          return Math.ceil((firstIndex - 500) / columns) * (first.getBoundingClientRect().height + rowGap);
+        }, orderedKeys);
+        await page.mouse.wheel(0, -Math.max(500, delta));
+      }
+      await expect(tailCard).toBeVisible({ timeout: 30_000 });
     } catch (error) {
       await attachGridFailureEvidence(page, 'integrated-tail', `.file-card[data-file-id="${tail.items[0].file.id}"]`);
       throw error;

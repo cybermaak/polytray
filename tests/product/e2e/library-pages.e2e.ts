@@ -83,13 +83,30 @@ test("library pages expose every matching model, complete archive counts, and st
     await page.locator(`.file-card[data-file-id="${firstFile.id}"] .file-select-toggle`).click();
     const lastRecordCard = page.locator(`.file-card[data-file-id="${fixtureInfo.thumbnailTestFileId}"]`);
     const lastRecordName = page.locator(`.card-name[title="${fixtureInfo.lastRecordName}"]`);
-    await page.locator("[data-virtuoso-scroller]").hover();
     try {
+      const scroller = page.locator('[data-virtuoso-scroller]');
+      await scroller.hover();
+      const firstPageHeight = await scroller.evaluate((element) => element.scrollHeight);
+      await page.mouse.wheel(0, firstPageHeight);
+      const pageOneLastCard = page.locator(`[data-item-key="${firstPage.items[499].key}"]`);
+      let navigationState = 'waiting';
       await expect.poll(async () => {
-        if (await lastRecordCard.isVisible()) return true;
-        await page.mouse.wheel(0, 1000);
-        return false;
-      }, { timeout: 30000, intervals: [100, 250, 500] }).toBe(true);
+        if (await lastRecordCard.count()) return navigationState = 'target';
+        if (await pageOneLastCard.count()) {
+          return navigationState = await page.locator('.library-page-footer').count() ? 'edge' : 'loaded';
+        }
+        return navigationState;
+      }, { timeout: 15_000 }).not.toBe('waiting');
+      if (navigationState === 'edge') {
+        await pageOneLastCard.focus();
+        await page.keyboard.press('ArrowDown');
+        await expect(page.locator(`[data-item-key="${secondPage.items[0].key}"]`)).toBeVisible({ timeout: 15_000 });
+      }
+      if (navigationState !== 'target') {
+        const fullHeight = await scroller.evaluate((element) => element.scrollHeight);
+        await page.mouse.wheel(0, fullHeight);
+      }
+      await expect(lastRecordCard).toBeVisible({ timeout: 30_000 });
     } catch (error) {
       await attachGridFailureEvidence(page, 'library-tail', `.file-card[data-file-id="${fixtureInfo.thumbnailTestFileId}"]`);
       throw error;
