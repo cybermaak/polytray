@@ -1,6 +1,6 @@
 # Performance and resource validation (G02)
 
-**Status: REVIEW — grouped warm-query targets pass; scope-index backfill still delays the paged reader, but legacy cards now appear while it runs.** Buffered discovery/metadata queues, Polytray utility processes, encoded in-memory thumbnail-cache bytes, application-owned preview bridge/timer state, and one dense-model GPU timer-query sample have been measured. Combined pipeline backlog, a full port/listener census, decoded image/GPU memory, and cross-platform timing remain open. One multipart CPU long-task overrun was not reproduced. This report does not claim all resource requirements are validated.
+**Status: REVIEW — grouped warm-query targets pass; scope-index backfill still delays the paged reader, but legacy cards now appear while it runs.** Buffered discovery/metadata queues, Polytray utility processes, encoded in-memory thumbnail-cache bytes, application-owned preview bridge/timer state, and dense-model GPU timer-query samples have been measured. Combined pipeline backlog, a full port/listener census, decoded image/GPU memory, and cross-platform timing remain open. One multipart CPU long-task overrun was not reproduced. This report does not claim all resource requirements are validated.
 
 ## Reference query capture
 
