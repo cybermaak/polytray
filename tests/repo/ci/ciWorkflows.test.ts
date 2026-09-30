@@ -11,6 +11,7 @@ const buildWorkflow = read('.github/workflows/build.yml');
 const releaseWorkflow = read('.github/workflows/release.yml');
 const setupAndTestAction = read('.github/actions/setup-and-test/action.yml');
 const packageAppAction = read('.github/actions/package-app/action.yml');
+const playwrightConfig = read('playwright.config.ts');
 
 function expectMatch(content: string, pattern: RegExp, message?: string) {
   assert.match(content, pattern, message);
@@ -69,6 +70,13 @@ test('Linux Product runs with a ready window manager inside its Xvfb display', (
   expectMatch(setupAndTestAction, /cleanup\(\)[^\n]*wm_pid/);
   expectMatch(setupAndTestAction, /trap cleanup EXIT/);
   expectMatch(setupAndTestAction, /npm run test:product/);
+});
+
+test('hosted Build E2E failures retain traces and screenshots without retries', () => {
+  expectMatch(playwrightConfig, /retries:\s*0/);
+  expectMatch(playwrightConfig, /process\.env\.GITHUB_WORKFLOW === 'Build'/);
+  expectMatch(playwrightConfig, /trace:\s*captureBuildFailures\s*\?\s*'retain-on-failure'/);
+  expectMatch(playwrightConfig, /screenshot:\s*captureBuildFailures\s*\?\s*'only-on-failure'/);
 });
 
 test('package postinstall honors the skip flag and otherwise rebuilds native deps', () => {
