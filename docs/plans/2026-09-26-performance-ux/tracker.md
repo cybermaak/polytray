@@ -88,7 +88,7 @@ Warm grouped 50k `GET_LIBRARY_PAGE` measured 100.4/105.8 ms in the worker captur
 | P04 | [Recoverable restore transaction](product.md#p04---apply-restores-with-crash-recovery-across-both-stores) | P2 | P03, S02 | DONE | sequential candidate | [P04](handoffs/P04.md); spec/quality PASS; main/preload/startup/mutation gating integrated; Build and full Product PASS on `96a2128` |
 | G01 | [Integrated correctness and recovery](validation.md#g01---prove-integrated-correctness-and-recovery) | Gate | U05, U06, V05 | DONE | coordinator + `/root/g01_integrated_validation`, Luna/medium | [G01](handoffs/G01.md); integrated `b6074bd`; serial reviews, Build, full Product PASS (477 units/1 Windows skip; 68 E2Es/1 optional skip); fixture restored |
 | G02 | [Performance and resource evidence](validation.md#g02---verify-performance-and-resource-budgets) | Gate | G01 | REVIEW | coordinator + `/root/g02_performance_evidence` | [G02](handoffs/G02.md); `2ee8523` passed serial reviews, Build, and Product; bounded per-stage queues, cache, preview-owner lifecycle, and dense GPU query evidence recorded; platform and residuals remain open |
-| G03 | [Documentation and readiness](validation.md#g03---reconcile-documentation-and-hand-back-execution-results) | Gate | G02 | IN_PROGRESS | Coordinator | Final integration packet is being prepared under explicit residuals while G02 remains REVIEW; no incomplete validation gate is marked DONE |
+| G03 | [Documentation and readiness](validation.md#g03---reconcile-documentation-and-hand-back-execution-results) | Gate | G02 | IN_PROGRESS | [Final integration packet](../../performance/final-integration-review.md) prepared for Astra; G02 remains REVIEW and platform/CPU residuals remain open |
 
 ## Active assignments
 
