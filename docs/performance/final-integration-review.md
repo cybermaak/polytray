@@ -4,6 +4,8 @@
 
 **Prepared for Astra review. G02 remains REVIEW and G03 remains IN_PROGRESS.** This packet freezes the integrated source/test candidate at `2ee8523`. Later commits update evidence and documentation only; no application/test code changed after the frozen candidate.
 
+**Later checkpoint:** The [Sol independent review](sol-independent-review.md) supersedes this frozen-candidate statement for current code. It records the original `0cbe3c3` baseline, reviewed access fixes, final local Build/Product evidence, macOS screenshot QA, and non-main supported-platform CI attempts. Historical measurements and limits below remain the evidence for `2ee8523`; source/test changes after it are explicitly identified in that follow-up. Remote Windows/Linux Codex connections and full manual remote-machine validation are deferred by the user's revised validation decision; hosted CI and fixture-based UAT/screenshots are the first route to platform evidence.
+
 No push, release, publication, or real user-library test was performed. The generated ZIP fixture was restored to SHA256 `6ca9f75c11d9330221860ade9fdb641cac6728a9f0a4cc1883989506a39fc109`. Existing user edits in `AGENTS.md`, `DEV_CONTEXT.md`, `scripts/capture-readme-media.ts`, and untracked marketing/superpowers paths are preserved and excluded from the candidate.
 
 ## Integrated verification
@@ -101,4 +103,4 @@ The 107 ms observation was on the multipart fixture. C10's numeric <=100 ms CPU 
 5. The incomplete-index first page took 1,364.3 ms after the user-facing first card appeared; the preseeded page took 100.1 ms. Full index-build duration was not recorded. Optional real `base.3mf` was not run; its absence is not a pass. Portable dense and multipart fixtures did run.
 6. G03 documentation reconciliation is now additive: `README.md` documents scans/offline roots, archives, measurements, backup/restore, collections, and slicer handoff; `DEV_CONTEXT.md` now records the current DB path, separate preview/thumbnail runtimes, metadata utility, scan/index ownership, and a dated status that supersedes the earlier S05-next snapshot. The pre-existing user-added state/website edits in `DEV_CONTEXT.md` remain intact and unstaged. G03 stays IN_PROGRESS pending Astra review and remaining platform/CPU readiness.
 
-No source push, release, publication, or real user-library test is authorized or performed. Review this packet against the [tracker](../plans/2026-09-26-performance-ux/tracker.md) before deciding whether G02/G03 status or follow-up work should change.
+At the `2ee8523` frozen checkpoint, no source push, release, publication, or real user-library test was performed. The later non-main CI branch and current readiness status are recorded in the [Sol independent review](sol-independent-review.md) and [tracker](../plans/2026-09-26-performance-ux/tracker.md).
