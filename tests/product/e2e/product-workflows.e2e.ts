@@ -100,6 +100,37 @@ function launchCount() {
   return fs.existsSync(launchLog) ? fs.readFileSync(launchLog, 'utf8').trim().split('\n').filter(Boolean).length : 0;
 }
 
+async function prepareConflictBackup(filename: string, pendingModelName: string) {
+  const regular = await page.evaluate(async () => (await window.polytray.getFiles({ limit: 100, offset: 0 })).files.find(file => file.name === 'regular'));
+  expect(regular).toBeTruthy();
+  await page.evaluate(async file => window.polytray.updateFileMetadata({ id: file.id, tags: ['existing'], notes: 'keep my note' }), regular!);
+
+  await ensureSettingsOpen();
+  const exportPath = path.join(scratch, 'metadata-backup.json');
+  fs.rmSync(exportPath, { force: true });
+  await page.locator('#export-metadata-backup').click();
+  await expect.poll(() => fs.existsSync(exportPath)).toBe(true);
+  const rawExport = fs.readFileSync(exportPath, 'utf8');
+  expect(rawExport).not.toContain('facet normal');
+  const exported = JSON.parse(rawExport) as {
+    annotations: Array<{ path: string; tags: string[]; notes: string | null }>;
+    pendingAnnotations: Array<{ path: string; tags: string[]; notes: string | null }>;
+    libraryRoots: string[];
+    preferences: Record<string, unknown>;
+  };
+  const indexed = exported.annotations.find(annotation => annotation.path === regular!.path);
+  expect(indexed).toBeTruthy();
+  indexed!.tags.push('from-backup');
+  indexed!.notes = 'different imported note';
+  const pendingModelPath = path.join(library, pendingModelName);
+  exported.pendingAnnotations = [{ path: pendingModelPath, tags: ['later'], notes: 'pending note' }];
+  exported.libraryRoots = [path.join(scratch, 'replacement-root')];
+  exported.preferences.autoScan = false;
+  const backupPath = path.join(scratch, filename);
+  fs.writeFileSync(backupPath, JSON.stringify(exported));
+  return { regular: regular!, pendingModelPath, backupPath };
+}
+
 test('explicitly hands off an indexed model and only a chosen archive member', async () => {
   await page.locator('#btn-settings').click();
   await page.locator('#pick-slicer-application').click();
@@ -214,29 +245,8 @@ test('shows honest measurement labels and compare uses the same file-size termin
 });
 
 test('previews, cancels, and applies portable metadata restore with conflicts and unmatched pending paths', async () => {
-  const regular = await page.evaluate(async () => (await window.polytray.getFiles({ limit: 100, offset: 0 })).files.find(file => file.name === 'regular'));
-  expect(regular).toBeTruthy();
-  await page.evaluate(async file => window.polytray.updateFileMetadata({ id: file.id, tags: ['existing'], notes: 'keep my note' }), regular!);
-
-  await page.locator('#btn-settings').click();
-  await page.locator('#export-metadata-backup').click();
-  await expect.poll(() => fs.existsSync(path.join(scratch, 'metadata-backup.json'))).toBe(true);
-  const exported = JSON.parse(fs.readFileSync(path.join(scratch, 'metadata-backup.json'), 'utf8')) as {
-    annotations: Array<{ path: string; tags: string[]; notes: string | null }>;
-    pendingAnnotations: Array<{ path: string; tags: string[]; notes: string | null }>;
-    libraryRoots: string[];
-    preferences: Record<string, unknown>;
-  };
-  expect(fs.readFileSync(path.join(scratch, 'metadata-backup.json'), 'utf8')).not.toContain('facet normal');
-  const indexed = exported.annotations.find(annotation => annotation.path === regular!.path)!;
-  indexed.tags.push('from-backup');
-  indexed.notes = 'different imported note';
-  const laterModelPath = path.join(library, 'later-model.stl');
-  exported.pendingAnnotations.push({ path: laterModelPath, tags: ['later'], notes: 'pending note' });
-  exported.libraryRoots = [path.join(scratch, 'replacement-root')];
-  exported.preferences.autoScan = false;
-  const validBackup = path.join(scratch, 'conflict-backup.json');
-  fs.writeFileSync(validBackup, JSON.stringify(exported));
+  const { regular, pendingModelPath: laterModelPath, backupPath: validBackup } =
+    await prepareConflictBackup('conflict-backup.json', 'later-model.stl');
   const malformed = path.join(scratch, 'malformed-backup.json');
   fs.writeFileSync(malformed, '{ malformed');
 
@@ -361,7 +371,8 @@ test('closing Settings during a pre-marker commit clears its failed preview with
 });
 
 test('startup rolls a committed restore forward when the renderer has not applied it yet', async () => {
-  const backup = JSON.parse(fs.readFileSync(path.join(scratch, 'conflict-backup.json'), 'utf8')) as { preferences: Record<string, unknown> };
+  const prepared = await prepareConflictBackup('roll-forward-backup.json', 'roll-forward-later.stl');
+  const backup = JSON.parse(fs.readFileSync(prepared.backupPath, 'utf8')) as { preferences: Record<string, unknown> };
   backup.preferences.autoScan = false;
   const transactionId = await page.evaluate(async backupData => {
     const libraryState = JSON.parse(localStorage.getItem('polytray-library-state') ?? '{}') as { libraryFolders: string[] };
@@ -402,10 +413,10 @@ test('startup rolls a committed restore forward when the renderer has not applie
 });
 
 test('shows retained recovery after an acknowledgment failure and recovers on restart', async () => {
-  await ensureSettingsOpen();
+  const prepared = await prepareConflictBackup('ack-recovery-backup.json', 'ack-recovery-later.stl');
   fs.writeFileSync(path.join(scratch, 'metadata-restore-ack-failure'), 'fail next acknowledgement');
   await page.locator('#choose-metadata-backup').click();
-  await page.locator('#metadata-backup-file').setInputFiles(path.join(scratch, 'conflict-backup.json'));
+  await page.locator('#metadata-backup-file').setInputFiles(prepared.backupPath);
   await expect(page.locator('#apply-metadata-import')).toBeEnabled();
   await page.locator('#apply-metadata-import').click();
   const recoveryNotice = page.getByRole('status').filter({ hasText: 'Metadata restore recovery needs attention' });
