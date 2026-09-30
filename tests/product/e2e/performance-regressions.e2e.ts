@@ -207,7 +207,7 @@ test('performance resource observations stay stable across twenty viewer replace
       expect(isolated.app.windows().length).toBe(initialWindows);
       const after3mf = await expectPreviewResourcesSettled();
       previewOwnershipSamples.push(after3mf);
-      expect(after3mf.hiddenBridge?.hiddenParseListeners).toBe(settledPreviewResources.hiddenBridge.hiddenParseListeners);
+      expect(after3mf.hiddenBridge).toMatchObject({ parses: 0, archiveReads: 0, hiddenPorts: 0, hiddenParseListeners: 1 });
       threeMfRequests++;
 
       const replacementName = cycle % 2 === 0 ? 'a' : 'b';
@@ -239,6 +239,7 @@ test('performance resource observations stay stable across twenty viewer replace
       await expect.poll(() => page.evaluate(() => window.__POLYTRAY_CURRENT_MODEL ?? null)).toBeNull();
       const afterClose = await expectPreviewResourcesSettled();
       previewOwnershipSamples.push(afterClose);
+      expect(afterClose.hiddenBridge).toMatchObject({ parses: 0, archiveReads: 0, hiddenPorts: 0, hiddenParseListeners: 1 });
       expect(isolated.app.windows().length).toBe(initialWindows);
       cycleDurationsMs.push(Date.now() - cycleStartedAt);
       expect(isolated.app.windows().length).toBe(initialWindows);
