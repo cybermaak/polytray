@@ -227,6 +227,11 @@ test('held 3MF parsing is cancelled by latest request without stopping main or t
           replacementElapsedMs: Date.now() - replacementStartedAt,
           replacementDispatchFinished,
           replacementDispatchError: replacementDispatchError ? String(replacementDispatchError) : null,
+          heldWindow: await heldNative.evaluate((win) => ({
+            destroyed: win.isDestroyed(),
+            webContentsDestroyed: win.webContents.isDestroyed(),
+            rendererPid: win.webContents.isDestroyed() ? null : win.webContents.getOSProcessId(),
+          })).catch((cause) => ({ error: String(cause) })),
           windows: await Promise.all(isolated.app.windows().map(async candidate => {
             const url = candidate.url();
             try {
@@ -234,6 +239,17 @@ test('held 3MF parsing is cancelled by latest request without stopping main or t
               return { url, pid: await owner.evaluate(win => win.webContents.getOSProcessId()) };
             } catch (cause) { return { url, error: String(cause) }; }
           })),
+          electronProcesses: await isolated.app.evaluate((electron) => ({
+            metrics: electron.app.getAppMetrics().map((entry) => ({
+              pid: entry.pid, type: entry.type, serviceName: entry.serviceName,
+            })),
+            webContents: electron.webContents.getAllWebContents().map((entry) => ({
+              id: entry.id,
+              destroyed: entry.isDestroyed(),
+              url: entry.isDestroyed() ? null : entry.getURL(),
+              pid: entry.isDestroyed() ? null : entry.getOSProcessId(),
+            })),
+          })).catch((cause) => ({ error: String(cause) })),
           bridge: await mainWindow.evaluate(() => window.polytray.__previewParsePendingCounts?.()),
         };
       });

@@ -38,6 +38,16 @@ function getWindowRendererPid(previewWindow: BrowserWindow): number {
 export function createElectronPreviewWindowManager(getProtectedProcessIds: () => readonly number[] = () => []): PreviewWindowRuntime {
   const settlements = new Map<string, { senderId: number; timer: ReturnType<typeof setTimeout>; deferred: Deferred<void> }>();
   const senderIds = new WeakMap<BrowserWindow, number>();
+  const generations = new WeakMap<BrowserWindow, number>();
+  const knownRendererPids = new WeakMap<BrowserWindow, number>();
+  let nextGeneration = 0;
+  const noteLifecycle = (stage: string, previewWindow: BrowserWindow, details: Record<string, unknown> = {}) => {
+    if (process.env.POLYTRAY_ISOLATED_TEST !== '1') return;
+    console.info('[PreviewWindowLifecycle]', {
+      stage, generation: generations.get(previewWindow), senderId: senderIds.get(previewWindow),
+      rendererPid: knownRendererPids.get(previewWindow), at: Date.now(), ...details,
+    });
+  };
   let manager: ReturnType<typeof createPreviewWindowManager<BrowserWindow>>;
   manager = createPreviewWindowManager<BrowserWindow>({
     create: () => {
@@ -55,10 +65,13 @@ export function createElectronPreviewWindowManager(getProtectedProcessIds: () =>
       });
       const senderId = previewWindow.webContents.id;
       senderIds.set(previewWindow, senderId);
+      generations.set(previewWindow, ++nextGeneration);
       previewWindow.webContents.on('render-process-gone', (_event, details) => {
+        noteLifecycle('render-process-gone', previewWindow, { reason: details.reason });
         manager.markLost(senderId, new Error(`Preview renderer exited: ${details.reason}`));
       });
       previewWindow.on('closed', () => {
+        noteLifecycle('window-closed', previewWindow);
         manager.markLost(senderId, new Error('Preview window closed'));
       });
       return previewWindow;
@@ -94,10 +107,16 @@ export function createElectronPreviewWindowManager(getProtectedProcessIds: () =>
       if (previewWindow.isDestroyed()) return;
       const closed = new Promise<void>((resolve) => previewWindow.once('closed', () => resolve()));
       const previewPid = getWindowRendererPid(previewWindow);
-      if (canForceCrashPreviewRenderer(previewPid, getProtectedProcessIds())) {
+      if (previewPid > 0) knownRendererPids.set(previewWindow, previewPid);
+      const protectedPids = getProtectedProcessIds();
+      const mayCrash = canForceCrashPreviewRenderer(previewPid, protectedPids);
+      noteLifecycle('destroy-start', previewWindow, { mayCrash, protectedPids });
+      if (mayCrash) {
         try {
           previewWindow.webContents.forcefullyCrashRenderer();
-        } catch {
+          noteLifecycle('force-crash-requested', previewWindow);
+        } catch (error) {
+          noteLifecycle('force-crash-threw', previewWindow, { error: String(error) });
           // The owned renderer may already have exited.
         }
       }
@@ -105,13 +124,17 @@ export function createElectronPreviewWindowManager(getProtectedProcessIds: () =>
       let timeout: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([closed, new Promise<void>((resolve) => { timeout = setTimeout(resolve, 500); })]);
       if (timeout) clearTimeout(timeout);
+      noteLifecycle('destroy-settled', previewWindow, { windowDestroyed: previewWindow.isDestroyed() });
     },
     senderId: (previewWindow) => previewWindow.webContents.id,
     isDestroyed: (previewWindow) => previewWindow.isDestroyed() || previewWindow.webContents.isDestroyed(),
-    canForceCrash: (previewWindow) => canForceCrashPreviewRenderer(
-      getWindowRendererPid(previewWindow),
-      getProtectedProcessIds(),
-    ),
+    canForceCrash: (previewWindow) => {
+      const pid = getWindowRendererPid(previewWindow);
+      if (pid > 0) knownRendererPids.set(previewWindow, pid);
+      const allowed = canForceCrashPreviewRenderer(pid, getProtectedProcessIds());
+      noteLifecycle('renderer-ready-check', previewWindow, { allowed });
+      return allowed;
+    },
     dispatch: (previewWindow, request, sourceBuffer, responsePort) => dispatchPreviewParse(
       previewWindow, request, responsePort, sourceBuffer, settlements,
     ),

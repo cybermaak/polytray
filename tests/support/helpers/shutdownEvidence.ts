@@ -1,0 +1,58 @@
+import fs from 'node:fs';
+import type { ElectronApplication } from 'playwright';
+
+/** Record quit phases without changing or skipping Electron's awaited shutdown. */
+export async function installShutdownEvidence(app: ElectronApplication, outputPath: string) {
+  const recordHost = (entry: Record<string, unknown>) => {
+    try { fs.appendFileSync(outputPath, `${JSON.stringify({ ...entry, at: Date.now() })}\n`); }
+    catch { /* Diagnostics cannot alter app shutdown. */ }
+  };
+  try { await app.evaluate((electron, targetPath) => {
+    const localFs = process.getBuiltinModule('fs');
+    if (!localFs) return;
+    const record = (stage: string) => {
+      let snapshot: unknown;
+      try {
+        snapshot = {
+          mainPid: process.pid,
+          windows: electron.BrowserWindow.getAllWindows().map((window) => ({
+            id: window.id,
+            destroyed: window.isDestroyed(),
+            url: window.webContents.isDestroyed() ? null : window.webContents.getURL(),
+            rendererPid: window.webContents.isDestroyed() ? null : window.webContents.getOSProcessId(),
+          })),
+          processes: electron.app.getAppMetrics().map((metric) => ({
+            pid: metric.pid, type: metric.type, serviceName: metric.serviceName,
+          })),
+        };
+      } catch (error) { snapshot = { error: String(error) }; }
+      try { localFs.appendFileSync(targetPath, `${JSON.stringify({ stage, at: Date.now(), snapshot })}\n`); }
+      catch { /* Diagnostics cannot alter app shutdown. */ }
+    };
+    record('probe-installed');
+    for (const stage of ['before-quit', 'window-all-closed', 'will-quit', 'quit'] as const) {
+      electron.app.on(stage, () => record(stage));
+    }
+  }, outputPath); }
+  catch (error) { recordHost({ stage: 'probe-install-failed', error: String(error) }); }
+
+  return async (close: () => Promise<void>) => {
+    let mainPid: number | null = null;
+    try { mainPid = app.process().pid; }
+    catch { /* The app may have exited before the probe was installed. */ }
+    recordHost({ stage: 'close-called', mainPid });
+    const timer = setTimeout(() => {
+      let mainAlive: boolean | null = null;
+      if (mainPid !== null) {
+        try { process.kill(mainPid, 0); mainAlive = true; }
+        catch (error) { mainAlive = (error as NodeJS.ErrnoException).code === 'EPERM'; }
+      }
+      recordHost({ stage: 'close-pending-5s', mainPid, mainAlive });
+    }, 5_000);
+    try { await close(); }
+    finally {
+      clearTimeout(timer);
+      recordHost({ stage: 'close-settled', mainPid });
+    }
+  };
+}

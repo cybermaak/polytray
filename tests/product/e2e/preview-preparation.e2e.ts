@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import JSZip from 'jszip';
 import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
+import { installShutdownEvidence } from '../../support/helpers/shutdownEvidence';
 import { attachGridFailureEvidence } from '../../support/helpers/gridFailureEvidence';
 
 const APP_DIR = path.resolve(__dirname, '../../..');
@@ -106,8 +107,10 @@ test('dense and transformed multipart previews report first-frame and render-sub
       await writeFallback3mf(path.join(library, 'fallback.3mf'));
     },
   });
+  let closeWithEvidence: Awaited<ReturnType<typeof installShutdownEvidence>> | null = null;
 
   try {
+    closeWithEvidence = await installShutdownEvidence(isolated.app, test.info().outputPath('shutdown-evidence.jsonl'));
     const page = await findMainWindow(isolated.app);
     await page.waitForLoadState('domcontentloaded');
     await page.locator('#search-input').waitFor();
@@ -525,6 +528,7 @@ test('dense and transformed multipart previews report first-frame and render-sub
       expect(contextLoss.every(Boolean)).toBe(true);
     }
   } finally {
-    await isolated.close();
+    if (closeWithEvidence) await closeWithEvidence(() => isolated.close());
+    else await isolated.close();
   }
 });
