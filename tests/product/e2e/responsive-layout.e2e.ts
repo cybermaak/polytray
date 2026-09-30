@@ -349,8 +349,9 @@ test("responsive panels preserve browsing space across supported window sizes", 
               });
               let openerState = await readOpenerState();
               let observedScrollTop = scrollTopAtReopen;
-              for (let attempt = 0; attempt < 8 && openerState && !openerState.offscreen; attempt++) {
-                await mainWindow.mouse.wheel(0, -335);
+              for (let attempt = 0; attempt < 40 && openerState && !openerState.offscreen; attempt++) {
+                // Keep the virtualized card inside its overscan window while moving it just offscreen.
+                await mainWindow.mouse.wheel(0, -80);
                 await expect.poll(() => mainWindow.evaluate(() =>
                   document.querySelector("[data-virtuoso-scroller]")?.scrollTop ?? 0,
                 )).not.toBe(observedScrollTop);

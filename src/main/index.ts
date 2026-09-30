@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, net } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, protocol, net, utilityProcess } from "electron";
 import { basename, join, relative, resolve } from "path";
 import { randomUUID } from "node:crypto";
 import { getDb, initDatabase } from "./database";
@@ -146,6 +146,9 @@ function getIsolatedNativeTestAdapters() {
   const scanQueueMetricsPath = process.env.POLYTRAY_SCAN_QUEUE_METRICS === "1"
     ? containedPath("scan-queue-metrics.json")
     : null;
+  const utilityProcessMetricsPath = process.env.POLYTRAY_UTILITY_PROCESS_METRICS === "1"
+    ? containedPath("utility-process-metrics.json")
+    : null;
   return {
     restoreAckFailure,
     restoreCancelFailure,
@@ -155,6 +158,7 @@ function getIsolatedNativeTestAdapters() {
     restoreCommitFailure,
     scopeBackfillHold,
     scanQueueMetricsPath,
+    utilityProcessMetricsPath,
     scratchRoot,
     dialog: {
       showSaveDialog: async () => ({ canceled: false, filePath: containedPath("metadata-backup.json") }),
@@ -215,6 +219,54 @@ function createIsolatedScanQueueMetrics(outputPath: string) {
     write() {
       fs.writeFileSync(outputPath, JSON.stringify(metrics));
     },
+  };
+}
+
+function installIsolatedUtilityProcessMetrics(outputPath: string) {
+  const metrics = { started: 0, exited: 0, peakActive: 0, active: [] as Array<{ pid: number; serviceName: string }> };
+  const active = new Map<number, string>();
+  const publish = () => {
+    metrics.active = [...active].map(([pid, serviceName]) => ({ pid, serviceName })).sort((left, right) => left.pid - right.pid);
+    try { fs.writeFileSync(outputPath, JSON.stringify(metrics)); }
+    catch { /* The isolated owner may remove its scratch directory during shutdown. */ }
+  };
+  const globalWithMetrics = globalThis as typeof globalThis & {
+    __POLYTRAY_ISOLATED_UTILITY_PROCESS_METRICS?: typeof metrics;
+  };
+  Object.defineProperty(globalThis, "__POLYTRAY_ISOLATED_UTILITY_PROCESS_METRICS", {
+    value: metrics, configurable: true, enumerable: false, writable: false,
+  });
+
+  const originalFork = utilityProcess.fork;
+  const callOriginalFork = originalFork.bind(utilityProcess);
+  const instrumentedFork = ((...args: Parameters<typeof utilityProcess.fork>) => {
+    const child = callOriginalFork(...args);
+    const modulePath = args[0];
+    const forkOptions = args[2];
+    const serviceName = typeof forkOptions?.serviceName === "string" ? forkOptions.serviceName : basename(modulePath);
+    let trackedPid: number | null = null;
+    child.once("spawn", () => {
+      const pid = child.pid;
+      if (typeof pid !== "number" || !Number.isSafeInteger(pid)) return;
+      trackedPid = pid;
+      if (active.has(pid)) return;
+      active.set(pid, serviceName);
+      metrics.started++;
+      metrics.peakActive = Math.max(metrics.peakActive, active.size);
+      publish();
+    });
+    child.once("exit", () => {
+      if (trackedPid === null || !active.delete(trackedPid)) return;
+      metrics.exited++;
+      publish();
+    });
+    return child;
+  }) as typeof utilityProcess.fork;
+  utilityProcess.fork = instrumentedFork;
+
+  return () => {
+    utilityProcess.fork = originalFork;
+    delete globalWithMetrics.__POLYTRAY_ISOLATED_UTILITY_PROCESS_METRICS;
   };
 }
 
@@ -452,6 +504,9 @@ function createThumbnailWindow() {
 
 function registerIpcHandlers() {
   const isolatedNativeTestAdapters = getIsolatedNativeTestAdapters();
+  if (isolatedNativeTestAdapters?.utilityProcessMetricsPath) {
+    app.once("will-quit", installIsolatedUtilityProcessMetrics(isolatedNativeTestAdapters.utilityProcessMetricsPath));
+  }
   const scanQueueMetrics = isolatedNativeTestAdapters?.scanQueueMetricsPath
     ? createIsolatedScanQueueMetrics(isolatedNativeTestAdapters.scanQueueMetricsPath)
     : null;

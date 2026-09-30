@@ -9,6 +9,12 @@ const SETTINGS = {
 };
 
 declare global {
+  var __POLYTRAY_ISOLATED_UTILITY_PROCESS_METRICS: {
+    started: number;
+    exited: number;
+    peakActive: number;
+    active: Array<{ pid: number; serviceName: string }>;
+  } | undefined;
   interface Window {
     __G02_CONTEXTS?: WebGLRenderingContext[];
     __G02_FRAME_MARKS?: number;
@@ -34,8 +40,10 @@ async function mainWindow(app: Awaited<ReturnType<typeof launchIsolatedApp>>['ap
 test('performance resource observations stay stable across twenty viewer replacement cycles', async () => {
   test.setTimeout(180_000);
   let library = '';
+  let utilityPidsAtCycleEnd: number[] = [];
   const isolated = await launchIsolatedApp({
     mainEntry: path.join(process.cwd(), 'out/main/index.js'),
+    env: { POLYTRAY_UTILITY_PROCESS_METRICS: '1' },
     beforeLaunch: ({ scratchDir }) => {
       library = path.join(scratchDir, 'library');
       fs.mkdirSync(library);
@@ -49,6 +57,13 @@ test('performance resource observations stay stable across twenty viewer replace
     const page = await mainWindow(isolated.app);
     await page.evaluate(({ root, settings }) => window.polytray.scanFolder(root, settings), { root: library, settings: SETTINGS });
     await expect(page.locator('.file-card')).toHaveCount(3, { timeout: 30_000 });
+    const utilityProcessesBeforeCycles = await isolated.app.evaluate(() => {
+      const metrics = globalThis.__POLYTRAY_ISOLATED_UTILITY_PROCESS_METRICS;
+      if (!metrics) throw new Error('Isolated utility-process metrics are not installed');
+      return { ...metrics, active: metrics.active.map((process) => ({ ...process })) };
+    });
+    expect(utilityProcessesBeforeCycles.started).toBeGreaterThan(0);
+    expect(utilityProcessesBeforeCycles.active.length).toBeGreaterThan(0);
     await page.evaluate(() => {
       const w = window as Window & {
         __POLYTRAY_RENDERER_PROBE?: { viewerFrames: number; markViewerFrame(): void; markViewerDrawCalls(count: number): void; drawCalls?: number };
@@ -170,8 +185,16 @@ test('performance resource observations stay stable across twenty viewer replace
       framesAcrossCyclesAfterQuietCheck: window.__G02_FRAME_MARKS ?? 0,
       ...window.__G02_RESOURCES,
     }));
+    const utilityProcessesAfterCycles = await isolated.app.evaluate(() => {
+      const metrics = globalThis.__POLYTRAY_ISOLATED_UTILITY_PROCESS_METRICS;
+      if (!metrics) throw new Error('Isolated utility-process metrics disappeared');
+      return { ...metrics, active: metrics.active.map((process) => ({ ...process })) };
+    });
+    utilityPidsAtCycleEnd = utilityProcessesAfterCycles.active.map((process) => process.pid);
+    expect(utilityProcessesAfterCycles.started).toBe(utilityProcessesBeforeCycles.started);
+    expect(utilityProcessesAfterCycles.active).toEqual(utilityProcessesBeforeCycles.active);
     const cacheBytesAtEnd = imageCacheBytes();
-    console.info('[G02 resource observations]', JSON.stringify({ cycles: 20, openCloseAndReplacementPairs: 20, zeroFramesDuringQuietSecond: quietFrameCount, zeroFramesDuringMinimizedSecond: minimizedFrameCount, ...resourceSnapshot, cacheBytesAtStart, cacheBytesAtEnd, windowCount: initialWindows }));
+    console.info('[G02 resource observations]', JSON.stringify({ cycles: 20, openCloseAndReplacementPairs: 20, zeroFramesDuringQuietSecond: quietFrameCount, zeroFramesDuringMinimizedSecond: minimizedFrameCount, ...resourceSnapshot, utilityProcesses: utilityProcessesAfterCycles, cacheBytesAtStart, cacheBytesAtEnd, windowCount: initialWindows }));
     expect(resourceSnapshot.webglContextsCreated).toBeGreaterThan(0);
     expect(resourceSnapshot.webglContextsStillUsable).toBe(0);
     expect(resourceSnapshot.workersCreated).toBe(resourceSnapshot.workersTerminated);
@@ -180,4 +203,9 @@ test('performance resource observations stay stable across twenty viewer replace
   } finally {
     await isolated.close();
   }
+  const stillRunningUtilityPids = utilityPidsAtCycleEnd.filter((pid) => {
+    try { process.kill(pid, 0); return true; }
+    catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
+  });
+  expect(stillRunningUtilityPids).toEqual([]);
 });
