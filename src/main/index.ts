@@ -143,6 +143,9 @@ function getIsolatedNativeTestAdapters() {
   const scopeBackfillHold = process.env.POLYTRAY_SCOPE_BACKFILL_TEST_HOLD === "1"
     ? { reachedPath: containedPath("scope-backfill-reached"), releasePath: containedPath("scope-backfill-release") }
     : null;
+  const scanQueueMetricsPath = process.env.POLYTRAY_SCAN_QUEUE_METRICS === "1"
+    ? containedPath("scan-queue-metrics.json")
+    : null;
   return {
     restoreAckFailure,
     restoreCancelFailure,
@@ -151,6 +154,7 @@ function getIsolatedNativeTestAdapters() {
     restoreCommitRelease,
     restoreCommitFailure,
     scopeBackfillHold,
+    scanQueueMetricsPath,
     scratchRoot,
     dialog: {
       showSaveDialog: async () => ({ canceled: false, filePath: containedPath("metadata-backup.json") }),
@@ -197,6 +201,20 @@ function createIsolatedScopeBackfillYield(hold: { reachedPath: string; releasePa
     while (!signal.aborted && !fs.existsSync(hold.releasePath)) {
       await new Promise(resolveWait => setTimeout(resolveWait, 10));
     }
+  };
+}
+
+function createIsolatedScanQueueMetrics(outputPath: string) {
+  const metrics = { samples: 0, maxDiscoveryQueueDepth: 0, maxMetadataQueueDepth: 0 };
+  return {
+    observe(discoveryDepth: number, metadataDepth: number) {
+      metrics.samples++;
+      metrics.maxDiscoveryQueueDepth = Math.max(metrics.maxDiscoveryQueueDepth, discoveryDepth);
+      metrics.maxMetadataQueueDepth = Math.max(metrics.maxMetadataQueueDepth, metadataDepth);
+    },
+    write() {
+      fs.writeFileSync(outputPath, JSON.stringify(metrics));
+    },
   };
 }
 
@@ -433,6 +451,10 @@ function createThumbnailWindow() {
 // ── IPC Registration ──────────────────────────────────────────
 
 function registerIpcHandlers() {
+  const isolatedNativeTestAdapters = getIsolatedNativeTestAdapters();
+  const scanQueueMetrics = isolatedNativeTestAdapters?.scanQueueMetricsPath
+    ? createIsolatedScanQueueMetrics(isolatedNativeTestAdapters.scanQueueMetricsPath)
+    : null;
   ipcMain.handle(IPC.GET_MAIN_WINDOW_VISIBILITY, (event) => {
     const currentWindow = mainWindow;
     if (!currentWindow || currentWindow.isDestroyed() || event.sender !== currentWindow.webContents) {
@@ -441,7 +463,11 @@ function registerIpcHandlers() {
     return readMainWindowVisibility(currentWindow);
   });
   registerLibraryHandlers(getMainWindow, { runMutation: runMainMutation });
-  scanningHandlers = registerScanningHandlers(getMainWindow, undefined, { runMutation: runMainMutation });
+  scanningHandlers = registerScanningHandlers(getMainWindow, undefined, {
+    runMutation: runMainMutation,
+    onThrottle: scanQueueMetrics?.observe,
+    onQueueMetricsComplete: scanQueueMetrics?.write,
+  });
   const scanJobs = scanningHandlers.scanJobs;
   registerBackgroundJobCommandHandlers(ipcMain, {
     getJobs: async () => [...await scanJobs.getBackgroundJobs(), ...await getThumbnailBackgroundJobs()],
@@ -465,7 +491,6 @@ function registerIpcHandlers() {
   });
   registerThumbnailHandlers(getMainWindow);
   registerSystemHandlers(getMainWindow, { runMutation: runMainMutation });
-  const isolatedNativeTestAdapters = getIsolatedNativeTestAdapters();
   slicerHandlers = registerSlicerHandlers(getMainWindow, isolatedNativeTestAdapters?.slicer);
   previewParseRegistration = registerPreviewParseHandler(ipcMain, getMainWindow, previewRuntime);
   initThumbnailService();

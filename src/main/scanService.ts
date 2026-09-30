@@ -69,18 +69,23 @@ class BoundedAsyncQueue<T> {
   private readonly readers: Array<(result: IteratorResult<T>) => void> = [];
   private readonly writers: Array<() => void> = [];
   private closed = false;
-  constructor(private readonly capacity: number) {}
+  constructor(private readonly capacity: number, private readonly onSizeChange?: (size: number) => void) {}
   get size() { return this.values.length; }
   async push(value: T): Promise<boolean> {
     while (!this.closed && this.values.length >= this.capacity) await new Promise<void>((resolve) => this.writers.push(resolve));
     if (this.closed) return false;
     const reader = this.readers.shift();
-    if (reader) reader({ value, done: false }); else this.values.push(value);
+    if (reader) reader({ value, done: false });
+    else {
+      this.values.push(value);
+      this.onSizeChange?.(this.values.length);
+    }
     return true;
   }
   next(): Promise<IteratorResult<T>> {
     const value = this.values.shift();
     if (value !== undefined) {
+      this.onSizeChange?.(this.values.length);
       this.writers.shift()?.();
       return Promise.resolve({ value, done: false });
     }
@@ -90,7 +95,10 @@ class BoundedAsyncQueue<T> {
   close(discard = false) {
     if (this.closed) return;
     this.closed = true;
-    if (discard) this.values.length = 0;
+    if (discard && this.values.length > 0) {
+      this.values.length = 0;
+      this.onSizeChange?.(0);
+    }
     for (const reader of this.readers.splice(0)) reader({ value: undefined, done: true });
     for (const writer of this.writers.splice(0)) writer();
   }
@@ -494,7 +502,17 @@ export class ScanService {
     });
     const snapshot = captureScanPruneSnapshot(this.options.db, rootPath);
     const snapshotByPath = new Map(snapshot.map((row) => [row.path, row]));
-    const discoveryQueue = new BoundedAsyncQueue<DiscoveryEvent>(batchSize);
+    let queuedMetadataDepth = 0;
+    const onDiscoveryQueueSize = this.options.onThrottle
+      ? (size: number) => this.options.onThrottle?.(size, queuedMetadataDepth)
+      : undefined;
+    const discoveryQueue = new BoundedAsyncQueue<DiscoveryEvent>(batchSize, onDiscoveryQueueSize);
+    const onMetadataQueueDepth = this.options.onThrottle
+      ? (depth: number) => {
+        queuedMetadataDepth = depth;
+        this.options.onThrottle?.(discoveryQueue.size, depth);
+      }
+      : () => {};
     const metadataQueue = new BoundedMetadataQueue(batchSize * 2, async ({ identity, file }) => {
       if (job.controller.signal.aborted) return;
       try {
@@ -523,7 +541,7 @@ export class ScanService {
           message: reason, retryable: true });
         this.bump(job);
       }
-    }, (depth) => this.options.onThrottle?.(discoveryQueue.size, depth));
+    }, onMetadataQueueDepth);
 
     const producer = (async () => {
       let iterator: AsyncIterator<DiscoveryEvent> | undefined;

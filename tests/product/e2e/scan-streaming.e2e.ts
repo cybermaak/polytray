@@ -30,6 +30,7 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
   let releasePath = '';
   let reachedPath = '';
   let heartbeatPath = '';
+  let queueMetricsPath = '';
   const env: NodeJS.ProcessEnv = {};
   let isolated: Awaited<ReturnType<typeof launchIsolatedApp>> | null = null;
   try {
@@ -44,6 +45,7 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
         releasePath = path.join(scratchDir, 'scan-release');
         reachedPath = path.join(scratchDir, 'scan-held');
         heartbeatPath = path.join(scratchDir, 'main-heartbeat.json');
+        queueMetricsPath = path.join(scratchDir, 'scan-queue-metrics.json');
         fs.mkdirSync(firstDirectory, { recursive: true });
         fs.mkdirSync(delayedDirectory, { recursive: true });
         fs.writeFileSync(firstPath, 'solid first\nendsolid first\n');
@@ -54,6 +56,7 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
         env.POLYTRAY_SCAN_TEST_RELEASE_PATH = releasePath;
         env.POLYTRAY_SCAN_TEST_REACHED_PATH = reachedPath;
         env.POLYTRAY_SCAN_TEST_HEARTBEAT_PATH = heartbeatPath;
+        env.POLYTRAY_SCAN_QUEUE_METRICS = '1';
       },
     });
     let window = await findVisibleMainWindow(isolated.app);
@@ -130,6 +133,13 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
     }).__scanResult);
     expect(result).toBeTruthy();
     expect(result.totalFiles).toBe(5_000);
+    await expect.poll(() => fs.existsSync(queueMetricsPath)).toBe(true);
+    const queueMetrics = JSON.parse(fs.readFileSync(queueMetricsPath, 'utf8')) as {
+      samples: number; maxDiscoveryQueueDepth: number; maxMetadataQueueDepth: number;
+    };
+    expect(queueMetrics.samples).toBeGreaterThan(0);
+    expect(queueMetrics.maxDiscoveryQueueDepth).toBeLessThanOrEqual(50);
+    expect(queueMetrics.maxMetadataQueueDepth).toBeLessThanOrEqual(100);
     const progress = await window.evaluate(() => (window as unknown as {
       __scanProgress: Array<{ at: number; total: number | null; indexed: number; discovered: number }>;
     }).__scanProgress);
@@ -156,6 +166,7 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
       progressEventCount: progress.length,
       progressBoundaryEvents: { firstBatch: 1, totalKnown: totalKnownBoundaries },
       maximumRegularEventsInRollingSecond: maxRegularPerSecond,
+      queueHighWater: queueMetrics,
       mainHeartbeatMaxGapMs: heartbeat.maxGapMs,
       mainHeartbeatSamples: heartbeat.samples,
     }));

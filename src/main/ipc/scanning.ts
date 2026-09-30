@@ -21,6 +21,8 @@ import { ScanJobsController } from "../scanJobs";
 
 interface ScanningMutationOptions {
   runMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
+  onThrottle?: (queuedDiscoveryEvents: number, queuedMetadata: number) => void;
+  onQueueMetricsComplete?: () => void;
 }
 
 export function registerScanningHandlers(
@@ -34,6 +36,7 @@ export function registerScanningHandlers(
       requestId: context.requestId, fileId: context.identity.id,
       contentRevision: context.identity.contentRevision, filePath, extension,
     }, { signal: context.signal }),
+    ...(options.onThrottle ? { onThrottle: options.onThrottle } : {}),
     onProgress: (progress) => {
       const mainWindow = getMainWindow();
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.SCAN_PROGRESS, progress);
@@ -45,6 +48,7 @@ export function registerScanningHandlers(
       }
     },
     onJobChanged: (job) => {
+      if (['completed', 'partial', 'failed', 'cancelled'].includes(job.state)) options.onQueueMetricsComplete?.();
       const mainWindow = getMainWindow();
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.BACKGROUND_JOB_CHANGED, job);
     },
