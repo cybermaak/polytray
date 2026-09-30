@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, net, utilityProcess } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, protocol, utilityProcess } from "electron";
 import { basename, join, relative, resolve } from "path";
+import { Readable } from "node:stream";
 import { randomUUID } from "node:crypto";
 import { getDb, initDatabase } from "./database";
 import { stopWatcher } from "./watcher";
@@ -13,7 +14,8 @@ import {
 } from "./thumbnails";
 import fs from "fs";
 import { getThumbnailDir } from "./thumbnails";
-import { toAllowedLocalFileUrl } from "./localFileProtocol";
+import { decodePolytrayLocalFilePath, isSafeThumbnailCacheFilePath, openRegularFileNoFollow } from "./localFileProtocol";
+import { isPathContained } from "./pathContainment";
 import { IPC, METADATA_RESTORE_IPC, type IndexMutationResult, type MainWindowVisibilityData, type RuntimeSettingsData } from "../shared/types";
 import { DEFAULT_APP_SETTINGS, normalizeAppSettings, toRuntimeSettings } from "../shared/settings";
 import type { MetadataBackupSnapshot, StagedMetadataRestore } from "../shared/backupContracts";
@@ -575,22 +577,22 @@ function registerMetadataRestoreCommandAcks() {
 // ── App Lifecycle ─────────────────────────────────────────────
 
 app.whenReady().then(() => {
-  protocol.handle("polytray", (request) => {
-    const fileUrl = toAllowedLocalFileUrl(request.url, {
-      thumbnailDir: getThumbnailDir(),
-      isIndexedFilePath: (filePath) => {
-        const row = getDb()
-          .prepare("SELECT 1 FROM files WHERE path = ? LIMIT 1")
-          .get(filePath) as { 1: number } | undefined;
-        return Boolean(row);
-      },
-    });
-
-    if (!fileUrl) {
+  protocol.handle("polytray", async (request) => {
+    const filePath = decodePolytrayLocalFilePath(request.url);
+    const thumbnailDir = getThumbnailDir();
+    const allowed = filePath && (isPathContained(thumbnailDir, filePath)
+      ? isSafeThumbnailCacheFilePath(filePath, thumbnailDir)
+      : Boolean(getDb().prepare("SELECT 1 FROM files WHERE path = ? LIMIT 1").get(filePath)));
+    if (!filePath || !allowed) {
       return new Response("Forbidden", { status: 403 });
     }
 
-    return net.fetch(fileUrl);
+    const opened = await openRegularFileNoFollow(filePath).catch(() => null);
+    if (!opened) return new Response("Forbidden", { status: 403 });
+    const stream = opened.createReadStream({ autoClose: true });
+    return new Response(Readable.toWeb(stream) as ReadableStream, {
+      headers: { "Content-Type": filePath.toLowerCase().endsWith(".png") ? "image/png" : "application/octet-stream" },
+    });
   });
 
   initDatabase();

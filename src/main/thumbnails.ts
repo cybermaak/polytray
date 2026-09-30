@@ -10,6 +10,7 @@ import {
 } from "../shared/types";
 import { getThumbnailWindow } from "./index";
 import { getDb } from "./database";
+import { readRegularFileNoFollow } from "./localFileProtocol";
 import { createFileIndexRepository } from "./fileIndexing";
 import { filterContainedPaths, isPathContained } from "./pathContainment";
 import { createThumbnailJobScheduler, createThumbnailProgressEvent, ThumbnailJobCancelledError } from "./thumbnailJobScheduler";
@@ -203,7 +204,7 @@ export async function readThumbnailCacheBytes(filePath: string): Promise<Buffer 
     finishRead: (cachePath) => thumbnailReadQuarantine.finishRead(cachePath),
     readEpoch: (cachePath) => thumbnailReadQuarantine.readEpoch(cachePath),
     isQuarantined: isThumbnailCachePathQuarantined,
-  });
+  }, () => readRegularFileNoFollow(filePath));
 }
 
 /**

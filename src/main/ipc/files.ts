@@ -2,8 +2,6 @@
  * IPC handlers for file queries and data access.
  */
 import { ipcMain, type IpcMain } from "electron";
-import fs from "fs";
-import * as unzipper from "unzipper";
 import type { Database } from "better-sqlite3";
 import { getDb } from "../database";
 import {
@@ -27,7 +25,8 @@ import { createFileIndexRepository } from "../fileIndexing";
 import { getLibraryFiles, getLibraryPage } from "../libraryQueries";
 import { getLibrarySummaryService } from "../librarySummary";
 import { countIsolatedRequest } from "../testing/isolatedRequestCounters";
-import { isRegularNonSymlinkFilePath } from "../localFileProtocol";
+import { readRegularFileNoFollow } from "../localFileProtocol";
+import { openArchiveNoFollow } from "../archiveRead";
 
 export interface FileHandlerReadiness {
   isScopeIndexReady(): boolean;
@@ -51,14 +50,16 @@ export function registerLibrarySummaryHandlers(
 
 
 async function readArchiveEntryBuffer(archivePath: string, entryPath: string) {
-  const directory = await unzipper.Open.file(archivePath);
-  const entry = directory.files.find(
-    (file) => file.path === entryPath && file.type === "File",
-  );
-  if (!entry) {
-    throw new Error("Archive entry not found");
+  const directory = await openArchiveNoFollow(archivePath);
+  try {
+    const entry = directory.files.find(
+      (file) => file.path === entryPath && file.type === "File",
+    );
+    if (!entry) throw new Error("Archive entry not found");
+    return await entry.buffer();
+  } finally {
+    await directory.close();
   }
-  return entry.buffer();
 }
 
 export function registerFileHandlers(readiness: FileHandlerReadiness) {
@@ -196,12 +197,9 @@ export function registerFileHandlers(readiness: FileHandlerReadiness) {
     }
 
     const archiveEntry = parseArchiveEntryPath(parsedFilePath);
-    if (!isRegularNonSymlinkFilePath(archiveEntry?.archivePath ?? parsedFilePath)) {
-      throw new Error("Access denied: Indexed source is no longer a regular file");
-    }
     const buffer = archiveEntry
       ? await readArchiveEntryBuffer(archiveEntry.archivePath, archiveEntry.entryPath)
-      : await fs.promises.readFile(parsedFilePath);
+      : await readRegularFileNoFollow(parsedFilePath);
     return buffer.buffer.slice(
       buffer.byteOffset,
       buffer.byteOffset + buffer.byteLength,

@@ -1,5 +1,5 @@
-import { pathToFileURL } from 'node:url';
 import fs from 'node:fs';
+import type { FileHandle } from 'node:fs/promises';
 
 import { isPathContained } from './pathContainment';
 
@@ -43,6 +43,32 @@ export function isRegularNonSymlinkFilePath(filePath: string): boolean {
   }
 }
 
+/** Open the checked file itself so a final symlink swap cannot redirect the read. */
+export async function openRegularFileNoFollow(
+  filePath: string,
+  openFile: (filePath: string, flags: number) => Promise<FileHandle> = fs.promises.open,
+): Promise<FileHandle> {
+  const before = await fs.promises.lstat(filePath);
+  if (!before.isFile() || before.isSymbolicLink()) throw new Error('File is not a regular file');
+  const handle = await openFile(filePath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
+      throw new Error('File changed before it could be read');
+    }
+    return handle;
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+}
+
+export async function readRegularFileNoFollow(filePath: string): Promise<Buffer> {
+  const opened = await openRegularFileNoFollow(filePath);
+  try { return await opened.readFile(); }
+  finally { await opened.close(); }
+}
+
 export function isSafeThumbnailCacheFilePath(filePath: string, thumbnailDir: string): boolean {
   if (!isPathContained(thumbnailDir, filePath) || !isRegularNonSymlinkFilePath(filePath)) return false;
   try {
@@ -64,16 +90,4 @@ export function resolveAllowedPolytrayLocalFilePath(
   }
 
   return isAllowedLocalFilePath(filePath, policy) ? filePath : null;
-}
-
-export function toAllowedLocalFileUrl(
-  requestUrl: string,
-  policy: LocalFilePolicy,
-): string | null {
-  const filePath = resolveAllowedPolytrayLocalFilePath(requestUrl, policy);
-  if (!filePath) {
-    return null;
-  }
-
-  return pathToFileURL(filePath).toString();
 }

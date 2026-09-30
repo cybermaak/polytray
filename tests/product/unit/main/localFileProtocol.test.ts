@@ -8,6 +8,7 @@ import {
   decodePolytrayLocalFilePath,
   isAllowedLocalFilePath,
   resolveAllowedPolytrayLocalFilePath,
+  openRegularFileNoFollow,
 } from '../../../../src/main/localFileProtocol';
 
 test('decodePolytrayLocalFilePath decodes valid local protocol URLs', () => {
@@ -89,6 +90,24 @@ test('isAllowedLocalFilePath rejects an indexed model replaced by a symlink', ()
       thumbnailDir: path.join(root, 'thumbnails'),
       isIndexedFilePath: (filePath) => filePath === indexedPath,
     }), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('descriptor open refuses a file swapped to a symlink after validation', async (context) => {
+  if (!fs.constants.O_NOFOLLOW) return context.skip('O_NOFOLLOW is unavailable on this platform');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-protocol-'));
+  try {
+    const model = path.join(root, 'part.stl');
+    const outside = path.join(root, 'outside.txt');
+    fs.writeFileSync(model, 'model');
+    fs.writeFileSync(outside, 'private');
+    await assert.rejects(openRegularFileNoFollow(model, async (filePath, flags) => {
+      fs.rmSync(model);
+      fs.symlinkSync(outside, model);
+      return fs.promises.open(filePath, flags);
+    }));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
