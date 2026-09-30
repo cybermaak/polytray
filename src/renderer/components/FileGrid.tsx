@@ -27,7 +27,7 @@ interface Props {
   hasMore: boolean;
   onEndReached: () => void;
   onRetry: () => void;
-  resultCount: number;
+  resultCount: number | null;
 }
 
 function isArchiveDisplay(file: DisplayFileRecord): file is Extract<DisplayFileRecord, { kind: "archive-summary" }> {
@@ -236,7 +236,7 @@ interface GridContext {
   pageError: string | null;
   hasMore: boolean;
   onRetry: () => void;
-  resultCount: number;
+  resultCount: number | null;
   rovingKey: string | null;
 }
 
@@ -266,7 +266,9 @@ const GridList = React.forwardRef<
       id="file-grid"
       className={`file-grid size-${context?.gridSize || "medium"}`}
       role="grid"
-      aria-label={`Library files, ${context?.resultCount ?? 0} results`}
+      aria-label={context?.resultCount === null || context?.resultCount === undefined
+        ? "Library files, results loading"
+        : `Library files, ${context.resultCount} results`}
       aria-describedby="library-result-total grid-keyboard-hint"
       aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home End PageUp PageDown Enter Space Shift+Enter"
       data-roving-key={context?.rovingKey ?? ""}

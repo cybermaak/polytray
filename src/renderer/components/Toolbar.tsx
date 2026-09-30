@@ -9,7 +9,7 @@ interface Props {
   activeFolderLabel: string | null;
   activeCollectionLabel: string | null;
   activeFilter: string | null;
-  resultCount: number;
+  resultCount: number | null;
   onSortChange: (sort: string) => void;
   onOrderToggle: () => void;
   onSearch: (query: string) => void;
@@ -100,7 +100,7 @@ export const Toolbar: React.FC<Props> = ({
       : []),
     {
       key: "results",
-      label: `${resultCount} results`,
+      label: resultCount === null ? "Loading results…" : `${resultCount} results`,
       tone: "muted",
     },
   ];

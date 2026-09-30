@@ -42,3 +42,16 @@ test('fixture cleanup removes only a temporary root created by the fixture', () 
     assert.equal(fs.existsSync(callerRoot), true);
   } finally { fs.rmSync(callerRoot, { recursive: true, force: true }); }
 });
+
+test('performance fixture can seed a complete scope index for cold-query comparison', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-ready-index-fixture-test-'));
+  try {
+    const fixture = createPerformanceDatabase({ root, count: 600, scopeIndex: 'ready' });
+    const db = fixture.openDatabase();
+    try {
+      assert.equal((db.prepare('SELECT complete FROM scope_backfill WHERE singleton = 1').get() as { complete: number }).complete, 1);
+      assert.equal((db.prepare('SELECT COUNT(*) AS count FROM file_scopes').get() as { count: number }).count > 600, true);
+      assert.equal((db.prepare('SELECT COUNT(*) AS count FROM file_scopes AS s LEFT JOIN files AS f ON f.id = s.file_id WHERE f.id IS NULL').get() as { count: number }).count, 0);
+    } finally { db.close(); }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});

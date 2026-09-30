@@ -283,6 +283,10 @@ function getQueryKey(query: LibraryQuery) {
   });
 }
 
+export function getLibraryQueryKey(query: LibraryQuery) {
+  return getQueryKey(query);
+}
+
 export function libraryQueryScopeKey(query: LibraryQuery) {
   const { limit: _limit, offset: _offset, expectedBrowseRevision: _revision, ...scope } = query;
   return JSON.stringify({

@@ -4,6 +4,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import JSZip from 'jszip';
 import { MIGRATIONS } from '../../../src/main/database';
+import { backfillFileScopes } from '../../../src/main/fileScopes';
 import { CollectionsState } from '../../../src/shared/libraryCollections';
 
 export interface PerformanceDatabaseFixture {
@@ -17,7 +18,7 @@ export interface PerformanceDatabaseFixture {
 }
 
 /** Creates a portable migrated database. Paths, folders, timestamps, ties and collection membership are deterministic. */
-export function createPerformanceDatabase(options: { root?: string; count: number; archiveMemberShare?: number; archiveGroupCount?: number }): PerformanceDatabaseFixture {
+export function createPerformanceDatabase(options: { root?: string; count: number; archiveMemberShare?: number; archiveGroupCount?: number; scopeIndex?: 'incomplete' | 'ready' }): PerformanceDatabaseFixture {
   const ownsRoot = !options.root;
   const root = options.root ?? fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-perf-'));
   fs.mkdirSync(root, { recursive: true });
@@ -60,6 +61,9 @@ export function createPerformanceDatabase(options: { root?: string; count: numbe
     }
   });
   markArchives();
+  if (options.scopeIndex === 'ready') {
+    while (!backfillFileScopes(db, 2_000).complete) { /* Seed the fully indexed comparison state. */ }
+  }
   db.close();
   const collections: CollectionsState = { activeCollectionId: 'performance-collection', collections: [{
     id: 'performance-collection', name: `Performance ${options.count}`, filePaths: paths,

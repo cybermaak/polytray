@@ -19,6 +19,7 @@ import { createRefreshDebouncer, type RefreshTargets } from "./lib/refreshDeboun
 import { calculatePanelLayout } from "./lib/panelLayout";
 import {
   libraryQueryScopeKey,
+  getLibraryQueryKey,
   getAffectedTrackedFiles,
   removeDeletedFileIds,
   useLibraryPages,
@@ -109,6 +110,7 @@ export const App: React.FC = () => {
   });
   const [legacyFiles, setLegacyFiles] = useState<FileRecord[]>([]);
   const [legacyTotalItems, setLegacyTotalItems] = useState(0);
+  const [legacySnapshotQueryKey, setLegacySnapshotQueryKey] = useState<string | null>(null);
   const [libraryReady, setLibraryReady] = useState(false);
   const [sort, setSort] = useState("name");
   const [order, setOrder] = useState<"ASC" | "DESC">("ASC");
@@ -178,6 +180,7 @@ export const App: React.FC = () => {
     limit: settings.page_size,
     offset: 0,
   }), [sort, order, extension, activeFolder, search, activeCollection, settings.page_size]);
+  const pageQueryKey = useMemo(() => getLibraryQueryKey(pageQuery), [pageQuery]);
   const libraryPages = useLibraryPages(pageQuery, libraryReady);
   useLayoutEffect(() => {
     const anchor = pendingLibraryScrollAnchorRef.current;
@@ -213,7 +216,7 @@ export const App: React.FC = () => {
   })), [legacyFiles]);
   const pageItems = libraryPages.ready
     ? libraryPages.items
-    : libraryPages.generation <= 1 ? legacyItems : [];
+    : legacySnapshotQueryKey === pageQueryKey ? legacyItems : [];
   const displayFiles = useMemo(() => pageItems.map(libraryItemToDisplayRecord), [pageItems]);
   const selectedFiles = useMemo(() => [...selectedFilesById.values()], [selectedFilesById]);
   const selectedFileIds = useMemo(() => new Set(selectedFilesById.keys()), [selectedFilesById]);
@@ -224,9 +227,11 @@ export const App: React.FC = () => {
   const activeItemKey = previewTarget
     ? previewTarget.kind === "file" ? `file:${previewTarget.file.id}` : previewTarget.archive.key
     : null;
-  const resultTotalItems = libraryPages.ready ? libraryPages.totalItems : legacyTotalItems;
-  const resultTotalModels = libraryPages.ready ? libraryPages.totalModels : legacyTotalItems;
+  const hasMatchingLegacySnapshot = legacySnapshotQueryKey === pageQueryKey;
+  const resultTotalItems = libraryPages.ready ? libraryPages.totalItems : hasMatchingLegacySnapshot ? legacyTotalItems : null;
+  const resultTotalModels = libraryPages.ready ? libraryPages.totalModels : hasMatchingLegacySnapshot ? legacyTotalItems : null;
   const resultCountLabel = !libraryReady || (libraryPages.loading && !libraryPages.ready)
+    || resultTotalItems === null || resultTotalModels === null
     ? "Loading result counts…"
     : resultTotalItems === resultTotalModels
       ? `${resultTotalModels} ${resultTotalModels === 1 ? "model" : "models"}`
@@ -727,6 +732,7 @@ export const App: React.FC = () => {
 
     cleanups.push(
       window.polytray.onLibraryChanged(async (mutation) => {
+        if (mutation.rowsChanged || mutation.annotationsChanged) setLegacySnapshotQueryKey(null);
         if (mutation.rowsChanged || mutation.annotationsChanged) {
           const tracked = getAffectedTrackedFiles(
             [...selectedFilesRef.current.values()],
@@ -892,6 +898,16 @@ export const App: React.FC = () => {
           : legacyResult.files;
         setLegacyFiles(fallbackFiles);
         setLegacyTotalItems(activeCollection ? fallbackFiles.length : legacyResult.total);
+        setLegacySnapshotQueryKey(activeCollection ? null : getLibraryQueryKey({
+          sort: "name",
+          direction: "ASC",
+          extension: null,
+          folder: null,
+          search: "",
+          collectionPaths: null,
+          limit: currentSettings.page_size,
+          offset: 0,
+        }));
         setStats(nextStats);
         setDirectories(nextDirectories);
       } catch (error) {

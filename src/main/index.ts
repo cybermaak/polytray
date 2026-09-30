@@ -140,6 +140,9 @@ function getIsolatedNativeTestAdapters() {
   const restoreCommitReached = containedPath("metadata-restore-commit-reached");
   const restoreCommitRelease = containedPath("metadata-restore-commit-release");
   const restoreCommitFailure = containedPath("metadata-restore-commit-failure");
+  const scopeBackfillHold = process.env.POLYTRAY_SCOPE_BACKFILL_TEST_HOLD === "1"
+    ? { reachedPath: containedPath("scope-backfill-reached"), releasePath: containedPath("scope-backfill-release") }
+    : null;
   return {
     restoreAckFailure,
     restoreCancelFailure,
@@ -147,6 +150,7 @@ function getIsolatedNativeTestAdapters() {
     restoreCommitReached,
     restoreCommitRelease,
     restoreCommitFailure,
+    scopeBackfillHold,
     scratchRoot,
     dialog: {
       showSaveDialog: async () => ({ canceled: false, filePath: containedPath("metadata-backup.json") }),
@@ -183,6 +187,16 @@ function getIsolatedNativeTestAdapters() {
         fs.appendFileSync(launchLog, `${JSON.stringify({ configuration, modelPath })}\n`);
       },
     },
+  };
+}
+
+function createIsolatedScopeBackfillYield(hold: { reachedPath: string; releasePath: string }) {
+  return async (signal: AbortSignal): Promise<void> => {
+    if (signal.aborted) return;
+    fs.writeFileSync(hold.reachedPath, "held");
+    while (!signal.aborted && !fs.existsSync(hold.releasePath)) {
+      await new Promise(resolveWait => setTimeout(resolveWait, 10));
+    }
   };
 }
 
@@ -506,8 +520,10 @@ app.whenReady().then(() => {
       mainWindow.webContents.send(IPC.LIBRARY_CHANGED, mutation);
     },
   });
+  const scopeBackfillTestHold = getIsolatedNativeTestAdapters()?.scopeBackfillHold;
   fileIndexRuntime = createFileIndexRuntime(getDb(), {
     onMutation: (mutation) => libraryMutationPublisher?.publish(mutation),
+    ...(scopeBackfillTestHold ? { yieldToEventLoop: createIsolatedScopeBackfillYield(scopeBackfillTestHold) } : {}),
     onProgress: (progress) => {
       log.info("[FileIndex] scope backfill", progress);
       if (progress.status === "failed") log.error("[FileIndex] scope backfill failed", progress.error);
@@ -642,9 +658,8 @@ app.whenReady().then(() => {
     },
     startAfterRecovery: async () => {
       if (startupComplete) return;
-      const runtime = fileIndexRuntime;
-      if (!runtime) throw new Error("File index runtime is unavailable");
-      await metadataRestoreMutationGate.run(() => runtime.startBackfill());
+      // Let the renderer perform its legacy startup read before the first paged
+      // query starts scope backfill through GET_LIBRARY_PAGE's readiness gate.
       startupComplete = true;
       startupReadyResolve();
       if (blockedStartupRendererLocked) {

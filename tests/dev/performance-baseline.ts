@@ -18,6 +18,24 @@ function summarize(values: number[]) {
   return { medianMs: sorted[Math.floor(sorted.length / 2)], p95Ms: sorted[Math.ceil(sorted.length * 0.95) - 1], minMs: sorted[0], maxMs: sorted[sorted.length - 1] };
 }
 
+async function findVisibleMainWindow(app: Awaited<ReturnType<typeof launchIsolatedApp>>['app']) {
+  const diagnostics: string[] = [];
+  app.process().stderr?.on('data', (chunk) => diagnostics.push(String(chunk)));
+  await app.firstWindow();
+  for (let attempt = 0; attempt < 40; attempt++) {
+    for (const page of app.windows()) {
+      try {
+        await page.locator('#search-input').waitFor({ state: 'attached', timeout: 200 });
+        return page;
+      } catch {
+        // The detached thumbnail renderer has no main-window search control.
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`Visible main window did not become ready${diagnostics.length ? `\n${diagnostics.join('')}` : ''}`);
+}
+
 function runInElectronNode(scriptPath: string, args: string[]) {
   const result = spawnSync(require('electron'), ['--import', 'tsx', path.resolve(scriptPath), ...args], {
     cwd: process.cwd(), encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
@@ -26,7 +44,11 @@ function runInElectronNode(scriptPath: string, args: string[]) {
   return result.stdout.trim();
 }
 
-async function runAppQueryBenchmark(count: number, shape: 'flat' | 'grouped') {
+async function runAppQueryBenchmark(
+  count: number,
+  shape: 'flat' | 'grouped',
+  options: { scopeIndex?: 'incomplete' | 'ready'; readinessOnly?: boolean; probeLegacyDuringBackfill?: boolean } = {},
+) {
   let lastOnlyPath: string | null = null;
   let heartbeatPath = '';
   let scanRoot = '';
@@ -37,7 +59,10 @@ async function runAppQueryBenchmark(count: number, shape: 'flat' | 'grouped') {
     mainEntry: path.resolve('out/main/index.js'),
     env,
     beforeLaunch: ({ userDataDir, scratchDir }) => {
-      lastOnlyPath = (JSON.parse(runInElectronNode('tests/dev/seed-performance-database.ts', [String(count), userDataDir, shape])) as { lastOnlyPath: string | null }).lastOnlyPath;
+      lastOnlyPath = (JSON.parse(runInElectronNode('tests/dev/seed-performance-database.ts', [
+        String(count), userDataDir, shape, options.scopeIndex ?? 'incomplete',
+      ])) as { lastOnlyPath: string | null }).lastOnlyPath;
+      if (options.readinessOnly) return;
       scanRoot = path.join(scratchDir, 'heartbeat-library');
       heartbeatPath = path.join(scratchDir, 'query-main-heartbeat.json');
       releasePath = path.join(scratchDir, 'heartbeat-release');
@@ -52,21 +77,32 @@ async function runAppQueryBenchmark(count: number, shape: 'flat' | 'grouped') {
     },
   });
   try {
-    const window = await isolated.app.firstWindow();
-    await window.locator('#search-input').waitFor({ state: 'attached', timeout: 30_000 });
+    const window = await findVisibleMainWindow(isolated.app);
     const folder = path.join(isolated.userDataDir, 'library');
     const coldReadyAt = await window.evaluate(() => performance.now());
-    await window.evaluate(({ root, folderPath, readyAt }) => {
+    let startupFirstCardMs: number | undefined;
+    let scopeStateAtFirstCard: unknown;
+    if (options.readinessOnly) {
+      await window.locator('.file-card .card-name').first().waitFor({ state: 'visible', timeout: 30_000 });
+      startupFirstCardMs = await window.evaluate((readyAt) => performance.now() - readyAt, coldReadyAt);
+      scopeStateAtFirstCard = JSON.parse(runInElectronNode('tests/dev/read-scope-index-state.ts', [isolated.userDataDir]));
+    }
+    await window.evaluate(async ({ root, folderPath, readyAt, probeLegacyDuringBackfill }) => {
       const state = window as unknown as {
         __g02Scan?: { done: boolean; error?: string };
+        __g02ColdReadyAt?: number;
         __g02ColdPage?: { elapsedMs: number; readyToRequestMs: number; readyToResponseMs: number; status: string; totalModels: number | null; totalItems: number | null };
+        __g02LegacyBrowse?: { elapsedMs: number; total: number; pageSize: number; pagePendingAtResponse: boolean };
       };
-      state.__g02Scan = { done: false };
-      void window.polytray.scanFolder(root).then(() => { state.__g02Scan!.done = true; }, (error) => {
-        state.__g02Scan!.error = String(error); state.__g02Scan!.done = true;
-      });
-      // These invokes are sent sequentially from one renderer task: scan starts
-      // the isolated main heartbeat before the first browse request is sent.
+      state.__g02ColdReadyAt = readyAt;
+      if (root) {
+        state.__g02Scan = { done: false };
+        void window.polytray.scanFolder(root).then(() => { state.__g02Scan!.done = true; }, (error) => {
+          state.__g02Scan!.error = String(error); state.__g02Scan!.done = true;
+        });
+      }
+      // In the regular baseline, the held scan starts the heartbeat before the
+      // first browse request. Readiness-only captures rely on app startup alone.
       const requestAt = performance.now();
       void (window as unknown as PerformanceBridge).polytray.getLibraryPage({
         sort: 'name', direction: 'ASC', extension: null, folder: folderPath,
@@ -82,9 +118,36 @@ async function runAppQueryBenchmark(count: number, shape: 'flat' | 'grouped') {
           totalItems: page.status === 'ok' ? page.totalItems : null,
         };
       });
-    }, { root: scanRoot, folderPath: folder, readyAt: coldReadyAt });
-    for (let attempt = 0; attempt < 300 && !fs.existsSync(reachedPath); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
-    if (!fs.existsSync(reachedPath)) throw new Error('Main heartbeat scan did not reach its hold barrier');
+      if (probeLegacyDuringBackfill) {
+        const legacyStarted = performance.now();
+        const legacy = await (window as unknown as PerformanceBridge).polytray.getFiles({
+          folder: '', sort: 'name', order: 'ASC', limit: 200, offset: 0,
+        });
+        state.__g02LegacyBrowse = {
+          elapsedMs: performance.now() - legacyStarted,
+          total: legacy.total,
+          pageSize: legacy.files.length,
+          pagePendingAtResponse: state.__g02ColdPage === undefined,
+        };
+      }
+    }, {
+      root: options.readinessOnly ? '' : scanRoot,
+      folderPath: folder,
+      readyAt: coldReadyAt,
+      probeLegacyDuringBackfill: options.probeLegacyDuringBackfill === true,
+    });
+    if (!options.readinessOnly) {
+      for (let attempt = 0; attempt < 300 && !fs.existsSync(reachedPath); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+      if (!fs.existsSync(reachedPath)) throw new Error('Main heartbeat scan did not reach its hold barrier');
+    }
+    let legacyBrowseDuringBackfill: unknown;
+    if (options.readinessOnly && options.probeLegacyDuringBackfill) {
+      legacyBrowseDuringBackfill = await window.evaluate(() => (window as unknown as { __g02LegacyBrowse?: unknown }).__g02LegacyBrowse);
+      const legacy = legacyBrowseDuringBackfill as { total?: number; pageSize?: number; pagePendingAtResponse?: boolean } | undefined;
+      if (legacy?.total !== count || legacy.pageSize !== 200) {
+        throw new Error(`Legacy GET_FILES did not preserve the expected library page: ${JSON.stringify(legacy)}`);
+      }
+    }
     for (let attempt = 0; attempt < 300; attempt++) {
       const coldPageComplete = await window.evaluate(() => Boolean((window as unknown as { __g02ColdPage?: unknown }).__g02ColdPage));
       if (coldPageComplete) break;
@@ -94,6 +157,15 @@ async function runAppQueryBenchmark(count: number, shape: 'flat' | 'grouped') {
       __g02ColdPage: { elapsedMs: number; readyToRequestMs: number; readyToResponseMs: number; status: string; totalModels: number | null; totalItems: number | null };
     }).__g02ColdPage);
     if (!firstPageFromReady) throw new Error('Cold GET_LIBRARY_PAGE did not settle while heartbeat scan was held');
+    if (options.readinessOnly) {
+      return {
+        fixture: { records: count, fixtureShape: shape, scopeIndexAtSeed: options.scopeIndex ?? 'incomplete' },
+        startupFirstCardMs,
+        scopeStateAtFirstCard,
+        coldFirstGetLibraryPageFromReady: firstPageFromReady,
+        ...(legacyBrowseDuringBackfill === undefined ? {} : { legacyBrowseDuringBackfill }),
+      };
+    }
     const samples: number[] = [];
     let finalPage: { total: number; pageCount: number; totalItems: number | null; archiveGroups: number } | undefined;
     for (let i = 0; i < 25; i++) {
@@ -161,6 +233,16 @@ async function expectQueryScanToFinish(window: import('playwright').Page) {
 }
 
 async function main() {
+  if (process.argv.includes('--scope-index-readiness-only')) {
+    const duringBackfill = await runAppQueryBenchmark(50_000, 'grouped', {
+      scopeIndex: 'incomplete', readinessOnly: true, probeLegacyDuringBackfill: true,
+    });
+    const preseeded = await runAppQueryBenchmark(50_000, 'grouped', {
+      scopeIndex: 'ready', readinessOnly: true,
+    });
+    console.log(JSON.stringify({ capturedAt: new Date().toISOString(), scopeIndexReadiness: { duringBackfill, preseeded } }, null, 2));
+    return;
+  }
   const denseDiagnostic = JSON.parse(runInElectronNode('tests/dev/run-dense-model-diagnostic.ts', []));
   const results = [];
   for (const shape of ['flat', 'grouped'] as const) for (const count of [600, 10_000, 50_000]) results.push(await runAppQueryBenchmark(count, shape));
