@@ -1,6 +1,5 @@
 import { MessageChannelMain, type BrowserWindow, type IpcMain, type MessagePortMain, type WebContents } from 'electron';
 import type { Readable } from 'stream';
-import * as unzipper from 'unzipper';
 import type { Database } from 'better-sqlite3';
 import { IPC, type PreviewParseControlData, type PreviewParsePortData } from '../shared/types';
 import type {
@@ -11,7 +10,7 @@ import type {
 } from '../shared/previewContracts';
 import { parseArchiveEntryPath } from '../shared/archivePaths';
 import { isPathContained } from './pathContainment';
-import { isRegularNonSymlinkFilePath } from './localFileProtocol';
+import { openArchiveNoFollow } from './archiveRead';
 import { getDb } from './database';
 import {
   parsePreviewParseCancelRequest,
@@ -138,9 +137,9 @@ export interface PreviewArchiveEntryStream {
   stream(): Readable;
 }
 
-export type PreviewArchiveOpener = (archivePath: string) => Promise<{ files: PreviewArchiveEntryStream[] }>;
+export type PreviewArchiveOpener = (archivePath: string) => Promise<{ files: PreviewArchiveEntryStream[]; close?: () => Promise<void> }>;
 
-const openPreviewArchive = unzipper.Open.file as unknown as PreviewArchiveOpener;
+const openPreviewArchive = openArchiveNoFollow as PreviewArchiveOpener;
 
 export function validateIndexedPreviewRequest(db: Database, request: PreviewParseRequest): IndexedPreviewIdentity {
   const record = db.prepare(`
@@ -177,31 +176,34 @@ export async function readIndexedPreviewArchiveBuffer(
   const record = validateIndexedPreviewRequest(db, request);
   const archiveEntry = parseArchiveEntryPath(request.path);
   if (!archiveEntry || !record.archive_path) throw new Error('Preview source is not an archive entry');
-  if (!isRegularNonSymlinkFilePath(record.archive_path)) throw new Error('Indexed preview archive is no longer a regular file');
   const directory = await openArchive(record.archive_path);
-  if (signal.aborted) throw new DOMException('Preview archive read aborted', 'AbortError');
-  const entry = directory.files.find((candidate) => candidate.path === archiveEntry.entryPath && candidate.type === 'File');
-  if (!entry) throw new Error('Indexed preview archive member is missing');
-
-  const stream = entry.stream();
-  const chunks: Buffer[] = [];
-  const onAbort = () => stream.destroy(new DOMException('Preview archive read aborted', 'AbortError'));
-  signal.addEventListener('abort', onAbort, { once: true });
   try {
-    for await (const chunk of stream) {
+    if (signal.aborted) throw new DOMException('Preview archive read aborted', 'AbortError');
+    const entry = directory.files.find((candidate) => candidate.path === archiveEntry.entryPath && candidate.type === 'File');
+    if (!entry) throw new Error('Indexed preview archive member is missing');
+
+    const stream = entry.stream();
+    const chunks: Buffer[] = [];
+    const onAbort = () => stream.destroy(new DOMException('Preview archive read aborted', 'AbortError'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    try {
+      for await (const chunk of stream) {
+        if (signal.aborted) throw new DOMException('Preview archive read aborted', 'AbortError');
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
       if (signal.aborted) throw new DOMException('Preview archive read aborted', 'AbortError');
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      const buffer = Buffer.concat(chunks);
+      return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+    } catch (error) {
+      if (signal.aborted) throw new DOMException('Preview archive read aborted', 'AbortError');
+      throw error;
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+      stream.destroy();
+      chunks.length = 0;
     }
-    if (signal.aborted) throw new DOMException('Preview archive read aborted', 'AbortError');
-    const buffer = Buffer.concat(chunks);
-    return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
-  } catch (error) {
-    if (signal.aborted) throw new DOMException('Preview archive read aborted', 'AbortError');
-    throw error;
   } finally {
-    signal.removeEventListener('abort', onAbort);
-    stream.destroy();
-    chunks.length = 0;
+    await directory.close?.();
   }
 }
 
