@@ -17,7 +17,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **Frameworks:** Electron 34, React 19, Vite.
 - **Languages:** TypeScript (Strict Mode).
 - **Core 3D Engine:** Three.js (v170). Handles parsing (STL, OBJ, 3MF) and rendering.
-- **Database:** `better-sqlite3`. Stores file metadata and model metrics in `~/.config/polytray/library.db`.
+- **Database:** `better-sqlite3`. Stores file metadata, revisioned dimensions, indexed scopes, and durable restore state in `app.getPath("userData")/data/polytray.db`.
 - **Thumbnail Cache Storage:** PNG thumbnails are cached as files under `app.getPath("userData")/thumbnails` (DB stores thumbnail paths + failed flags).
 - **UI:** Custom vanilla CSS (`styles.css`). `react-virtuoso` for rendering massive virtualized grid lists smoothly.
 - **Thumbnail Generation:**
@@ -25,6 +25,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Heavy 3D file parsing is offloaded from the main UI thread. Files are streamed directly into the hidden canvas using a custom `polytray://local/` protocol and `fetch()`, entirely bypassing slow Node-to-Chromium IPC ArrayBuffer serialization overhead.
   - A shared thumbnail job scheduler now provides single-flight execution, path-level dedupe, priority, cancellation of pending work, and bounded retry across scan-triggered, watcher-triggered, and manual thumbnail requests.
   - Thumbnail cache startup now reconciles a versioned cache metadata file, pruning orphaned PNGs and resetting the cache on version changes.
+  - The visible renderer's path-keyed thumbnail image cache stores validated PNG data URLs in a bounded LRU (128 entries / 16 MiB encoded); this is separate from the PNG files on disk.
 - **IPC Validation Architecture:**
   - High-risk IPC handlers now parse/normalize runtime payloads at the main-process boundary in `src/main/ipc/runtimeValidation.ts` before side effects run.
   - Runtime settings are normalized once and validated before scan, watcher, thumbnail, and preview-parse entry points execute.
@@ -32,7 +33,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Interactive preview now uses one unified background-loading entrypoint for all formats.
   - Format-specific parse execution is selected through `src/renderer/lib/previewStrategies.ts` so the UI/viewer path stays unified while the heavy background step can vary by format.
   - `STL` and `OBJ` parse in a dedicated renderer `Worker` and rebuild meshes on the main viewer thread.
-  - `3MF` preview parsing is routed through the existing hidden thumbnail `BrowserWindow` instead of the worker because `ThreeMFLoader` and local 3MF repair rely on DOM APIs such as `DOMParser` that are unavailable in a plain worker context.
+  - `3MF` preview parsing uses a dedicated lazy hidden preview `BrowserWindow`, separate from the hidden thumbnail window, because `ThreeMFLoader` and local 3MF repair rely on DOM APIs such as `DOMParser` that are unavailable in a plain worker context. The owned preview runtime can be restarted to stop obsolete synchronous parsing without closing thumbnail generation.
   - `3MF` preview loading now prefers a lightweight preview-only parser (`src/renderer/lib/fast3mfPreviewParser.ts`) that extracts only core mesh/component geometry and build transforms while ignoring materials and non-preview metadata; it falls back to `ThreeMFLoader` only for unsupported structures.
   - Large `3MF` preview payloads now travel through a preload-brokered `MessagePort` path so geometry buffers can be transferred renderer-to-renderer without bouncing the full mesh payload back through normal main-process IPC cloning.
   - Shared mesh preparation/serialization logic lives in `src/renderer/lib/meshPrep.ts` and `src/renderer/lib/meshSerialization.ts` to keep thumbnail and preview behavior aligned.
@@ -46,7 +47,9 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Main process orchestration/lifecycle lives in `src/main/watcher.ts` (start/stop + event bridge back into DB/UI updates).
   - Watcher lifecycle policy is centralized in `src/main/watcherLifecycle.ts`, including graceful stop, timeout-based forced kill fallback, and restart-safe listener ownership.
 - **Scanning Architecture:**
-  - IPC scan handlers live in `src/main/ipc/scanning.ts` and handle folder scan/index flow, progress events, stale deletion, and thumbnail queue triggering.
+  - `src/main/scanService.ts` owns per-root scan jobs, bounded discovery and metadata queues, pause/cancel/retry, progress, and prune policy; `src/main/scanner.ts` streams discovery events and `src/main/ipc/scanning.ts` is the IPC boundary.
+  - Heavy metadata extraction runs through `src/main/metadataWorkerClient.ts` in a Polytray Metadata `utilityProcess`; this is separate from Chokidar's watcher utility process.
+  - `src/main/fileIndexRuntime.ts` incrementally backfills the `file_scopes` index. `GET_LIBRARY_PAGE` waits for scope readiness; only the exact unfiltered startup query can temporarily show the matching legacy `GET_FILES` snapshot while that backfill continues.
 - **Viewer Architecture:** Modular approach in `src/renderer/lib/`. The monolithic `viewer.ts` was refactored into focused chunks (`modelParsers.ts`, `orientation.ts`, `cameraUtils.ts`, `viewerConfig.ts`).
 
 ---
@@ -445,3 +448,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **Shared Test Support:** `tests/support/helpers/`, `tests/support/fixtures/`
 - **One-off Engineering Test Utilities:** `tests/dev/`
 - **Docs / Design Notes / Capture Scripts:** `docs/plans/`, `docs/mockups/`, `docs/assets/`, `scripts/capture-readme-media.ts`, `scripts/run-node-tests.mjs`
+
+## Current validation checkpoint (2026-09-29)
+
+The current execution state is recorded in the authoritative [33-task tracker](docs/plans/2026-09-26-performance-ux/tracker.md): 31 tasks DONE, G02 REVIEW, and G03 IN_PROGRESS. This dated checkpoint supersedes older task-order snapshots. Application/test candidate `2ee8523` passed `npm run build` and `PYTHON=/usr/bin/python3 npm run test:product` (480 unit passes, 1 Windows-only skip; 70 E2E passes, 1 optional real-model skip) on macOS 25.6 arm64 / Apple M3 Ultra. G02 measured grouped 50k query latency, early startup visibility during scope backfill, per-stage scan queue bounds, one Polytray metadata utility process through 20 preview cycles, encoded thumbnail-cache residency, app-owned 3MF bridge/service settlement, and three dense WebGL timer-query samples. Windows/Linux/CI app evidence and the 107 ms non-reproduced multipart CPU long-task miss remain open; do not claim cross-platform readiness or mark G02/G03 DONE. See [the final integration review](docs/performance/final-integration-review.md) for measured values, scope, and residuals.
