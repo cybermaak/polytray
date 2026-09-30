@@ -91,6 +91,7 @@ async function closeIsolatedApp(isolated) {
 }
 
 test('held 3MF parsing is cancelled by latest request without stopping main or thumbnail work', async () => {
+  const testStartedAt = Date.now();
   const isolated = await launchIsolatedApp({
     mainEntry: path.join(APP_DIR, 'out/main/index.js'),
     env: { POLYTRAY_PREVIEW_TEST_HOLD_MS: '8000' },
@@ -253,6 +254,36 @@ test('held 3MF parsing is cancelled by latest request without stopping main or t
           bridge: await mainWindow.evaluate(() => window.polytray.__previewParsePendingCounts?.()),
         };
       });
+      const remainingHoldMs = Math.max(0, 8_500 - (Date.now() - replacementStartedAt));
+      const remainingTestMs = test.info().timeout === 0
+        ? Number.POSITIVE_INFINITY
+        : test.info().timeout - (Date.now() - testStartedAt);
+      // Keep enough time for the bounded attachment and the awaited app close.
+      if (remainingTestMs >= remainingHoldMs + 20_000) {
+        if (remainingHoldMs > 0) await new Promise((resolve) => setTimeout(resolve, remainingHoldMs));
+        await attachJsonFailureEvidence('preview-old-pid-late', async () => {
+          let procStat = null;
+          if (process.platform === 'linux') {
+            try { procStat = fs.readFileSync(`/proc/${heldPid}/stat`, 'utf8'); }
+            catch { /* The PID may have exited before the late sample. */ }
+          }
+          return {
+            heldPid,
+            elapsedSinceReplacementMs: Date.now() - replacementStartedAt,
+            aliveBySignalZero: pidIsAlive(heldPid),
+            linuxProcessState: procStat?.slice(procStat.lastIndexOf(')') + 2).split(' ')[0] ?? null,
+            processListing: process.platform === 'win32' ? null : spawnSync('ps', ['-o', 'pid,ppid,stat,etime,command', '-p', String(heldPid)], {
+              encoding: 'utf8', timeout: 1000, maxBuffer: 64 * 1024,
+            }).stdout,
+            electronProcesses: await isolated.app.evaluate((electron) => ({
+              metrics: electron.app.getAppMetrics().map((entry) => ({ pid: entry.pid, type: entry.type })),
+              webContents: electron.webContents.getAllWebContents().map((entry) => ({
+                id: entry.id, pid: entry.isDestroyed() ? null : entry.getOSProcessId(),
+              })),
+            })).catch((cause) => ({ error: String(cause) })),
+          };
+        });
+      }
       throw error;
     }
     await expect.poll(() => replacementDispatchFinished, { timeout: 5000 }).toBe(true);

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import type { ElectronApplication } from 'playwright';
 
 /** Record quit phases without changing or skipping Electron's awaited shutdown. */
@@ -49,9 +50,41 @@ export async function installShutdownEvidence(app: ElectronApplication, outputPa
       }
       recordHost({ stage: 'close-pending-5s', mainPid, mainAlive });
     }, 5_000);
+    const processTreeTimer = setTimeout(() => {
+      try {
+        if (mainPid === null || process.platform === 'win32') return;
+        const listing = spawnSync('ps', ['-eo', 'pid=,ppid=,stat=,etime=,command='], {
+          encoding: 'utf8', timeout: 1_000, maxBuffer: 512 * 1024,
+        });
+        if (listing.error || listing.status !== 0) {
+          recordHost({ stage: 'close-pending-10s', mainPid, processTreeError: String(listing.error ?? listing.stderr) });
+          return;
+        }
+        const processes = listing.stdout.split('\n').flatMap((line) => {
+          const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(.+)$/);
+          return match ? [{ pid: Number(match[1]), ppid: Number(match[2]), state: match[3], elapsed: match[4], command: match[5] }] : [];
+        });
+        const descendants = new Set([mainPid]);
+        for (let changed = true; changed;) {
+          changed = false;
+          for (const item of processes) {
+            if (!descendants.has(item.ppid) || descendants.has(item.pid)) continue;
+            descendants.add(item.pid);
+            changed = true;
+          }
+        }
+        recordHost({
+          stage: 'close-pending-10s', mainPid,
+          processTree: processes.filter((item) => descendants.has(item.pid)).slice(0, 48),
+        });
+      } catch (error) {
+        recordHost({ stage: 'close-pending-10s', mainPid, processTreeError: String(error) });
+      }
+    }, 10_000);
     try { await close(); }
     finally {
       clearTimeout(timer);
+      clearTimeout(processTreeTimer);
       recordHost({ stage: 'close-settled', mainPid });
     }
   };
