@@ -71,7 +71,7 @@ test('performance resource observations stay stable across twenty viewer replace
   let closeWithEvidence: Awaited<ReturnType<typeof installShutdownEvidence>> | null = null;
 
   try {
-    closeWithEvidence = await installShutdownEvidence(isolated.app, test.info().outputPath('shutdown-evidence.jsonl'));
+    closeWithEvidence = await installShutdownEvidence(isolated.app, test.info().outputPath('shutdown-evidence.jsonl'), isolated.userDataDir);
     const page = await mainWindow(isolated.app);
     await page.evaluate((key) => sessionStorage.setItem(key, 'enabled'), THUMBNAIL_IMAGE_CACHE_DIAGNOSTICS_SESSION_KEY);
     await page.reload();

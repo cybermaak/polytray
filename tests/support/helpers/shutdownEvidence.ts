@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import type { ElectronApplication } from 'playwright';
 
 /** Record quit phases without changing or skipping Electron's awaited shutdown. */
-export async function installShutdownEvidence(app: ElectronApplication, outputPath: string) {
+export async function installShutdownEvidence(app: ElectronApplication, outputPath: string, userDataDir?: string) {
   const recordHost = (entry: Record<string, unknown>) => {
     try { fs.appendFileSync(outputPath, `${JSON.stringify({ ...entry, at: Date.now() })}\n`); }
     catch { /* Diagnostics cannot alter app shutdown. */ }
@@ -75,7 +75,8 @@ export async function installShutdownEvidence(app: ElectronApplication, outputPa
         }
         recordHost({
           stage: 'close-pending-10s', mainPid,
-          processTree: processes.filter((item) => descendants.has(item.pid)).slice(0, 48),
+          processTree: processes.filter((item) =>
+            descendants.has(item.pid) || Boolean(userDataDir && item.command.includes(userDataDir))).slice(0, 48),
         });
       } catch (error) {
         recordHost({ stage: 'close-pending-10s', mainPid, processTreeError: String(error) });

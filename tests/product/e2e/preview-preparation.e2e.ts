@@ -110,7 +110,7 @@ test('dense and transformed multipart previews report first-frame and render-sub
   let closeWithEvidence: Awaited<ReturnType<typeof installShutdownEvidence>> | null = null;
 
   try {
-    closeWithEvidence = await installShutdownEvidence(isolated.app, test.info().outputPath('shutdown-evidence.jsonl'));
+    closeWithEvidence = await installShutdownEvidence(isolated.app, test.info().outputPath('shutdown-evidence.jsonl'), isolated.userDataDir);
     const page = await findMainWindow(isolated.app);
     await page.waitForLoadState('domcontentloaded');
     await page.locator('#search-input').waitFor();
