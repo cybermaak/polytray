@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import JSZip from 'jszip';
 import { buildElectronLaunchArgs, buildElectronLaunchEnv } from '../../support/helpers/electronLaunch';
+import { findMainWindow } from '../../support/helpers/isolatedApp';
 
 const appRoot = path.resolve(__dirname, '../../..');
 const settings = {
@@ -43,9 +44,7 @@ test.beforeAll(async () => {
     POLYTRAY_SCAN_TEST_RELEASE_PATH: releasePath,
     POLYTRAY_SCAN_TEST_REACHED_PATH: reachedPath,
   }) });
-  page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
-  await page.locator('#search-input').waitFor();
+  page = await findMainWindow(app);
 });
 
 test.afterAll(async () => {

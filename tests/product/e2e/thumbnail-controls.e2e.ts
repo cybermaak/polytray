@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildElectronLaunchArgs, buildElectronLaunchEnv } from '../../support/helpers/electronLaunch';
+import { findMainWindow } from '../../support/helpers/isolatedApp';
 
 const appRoot = path.resolve(__dirname, '../../..');
 const settings = {
@@ -33,9 +34,7 @@ test.beforeAll(async () => {
   const extraArgs = process.platform === 'linux' ? ['--no-sandbox', '--disable-gpu'] : [];
   const args = buildElectronLaunchArgs(path.join(appRoot, 'out/main/index.js'), userData, extraArgs);
   app = await electron.launch({ args, env: buildElectronLaunchEnv(process.env, { ELECTRON_USER_DATA: userData }) });
-  page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
-  await page.locator('#search-input').waitFor();
+  page = await findMainWindow(app);
 });
 
 test.afterAll(async () => {

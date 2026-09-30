@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { buildElectronLaunchArgs, buildElectronLaunchEnv } = require('../../support/helpers/electronLaunch');
+const { findMainWindow } = require('../../support/helpers/isolatedApp');
 
 test('unavailable root retains annotated row and an available empty root prunes it', async () => {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-scan-safety-user-'));
@@ -15,7 +16,7 @@ test('unavailable root retains annotated row and an available empty root prunes 
     const args = buildElectronLaunchArgs(path.join(process.cwd(), 'out/main/index.js'), userData);
     if (process.platform === 'linux') args.push('--no-sandbox', '--disable-gpu');
     app = await electron.launch({ args, env: buildElectronLaunchEnv(process.env, { ELECTRON_USER_DATA: userData }) });
-    const window = await app.firstWindow();
+    const window = await findMainWindow(app);
     const scan = (target: string) => window.evaluate((folder) => window.polytray.scanFolder(folder), target);
     await scan(libraryRoot);
     let record = await window.evaluate(async (target) => {
