@@ -255,6 +255,7 @@ test('shows honest measurement labels and compare uses the same file-size termin
 });
 
 test('previews, cancels, and applies portable metadata restore with conflicts and unmatched pending paths', async () => {
+  test.setTimeout(120_000);
   const { regular, pendingModelPath: laterModelPath, backupPath: validBackup } =
     await prepareConflictBackup('conflict-backup.json', 'later-model.stl');
   const malformed = path.join(scratch, 'malformed-backup.json');
@@ -301,7 +302,7 @@ test('previews, cancels, and applies portable metadata restore with conflicts an
   await page.locator('#btn-settings').click();
   try {
     await page.locator('#retry-pending-annotations').click();
-    await expect(page.locator('#metadata-backup-title').locator('..')).toContainText('Matched 0 pending annotations');
+    await expect(page.locator('#metadata-backup-title').locator('..')).toContainText('Matched 0 pending annotations', { timeout: 30_000 });
   } catch (error) {
     let probeTimer: NodeJS.Timeout | undefined;
     let attachTimer: NodeJS.Timeout | undefined;

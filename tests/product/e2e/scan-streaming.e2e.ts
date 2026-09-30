@@ -24,7 +24,7 @@ async function findVisibleMainWindow(app: Awaited<ReturnType<typeof launchIsolat
 }
 
 test('a 5k scan exposes the first indexed subtree before discovery completes', async () => {
-  test.setTimeout(90_000);
+  test.setTimeout(180_000);
   let root = '';
   let firstDirectory = '';
   let delayedDirectory = '';
@@ -129,9 +129,9 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
     const releasedAt = Date.now();
     fs.writeFileSync(releasePath, 'release');
     try {
-      // The early visibility budgets above stay strict; hosted 5k completion takes longer than the default poll.
+      // Early visibility stays strict; hosted Windows was still indexing cleanly at 2,951/5,000 after 30 seconds.
       await expect.poll(async () => window.evaluate(() => (window as unknown as { __scanFinished: boolean }).__scanFinished),
-        { timeout: 30_000 })
+        { timeout: 90_000 })
         .toBe(true);
     } catch (error) {
       await attachJsonFailureEvidence('scan-terminal-state', async () => ({

@@ -159,7 +159,21 @@ test("responsive panels preserve browsing space across supported window sizes", 
           await expect(longNameCard).toBeVisible();
           await longNameCard.locator(".card-name").click();
           await expect(mainWindow.locator("#preview-panel")).not.toHaveClass(/hidden/);
-          await expect(mainWindow.locator("#viewer-loading")).toHaveClass(/hidden/, { timeout: 30000 });
+          try {
+            await expect(mainWindow.locator("#viewer-loading")).toHaveClass(/hidden/, { timeout: 30000 });
+          } catch (error) {
+            await attachJsonFailureEvidence('responsive-preview-state', async () => ({
+              sizeCase, windowCase, lightMode, rendererErrors,
+              windowUrls: isolated.app.windows().map(candidate => candidate.url()),
+              renderer: await mainWindow.evaluate(async () => ({
+                loadingClass: document.querySelector('#viewer-loading')?.className ?? null,
+                loadingText: document.querySelector('#viewer-loading')?.textContent ?? null,
+                pending: window.polytray.__previewParsePendingCounts?.() ?? null,
+                jobs: await window.polytray.getBackgroundJobs(),
+              })),
+            }));
+            throw error;
+          }
           await mainWindow.waitForFunction((preferredSidebarWidth) => {
             const layout = document.querySelector("#main-layout");
             const sidebar = document.querySelector("#sidebar");
