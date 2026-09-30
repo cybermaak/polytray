@@ -25,14 +25,14 @@ test('metadata backup canonicalizes paths and keeps indexed and pending notes se
 
   assert.equal(document.annotations.length, 1);
   assert.deepEqual(document.annotations[0], {
-    path: path.resolve('/library/model.stl'), tags: ['blue'], notes: 'Indexed note 🎨', printStatus: 'Printed',
+    path: path.posix.resolve('/library/model.stl'), tags: ['blue'], notes: 'Indexed note 🎨', printStatus: 'Printed',
   });
   assert.deepEqual(document.pendingAnnotations, [{
-    path: path.resolve('/library/model.stl'), tags: ['pending'], notes: 'Offline note', printStatus: 'Not Printed',
+    path: path.posix.resolve('/library/model.stl'), tags: ['pending'], notes: 'Offline note', printStatus: 'Not Printed',
   }]);
-  assert.deepEqual(document.libraryRoots, [path.resolve('/library')]);
+  assert.deepEqual(document.libraryRoots, [path.posix.resolve('/library')]);
   assert.deepEqual(document.collections, [{
-    id: 'c1', name: 'Favorites', paths: [path.resolve('/library/model.stl'), `${path.resolve('/library/archive.zip')}::entry::parts/part.obj`],
+    id: 'c1', name: 'Favorites', paths: [path.posix.resolve('/library/model.stl'), `${path.posix.resolve('/library/archive.zip')}::entry::parts/part.obj`],
   }]);
   assert.equal(document.preferences.gridSize, 'large');
   assert.equal('autoScan' in document.preferences, false);
@@ -55,9 +55,9 @@ test('runtime snapshot parser rejects malformed roots, collections, and portable
 test('archive-backed paths retain virtual identity while canonicalizing the archive path', () => {
   assert.equal(
     canonicalizeBackupPath('/library/../library/a.zip::entry::nested/./part.stl'),
-    `${path.resolve('/library/a.zip')}::entry::nested/./part.stl`,
+    `${path.posix.resolve('/library/a.zip')}::entry::nested/./part.stl`,
   );
-  assert.equal(canonicalizeBackupPath('/library/model.stl '), path.resolve('/library/model.stl '));
+  assert.equal(canonicalizeBackupPath('/library/model.stl '), path.posix.resolve('/library/model.stl '));
 });
 
 test('ZIP member dot-dot segments and case remain separate annotation identities', () => {

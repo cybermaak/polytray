@@ -7,7 +7,11 @@ import JSZip from 'jszip';
 import { createPlatformLauncher, createSlicerHandoff, getLaunchInvocation, normalizeSlicerConfiguration, type IndexedHandoffFile, type SlicerPlatform } from '../../../../src/main/slicerHandoff';
 import type { SlicerConfiguration, SlicerHandoffRequest } from '../../../../src/shared/backupContracts';
 
-const config: SlicerConfiguration = { applicationPath: '/tmp/slicer "α"', useSystemDefault: false };
+const config: SlicerConfiguration = {
+  applicationPath: process.platform === 'win32' ? 'C:\\Program Files\\Slicer.exe'
+    : process.platform === 'darwin' ? '/Applications/Slicer.app' : '/tmp/slicer "α"',
+  useSystemDefault: false,
+};
 
 async function fixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'polytray-slicer-'));
@@ -21,7 +25,7 @@ async function fixture() {
 }
 
 function service(root: string, identity: () => IndexedHandoffFile | null, launch: (config: SlicerConfiguration, path: string) => Promise<void>, extra: Partial<Parameters<typeof createSlicerHandoff>[0]> = {}) {
-  return createSlicerHandoff({ userDataPath: root, platform: 'linux', lookupIndexedFile: () => identity(), launch, ...extra });
+  return createSlicerHandoff({ userDataPath: root, platform: process.platform as SlicerPlatform, lookupIndexedFile: () => identity(), launch, ...extra });
 }
 const indexed = (request: SlicerHandoffRequest): IndexedHandoffFile => ({ id: request.fileId, contentRevision: request.contentRevision, path: request.path, extension: request.extension });
 

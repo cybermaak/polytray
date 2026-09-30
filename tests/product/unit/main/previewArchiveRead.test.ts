@@ -23,15 +23,14 @@ function makeRequest(archivePath: string, entryPath = 'parts/model.3mf', content
 }
 
 test('archive source read uses the exact indexed member and validates content revision', async () => {
-  const archivePath = path.join('/tmp', 'preview-read.zip');
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-preview-read-'));
   const exactMember = 'a/../parts/model.3mf';
   const zip = new JSZip();
   zip.file(exactMember, 'exact member bytes');
   zip.file('parts/model.3mf', 'different member bytes');
   const bytes = await zip.generateAsync({ type: 'nodebuffer' });
-  const temp = path.join('/tmp', `preview-read-${process.pid}.zip`);
-  const fs = await import('node:fs/promises');
-  await fs.writeFile(temp, bytes);
+  const temp = path.join(tempDir, 'preview-read.zip');
+  fs.writeFileSync(temp, bytes);
   const db = createDatabase(temp, exactMember);
   try {
     const request = makeRequest(temp, exactMember);
@@ -41,7 +40,7 @@ test('archive source read uses the exact indexed member and validates content re
     assert.throws(() => validateIndexedPreviewRequest(db, { ...request, contentRevision: 11 }), /stale/i);
   } finally {
     db.close();
-    await fs.rm(temp, { force: true });
+    fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
 
