@@ -75,6 +75,8 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Shared helpers/fixtures live under `tests/support/`.
   - One-off engineering helpers live under `tests/dev/`.
   - Node-side tests are now written in TypeScript and executed through `scripts/run-node-tests.mjs` with `tsx`.
+- **Virtualized grid keyboard focus:** `FileGrid` keeps the requested item key while `react-virtuoso` mounts a distant card. It retries a dropped scroll within a bounded animation-frame sequence and cancels that sequence if a different card or outside control receives focus, so a late mount cannot steal a newer focus choice.
+- **Hosted Product validation:** The local hardening candidate passes the complete Product gate (495 unit passes and 74 E2E passes, with one optional skip in each phase). The latest completed hosted sandbox run, [36778228489](https://github.com/cybermaak/polytray/actions/runs/36778228489), still had platform-specific test failures; the next candidate is under hosted validation in [36782669694](https://github.com/cybermaak/polytray/actions/runs/36782669694). See `docs/performance/hosted-ci-36752768437.md` for exact evidence and limits.
 - **Docs State:** `README.md` was refreshed into a landing-page style product overview, and the demo media under `docs/assets/` is now generated from the live app via `scripts/capture-readme-media.ts`.
 - **Agent Docs State:** Root `AGENTS.md` now captures repo-specific working agreements, architecture gotchas, and a verification matrix for future contributors/agents.
 - **Next Focus:** Remaining `v1.2` product work (`F7`-`F10`) plus the outstanding `v1.1.x` correctness and performance follow-ups.
