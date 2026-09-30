@@ -289,8 +289,42 @@ test('previews, cancels, and applies portable metadata restore with conflicts an
   expect(localState.settings.autoScan).toBe(true);
 
   await page.locator('#btn-settings').click();
-  await page.locator('#retry-pending-annotations').click();
-  await expect(page.locator('#metadata-backup-title').locator('..')).toContainText('Matched 0 pending annotations');
+  try {
+    await page.locator('#retry-pending-annotations').click();
+    await expect(page.locator('#metadata-backup-title').locator('..')).toContainText('Matched 0 pending annotations');
+  } catch (error) {
+    let probeTimer: NodeJS.Timeout | undefined;
+    let attachTimer: NodeJS.Timeout | undefined;
+    try {
+      const diagnostic = await Promise.race([
+        page.evaluate(async () => {
+          const bounded = async <T,>(request: Promise<T>) => Promise.race([
+            request.then(value => ({ state: 'completed' as const, value }), cause => ({ state: 'failed' as const, error: String(cause) })),
+            new Promise<{ state: 'pending' }>(resolve => setTimeout(() => resolve({ state: 'pending' }), 2000)),
+          ]);
+          return {
+            retryDisabled: (document.querySelector('#retry-pending-annotations') as HTMLButtonElement | null)?.disabled ?? null,
+            panelText: document.querySelector('#metadata-backup-title')?.parentElement?.textContent ?? null,
+            restoreStatus: await bounded(window.polytray.getMetadataRestoreStatus()),
+            backgroundJobs: await bounded(window.polytray.getBackgroundJobs()),
+          };
+        }).catch(cause => ({ probeError: String(cause) })),
+        new Promise<{ probeTimedOut: true }>(resolve => { probeTimer = setTimeout(() => resolve({ probeTimedOut: true }), 5000); }),
+      ]);
+      await Promise.race([
+        test.info().attach('pending-retry-state.json', {
+          body: Buffer.from(JSON.stringify(diagnostic, null, 2)),
+          contentType: 'application/json',
+        }),
+        new Promise<void>(resolve => { attachTimer = setTimeout(resolve, 2000); }),
+      ]);
+    } catch { /* Diagnostic failure must not replace the original assertion. */ }
+    finally {
+      if (probeTimer) clearTimeout(probeTimer);
+      if (attachTimer) clearTimeout(attachTimer);
+    }
+    throw error;
+  }
   writeStl(laterModelPath, 'later');
   await page.evaluate(({ rootPath, settings }) => window.polytray.scanFolder(rootPath, settings), { rootPath: library, settings: runtimeSettings });
   await expect.poll(async () => page.evaluate(async filePath => (await window.polytray.getFiles({ limit: 100, offset: 0 })).files.find(file => file.path === filePath)?.notes, laterModelPath)).toBe('pending note');
