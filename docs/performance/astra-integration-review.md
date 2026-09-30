@@ -88,3 +88,33 @@ follow-up, sequentially. External platform evidence stays explicit. Return
 the updated packet with exact changes after the last passing gate, without
 rerunning unchanged application suites for prose-only edits. Astra reviews
 the resulting delta and final readiness statement.
+
+## Follow-up delta review
+
+Reviewed documentation commits `a872020` and `81785e7`. The database path,
+dedicated 3MF runtime, scan/metadata/index ownership, encoded cache accounting,
+and current validation checkpoint are reconciled in `DEV_CONTEXT.md`.
+`README.md` now describes the implemented local workflows. The pre-existing
+user changes remain unstaged. The local documentation finding above is closed;
+the historical finding is retained as the review record.
+
+The bounded unchanged-fixture repeat passed 1/1 and recorded dense/multipart
+long-task maxima of 0 ms. Its retained evidence cannot attribute the original
+107 ms multipart task. This follow-up is complete; the observation remains
+open, without evidence justifying a speculative production fix or more
+unbounded repeats.
+
+Independent diff inspection confirms no application, test, package, or Vite
+configuration changes since `2ee8523`; `git diff --check 643720a..81785e7`
+passed. Luna records README documentation checks passing 2/2. The previous
+Build/Product evidence remains applicable; no new full-suite run was requested
+for this documentation delta.
+
+The revised residual classifications are accepted. All 30 implementation
+tasks and G01 are accepted; G02 remains REVIEW, and G03 remains IN_PROGRESS
+because overall supported-platform readiness is still outstanding. This
+review does not waive Windows/Linux Product validation or CI calibration,
+claim every reference target is met, or authorize publication. Routine local
+implementation can stop at this handoff. The hourly supervisor is paused;
+the next work is a separately recorded validation follow-up on supported
+platforms, with the non-reproduced CPU observation retained in the packet.
