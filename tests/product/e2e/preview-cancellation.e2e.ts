@@ -2,7 +2,9 @@ const { test, expect } = require('@playwright/test');
 const path = require('node:path');
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
-const { launchIsolatedApp } = require('../../support/helpers/isolatedApp');
+const {
+  launchIsolatedApp, closeIsolatedAppWithFallback, cleanupPreservingPrimaryFailure,
+} = require('../../support/helpers/isolatedApp');
 const { attachJsonFailureEvidence } = require('../../support/helpers/failureEvidence');
 const JSZip = require('jszip');
 
@@ -73,23 +75,6 @@ function pidIsAlive(pid) {
   catch (error) { return error.code === 'EPERM'; }
 }
 
-async function closeIsolatedApp(isolated) {
-  let timeout;
-  const closed = await Promise.race([
-    isolated.close().then(() => true),
-    new Promise((resolve) => { timeout = setTimeout(() => resolve(false), 5000); }),
-  ]);
-  if (timeout) clearTimeout(timeout);
-  if (closed) return;
-
-  // A deliberately busy test renderer must not leave this isolated Electron app behind on failure.
-  const appProcess = isolated.app.process();
-  appProcess.kill('SIGTERM');
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  if (appProcess.exitCode === null) appProcess.kill('SIGKILL');
-  fs.rmSync(path.dirname(isolated.userDataDir), { recursive: true, force: true });
-}
-
 test('held 3MF parsing is cancelled by latest request without stopping main or thumbnail work', async () => {
   const testStartedAt = Date.now();
   const isolated = await launchIsolatedApp({
@@ -104,6 +89,7 @@ test('held 3MF parsing is cancelled by latest request without stopping main or t
   });
 
   let mainWindow;
+  let primaryFailed = false;
   try {
     const appProcess = isolated.app.process();
     let mainOutput = '';
@@ -258,8 +244,9 @@ test('held 3MF parsing is cancelled by latest request without stopping main or t
       const remainingTestMs = test.info().timeout === 0
         ? Number.POSITIVE_INFINITY
         : test.info().timeout - (Date.now() - testStartedAt);
-      // Keep enough time for the bounded attachment and the awaited app close.
-      if (remainingTestMs >= remainingHoldMs + 20_000) {
+      // Reserve the full close timeout, exact-process termination, Windows file-lock retries,
+      // and bounded cleanup diagnostics so Playwright cannot replace the C10 assertion.
+      if (remainingTestMs >= remainingHoldMs + 30_000) {
         if (remainingHoldMs > 0) await new Promise((resolve) => setTimeout(resolve, remainingHoldMs));
         await attachJsonFailureEvidence('preview-old-pid-late', async () => {
           let procStat = null;
@@ -323,7 +310,13 @@ test('held 3MF parsing is cancelled by latest request without stopping main or t
       'the successful replacement leaves a current preview runtime').toBe(true);
     expect(pidIsAlive(mainPid)).toBe(true);
     expect(pidIsAlive(thumbnailPid)).toBe(true);
+  } catch (error) {
+    primaryFailed = true;
+    throw error;
   } finally {
-    await closeIsolatedApp(isolated);
+    await cleanupPreservingPrimaryFailure(primaryFailed, () => closeIsolatedAppWithFallback(isolated), async (error) => {
+      console.error('[preview-e2e] isolated cleanup also failed:', error);
+      await attachJsonFailureEvidence('preview-isolated-cleanup', async () => ({ error: String(error) }));
+    });
   }
 });
