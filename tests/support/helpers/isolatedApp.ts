@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { _electron as electron, ElectronApplication } from 'playwright';
+import { _electron as electron, ElectronApplication, type Page } from 'playwright';
 import { buildElectronLaunchArgs, buildElectronLaunchEnv } from './electronLaunch';
 
 export interface IsolatedAppOptions {
@@ -16,6 +16,23 @@ export interface IsolatedApp {
   userDataDir: string;
   scratchDir: string;
   close(): Promise<void>;
+}
+
+/** Select the visible app UI after the first Electron page appears; hidden renderers may load first. */
+export async function findMainWindow(app: ElectronApplication): Promise<Page> {
+  await app.firstWindow();
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    for (const page of app.windows()) {
+      const visible = await page.locator('#search-input').isVisible().catch(() => false);
+      if (!visible) continue;
+      const bridgeReady = await page.evaluate(() => typeof window.polytray?.getFiles === 'function').catch(() => false);
+      if (bridgeReady) return page;
+    }
+    await new Promise<void>(resolve => setTimeout(resolve, 100));
+  }
+  const urls = app.windows().map(page => page.url());
+  throw new Error(`Visible Polytray main window and bridge did not become ready; open page URLs: ${JSON.stringify(urls)}`);
 }
 
 /** Launch an app with private userData and diagnostics scratch. close() removes only its own directories. */

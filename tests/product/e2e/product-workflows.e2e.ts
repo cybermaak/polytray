@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import JSZip from 'jszip';
 import { buildElectronLaunchArgs, buildElectronLaunchEnv } from '../../support/helpers/electronLaunch';
+import { findMainWindow } from '../../support/helpers/isolatedApp';
 
 const appRoot = path.resolve(__dirname, '../../..');
 const runtimeSettings = { thumbnail_timeout: 20000, scanning_batch_size: 2, watcher_stability: 1000, page_size: 100, thumbnailColor: '#8888aa', thumbQuality: '128' as const };
@@ -76,9 +77,7 @@ test.beforeAll(async () => {
   fs.writeFileSync(path.join(library, 'models.zip'), await zip.generateAsync({ type: 'nodebuffer' }));
 
   app = await launchWorkflowApp();
-  page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
-  await page.locator('#search-input').waitFor();
+  page = await findMainWindow(app);
   await page.addInitScript((rootPath) => localStorage.setItem('polytray-library-state', JSON.stringify({ libraryFolders: [rootPath], lastFolder: rootPath })), library);
   await page.reload();
   await page.locator('#search-input').waitFor();
@@ -389,8 +388,7 @@ test('startup rolls a committed restore forward when the renderer has not applie
 
   await app.close();
   app = await launchWorkflowApp();
-  page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
+  page = await findMainWindow(app);
   await expect(page.locator('#search-input')).toBeVisible({ timeout: 30000 });
   const recoveredState = await page.evaluate(() => ({
     library: JSON.parse(localStorage.getItem('polytray-library-state') ?? '{}') as { libraryFolders: string[] },
@@ -422,8 +420,7 @@ test('shows retained recovery after an acknowledgment failure and recovers on re
 
   await app.close();
   app = await launchWorkflowApp();
-  page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
+  page = await findMainWindow(app);
   await expect(page.locator('#search-input')).toBeVisible({ timeout: 30000 });
   await expect.poll(async () => page.evaluate(async () => (await window.polytray.getMetadataRestoreStatus()).unresolved), { timeout: 30000 }).toBe(false);
 });

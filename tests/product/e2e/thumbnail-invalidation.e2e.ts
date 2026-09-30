@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildElectronLaunchArgs, buildElectronLaunchEnv } from '../../support/helpers/electronLaunch';
+import { findMainWindow } from '../../support/helpers/isolatedApp';
 import { THUMBNAIL_CACHE_VERSION } from '../../../src/main/thumbnailCacheLifecycle';
 
 const appRoot = path.resolve(__dirname, '../../..');
@@ -32,9 +33,7 @@ function copyModel(filename: string) {
 async function launchIsolatedApp() {
   const args = buildElectronLaunchArgs(path.join(appRoot, 'out/main/index.js'), userData, process.platform === 'linux' ? ['--no-sandbox', '--disable-gpu'] : []);
   app = await electron.launch({ args, env: buildElectronLaunchEnv(process.env, { ELECTRON_USER_DATA: userData }) });
-  page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
-  await page.locator('#search-input').waitFor();
+  page = await findMainWindow(app);
 }
 
 async function getRecords(folderPath: string) {
