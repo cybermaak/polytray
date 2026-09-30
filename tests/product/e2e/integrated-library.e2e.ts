@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import JSZip from 'jszip';
 import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
+import { attachGridFailureEvidence } from '../../support/helpers/gridFailureEvidence';
 
 const appDir = path.resolve(__dirname, '../../..');
 const runtime = {
@@ -118,11 +119,16 @@ test('integrated 600-record library keeps paging and annotations through archive
 
     const tailCard = page.locator(`.file-card[data-file-id="${tail.items[0].file.id}"]`);
     await page.locator('[data-virtuoso-scroller]').hover();
-    await expect.poll(async () => {
-      if (await tailCard.isVisible().catch(() => false)) return true;
-      await page.locator('[data-virtuoso-scroller]').evaluate(element => element.scrollTo({ top: element.scrollHeight, behavior: 'instant' }));
-      return false;
-    }, { timeout: 30_000, intervals: [100, 250, 500] }).toBe(true);
+    try {
+      await expect.poll(async () => {
+        if (await tailCard.isVisible().catch(() => false)) return true;
+        await page.locator('[data-virtuoso-scroller]').evaluate(element => element.scrollTo({ top: element.scrollHeight, behavior: 'instant' }));
+        return false;
+      }, { timeout: 30_000, intervals: [100, 250, 500] }).toBe(true);
+    } catch (error) {
+      await attachGridFailureEvidence(page, 'integrated-tail', `.file-card[data-file-id="${tail.items[0].file.id}"]`);
+      throw error;
+    }
     await expect(tailCard.locator('.card-name')).toBeVisible();
     await tailCard.locator('.file-select-toggle').click();
     await expect(page.locator('#batch-selection-count')).toHaveText('1 selected');

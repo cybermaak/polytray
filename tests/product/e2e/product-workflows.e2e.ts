@@ -5,6 +5,7 @@ import path from 'node:path';
 import JSZip from 'jszip';
 import { buildElectronLaunchArgs, buildElectronLaunchEnv } from '../../support/helpers/electronLaunch';
 import { findMainWindow } from '../../support/helpers/isolatedApp';
+import { attachGridFailureEvidence } from '../../support/helpers/gridFailureEvidence';
 
 const appRoot = path.resolve(__dirname, '../../..');
 const runtimeSettings = { thumbnail_timeout: 20000, scanning_batch_size: 2, watcher_stability: 1000, page_size: 100, thumbnailColor: '#8888aa', thumbQuality: '128' as const };
@@ -182,7 +183,11 @@ test('does not carry completed or in-flight slicer state to a different archive 
     await expect.poll(() => fs.existsSync(launchReachedPath)).toBe(true);
 
     const archiveCard = page.locator('.file-card.archive-summary').filter({ has: page.locator('.card-name[title="models.zip"]') });
-    await archiveCard.click();
+    try { await archiveCard.click(); }
+    catch (error) {
+      await attachGridFailureEvidence(page, 'archive-switch', '.file-card.archive-summary .card-name[title="models.zip"]');
+      throw error;
+    }
     const member = page.locator('#archive-preview-models button[title="archive-model.stl"]');
     await expect(member).toBeVisible();
     await member.click();

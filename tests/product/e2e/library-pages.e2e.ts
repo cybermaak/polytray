@@ -2,6 +2,7 @@ const { test, expect } = require("@playwright/test");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { launchIsolatedApp } = require("../../support/helpers/isolatedApp");
+const { attachGridFailureEvidence } = require("../../support/helpers/gridFailureEvidence");
 
 const APP_DIR = path.resolve(__dirname, "../../..");
 
@@ -83,11 +84,16 @@ test("library pages expose every matching model, complete archive counts, and st
     const lastRecordCard = page.locator(`.file-card[data-file-id="${fixtureInfo.thumbnailTestFileId}"]`);
     const lastRecordName = page.locator(`.card-name[title="${fixtureInfo.lastRecordName}"]`);
     await page.locator("[data-virtuoso-scroller]").hover();
-    await expect.poll(async () => {
-      if (await lastRecordCard.isVisible()) return true;
-      await page.mouse.wheel(0, 1000);
-      return false;
-    }, { timeout: 30000, intervals: [100, 250, 500] }).toBe(true);
+    try {
+      await expect.poll(async () => {
+        if (await lastRecordCard.isVisible()) return true;
+        await page.mouse.wheel(0, 1000);
+        return false;
+      }, { timeout: 30000, intervals: [100, 250, 500] }).toBe(true);
+    } catch (error) {
+      await attachGridFailureEvidence(page, 'library-tail', `.file-card[data-file-id="${fixtureInfo.thumbnailTestFileId}"]`);
+      throw error;
+    }
     await expect(lastRecordName).toBeVisible();
     const loadedThumbnail = lastRecordCard.locator("img[data-thumbnail-state]");
     await expect(loadedThumbnail).toHaveAttribute("data-thumbnail-state", "placeholder");

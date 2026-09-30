@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import JSZip from 'jszip';
 import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
+import { attachGridFailureEvidence } from '../../support/helpers/gridFailureEvidence';
 import { createThumbnailIdentity, thumbnailCacheFilename } from '../../../src/main/thumbnailIdentity';
 
 const modelFixture = path.join(process.cwd(), 'tests/support/fixtures/test_model_a.stl');
@@ -120,13 +121,18 @@ test('background job controls retain browse state and watch follows only watch s
     await expect.poll(() => page!.evaluate(async () => (await window.polytray.getBackgroundJobs()).some((job) => job.kind === 'scan' && ['completed', 'partial'].includes(job.state)))).toBe(true);
     await expect.poll(() => page!.evaluate(() => (window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0)).toBe(0);
     expect(retainedAnchor).toBeTruthy();
-    await expect.poll(() => page!.evaluate((itemKey) => {
-      const scroller = document.querySelector<HTMLElement>('[data-virtuoso-scroller]');
-      if (!scroller || !itemKey) return null;
-      const bounds = scroller.getBoundingClientRect();
-      const card = [...scroller.querySelectorAll<HTMLElement>('.file-card')].find((candidate) => candidate.dataset.itemKey === itemKey);
-      return card ? Math.round(card.getBoundingClientRect().top - bounds.top) : null;
-    }, retainedAnchor?.itemKey)).toBe(retainedAnchor?.topOffset ?? null);
+    try {
+      await expect.poll(() => page!.evaluate((itemKey) => {
+        const scroller = document.querySelector<HTMLElement>('[data-virtuoso-scroller]');
+        if (!scroller || !itemKey) return null;
+        const bounds = scroller.getBoundingClientRect();
+        const card = [...scroller.querySelectorAll<HTMLElement>('.file-card')].find((candidate) => candidate.dataset.itemKey === itemKey);
+        return card ? Math.round(card.getBoundingClientRect().top - bounds.top) : null;
+      }, retainedAnchor?.itemKey)).toBe(retainedAnchor?.topOffset ?? null);
+    } catch (error) {
+      await attachGridFailureEvidence(page, 'background-anchor');
+      throw error;
+    }
     const rescanTerminalId = await page.evaluate(async (folder) => (await window.polytray.getBackgroundJobs()).find((job) => job.rootPath === folder && job.state === 'completed')?.jobId, root);
     if (rescanTerminalId) await page.locator(`[data-job-id="${rescanTerminalId}"]`).getByRole('button', { name: 'Dismiss' }).click();
 
