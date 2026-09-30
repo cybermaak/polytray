@@ -398,7 +398,7 @@ export function createThumbnailJobScheduler(hooks: SchedulerHooks) {
       ),
     );
     void runQueue();
-    return { ...batch, results: Promise.all(results) };
+    return { ...batch, resultPromises: results, results: Promise.all(results) };
   }
 
   function enqueue(request: ThumbnailJobRequest) {
