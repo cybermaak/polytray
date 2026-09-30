@@ -24,6 +24,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Runs in a completely detached, invisible `BrowserWindow` with `backgroundThrottling: false` to prevent macOS App Nap from freezing the worker.
   - Heavy 3D file parsing is offloaded from the main UI thread. Files are streamed directly into the hidden canvas using a custom `polytray://local/` protocol and `fetch()`, entirely bypassing slow Node-to-Chromium IPC ArrayBuffer serialization overhead.
   - A shared thumbnail job scheduler now provides single-flight execution, path-level dedupe, priority, cancellation of pending work, and bounded retry across scan-triggered, watcher-triggered, and manual thumbnail requests.
+  - Scan-triggered thumbnail results now publish through the revision-checked repository and ready event as each item settles, even while later batch items remain pending; a failed publication does not detach progress before the batch reaches terminal state.
   - Thumbnail cache startup now reconciles a versioned cache metadata file, pruning orphaned PNGs and resetting the cache on version changes.
 - **IPC Validation Architecture:**
   - High-risk IPC handlers now parse/normalize runtime payloads at the main-process boundary in `src/main/ipc/runtimeValidation.ts` before side effects run.
@@ -32,7 +33,8 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Interactive preview now uses one unified background-loading entrypoint for all formats.
   - Format-specific parse execution is selected through `src/renderer/lib/previewStrategies.ts` so the UI/viewer path stays unified while the heavy background step can vary by format.
   - `STL` and `OBJ` parse in a dedicated renderer `Worker` and rebuild meshes on the main viewer thread.
-  - `3MF` preview parsing is routed through the existing hidden thumbnail `BrowserWindow` instead of the worker because `ThreeMFLoader` and local 3MF repair rely on DOM APIs such as `DOMParser` that are unavailable in a plain worker context.
+  - `3MF` preview parsing uses a dedicated, disposable hidden `BrowserWindow` separate from thumbnail generation because `ThreeMFLoader` and local 3MF repair rely on DOM APIs such as `DOMParser` that are unavailable in a plain worker context.
+  - On Linux, that preview renderer is accepted for parsing only after the main process has a live, exclusive ownership claim. Replacement or close rechecks its PID, Electron process type, `/proc` start identity, and exact renderer/profile command line before a single signal; missing or changed evidence skips signalling and still cleans up the window. The residual PID-reuse race between the final check and Node's signal call is documented in code. Local disposable-Linux cancellation and 20-cycle tests pass; hosted x86_64 verification remains open.
   - `3MF` preview loading now prefers a lightweight preview-only parser (`src/renderer/lib/fast3mfPreviewParser.ts`) that extracts only core mesh/component geometry and build transforms while ignoring materials and non-preview metadata; it falls back to `ThreeMFLoader` only for unsupported structures.
   - Large `3MF` preview payloads now travel through a preload-brokered `MessagePort` path so geometry buffers can be transferred renderer-to-renderer without bouncing the full mesh payload back through normal main-process IPC cloning.
   - Shared mesh preparation/serialization logic lives in `src/renderer/lib/meshPrep.ts` and `src/renderer/lib/meshSerialization.ts` to keep thumbnail and preview behavior aligned.
