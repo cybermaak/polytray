@@ -2,6 +2,10 @@ import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
+import {
+  THUMBNAIL_IMAGE_CACHE_DIAGNOSTICS_SESSION_KEY,
+  type ThumbnailImageCacheStats,
+} from '../../../src/renderer/lib/thumbnailImageCache';
 
 const SETTINGS = {
   thumbnail_timeout: 20_000, scanning_batch_size: 50, watcher_stability: 1_000,
@@ -20,6 +24,7 @@ declare global {
     __G02_FRAME_MARKS?: number;
     __G02_RESOURCES?: { workersCreated: number; workersTerminated: number; channelsCreated: number; channelPortsClosed: number; listenerRegistrations: number; listenerRemovals: number };
     __POLYTRAY_RENDERER_PROBE?: { viewerFrames: number; markViewerFrame(): void; markViewerDrawCalls(count: number): void; drawCalls?: number };
+    __POLYTRAY_TEST_THUMBNAIL_IMAGE_CACHE_STATS__?: () => Readonly<ThumbnailImageCacheStats>;
   }
 }
 
@@ -55,6 +60,10 @@ test('performance resource observations stay stable across twenty viewer replace
 
   try {
     const page = await mainWindow(isolated.app);
+    await page.evaluate((key) => sessionStorage.setItem(key, 'enabled'), THUMBNAIL_IMAGE_CACHE_DIAGNOSTICS_SESSION_KEY);
+    await page.reload();
+    await expect(page.locator('#search-input')).toBeAttached();
+    await expect.poll(() => page.evaluate(() => typeof window.__POLYTRAY_TEST_THUMBNAIL_IMAGE_CACHE_STATS__)).toBe('function');
     await page.evaluate(({ root, settings }) => window.polytray.scanFolder(root, settings), { root: library, settings: SETTINGS });
     await expect(page.locator('.file-card')).toHaveCount(3, { timeout: 30_000 });
     const utilityProcessesBeforeCycles = await isolated.app.evaluate(() => {
@@ -138,6 +147,11 @@ test('performance resource observations stay stable across twenty viewer replace
     expect(fs.existsSync(cacheMiss!)).toBe(true);
     await page.waitForTimeout(500);
     const cacheBytesAtStart = imageCacheBytes();
+    const imageCacheStatsAtStart = await page.evaluate(() => window.__POLYTRAY_TEST_THUMBNAIL_IMAGE_CACHE_STATS__!());
+    expect(imageCacheStatsAtStart.completedEntries).toBeGreaterThan(0);
+    expect(imageCacheStatsAtStart.completedEntries).toBeLessThanOrEqual(imageCacheStatsAtStart.maxEntries);
+    expect(imageCacheStatsAtStart.encodedDataUrlBytes).toBeLessThanOrEqual(imageCacheStatsAtStart.maxEncodedBytes);
+    expect(imageCacheStatsAtStart.inFlightEntries).toBe(0);
     let quietFrameCount = -1;
     let minimizedFrameCount = -1;
 
@@ -194,7 +208,13 @@ test('performance resource observations stay stable across twenty viewer replace
     expect(utilityProcessesAfterCycles.started).toBe(utilityProcessesBeforeCycles.started);
     expect(utilityProcessesAfterCycles.active).toEqual(utilityProcessesBeforeCycles.active);
     const cacheBytesAtEnd = imageCacheBytes();
-    console.info('[G02 resource observations]', JSON.stringify({ cycles: 20, openCloseAndReplacementPairs: 20, zeroFramesDuringQuietSecond: quietFrameCount, zeroFramesDuringMinimizedSecond: minimizedFrameCount, ...resourceSnapshot, utilityProcesses: utilityProcessesAfterCycles, cacheBytesAtStart, cacheBytesAtEnd, windowCount: initialWindows }));
+    const imageCacheStatsAtEnd = await page.evaluate(() => window.__POLYTRAY_TEST_THUMBNAIL_IMAGE_CACHE_STATS__!());
+    expect(imageCacheStatsAtEnd.completedEntries).toBeLessThanOrEqual(imageCacheStatsAtEnd.maxEntries);
+    expect(imageCacheStatsAtEnd.encodedDataUrlBytes).toBeLessThanOrEqual(imageCacheStatsAtEnd.maxEncodedBytes);
+    expect(imageCacheStatsAtEnd.inFlightEntries).toBe(0);
+    expect(imageCacheStatsAtEnd.completedEntries).toBe(imageCacheStatsAtStart.completedEntries);
+    expect(imageCacheStatsAtEnd.encodedDataUrlBytes).toBe(imageCacheStatsAtStart.encodedDataUrlBytes);
+    console.info('[G02 resource observations]', JSON.stringify({ cycles: 20, openCloseAndReplacementPairs: 20, zeroFramesDuringQuietSecond: quietFrameCount, zeroFramesDuringMinimizedSecond: minimizedFrameCount, ...resourceSnapshot, utilityProcesses: utilityProcessesAfterCycles, cacheBytesAtStart, cacheBytesAtEnd, imageCacheStatsAtStart, imageCacheStatsAtEnd, windowCount: initialWindows }));
     expect(resourceSnapshot.webglContextsCreated).toBeGreaterThan(0);
     expect(resourceSnapshot.webglContextsStillUsable).toBe(0);
     expect(resourceSnapshot.workersCreated).toBe(resourceSnapshot.workersTerminated);

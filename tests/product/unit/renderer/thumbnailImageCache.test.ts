@@ -130,6 +130,37 @@ test('total byte budget evicts the least-recently-used fitting entry', async () 
   ]);
 });
 
+test('read-only cache stats track in-flight and completed encoded URL bytes', async () => {
+  const response = deferred<string | null>();
+  const dataUrl = image('AQIDBA==');
+  const cache = createThumbnailImageCache((thumbnailPath) =>
+    thumbnailPath.endsWith('slow.png') ? response.promise : Promise.resolve(dataUrl),
+  { maxEntries: 3, maxEncodedBytes: dataUrl.length * 2 });
+
+  assert.deepEqual(cache.getStats(), {
+    completedEntries: 0, inFlightEntries: 0, encodedDataUrlBytes: 0,
+    maxEntries: 3, maxEncodedBytes: dataUrl.length * 2,
+  });
+  const slowRead = cache.load('/cache/slow.png');
+  assert.equal(cache.getStats().inFlightEntries, 1);
+  response.resolve(dataUrl);
+  await slowRead;
+  await cache.load('/cache/second.png');
+  assert.deepEqual(cache.getStats(), {
+    completedEntries: 2, inFlightEntries: 0, encodedDataUrlBytes: dataUrl.length * 2,
+    maxEntries: 3, maxEncodedBytes: dataUrl.length * 2,
+  });
+
+  const snapshot = cache.getStats();
+  assert.equal(Object.isFrozen(snapshot), true);
+  assert.equal(cache.getStats().completedEntries, 2);
+  cache.invalidate('/cache/slow.png');
+  assert.deepEqual(cache.getStats(), {
+    completedEntries: 1, inFlightEntries: 0, encodedDataUrlBytes: dataUrl.length,
+    maxEntries: 3, maxEncodedBytes: dataUrl.length * 2,
+  });
+});
+
 test('invalidation fences an in-flight result and allows a fresh read for the same key', async () => {
   const oldRead = deferred<string | null>();
   const newRead = deferred<string | null>();

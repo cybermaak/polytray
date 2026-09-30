@@ -1,5 +1,15 @@
 export const MAX_THUMBNAIL_CACHE_ENTRIES = 128;
 export const MAX_THUMBNAIL_CACHE_BYTES = 16 * 1024 * 1024;
+export const THUMBNAIL_IMAGE_CACHE_DIAGNOSTICS_SESSION_KEY = '__polytray_g02_thumb_cache_stats';
+
+export interface ThumbnailImageCacheStats {
+  readonly completedEntries: number;
+  readonly inFlightEntries: number;
+  /** ASCII data-URL character count, which is also its encoded byte count. */
+  readonly encodedDataUrlBytes: number;
+  readonly maxEntries: number;
+  readonly maxEncodedBytes: number;
+}
 
 export type ThumbnailImageIdentity = string | number;
 export type ThumbnailImageReader = (thumbnailPath: string) => Promise<string | null>;
@@ -8,6 +18,7 @@ export interface ThumbnailImageCache {
   load(thumbnailPath: string | null | undefined, identity?: ThumbnailImageIdentity): Promise<string | null>;
   invalidate(thumbnailPath?: string): void;
   subscribe(thumbnailPath: string, listener: () => void): () => void;
+  getStats(): Readonly<ThumbnailImageCacheStats>;
 }
 
 export interface ThumbnailImageCacheOptions {
@@ -143,7 +154,20 @@ export function createThumbnailImageCache(
     };
   }
 
-  return { load, invalidate, subscribe };
+  return {
+    load,
+    invalidate,
+    subscribe,
+    getStats() {
+      return Object.freeze({
+        completedEntries: completed.size,
+        inFlightEntries: inFlight.size,
+        encodedDataUrlBytes: encodedBytes,
+        maxEntries,
+        maxEncodedBytes,
+      });
+    },
+  };
 }
 
 /** A single reader/cache shared by every thumbnail image in the renderer. */
@@ -151,6 +175,20 @@ export const thumbnailImageCache = createThumbnailImageCache((thumbnailPath) => 
   if (typeof window === 'undefined' || !window.polytray) return Promise.resolve(null);
   return window.polytray.readThumbnail(thumbnailPath);
 });
+
+// Test-only, per-renderer opt-in. No IPC or visible UI exposes cache internals.
+if (typeof window !== 'undefined') {
+  let diagnosticsEnabled = false;
+  try { diagnosticsEnabled = window.sessionStorage.getItem(THUMBNAIL_IMAGE_CACHE_DIAGNOSTICS_SESSION_KEY) === 'enabled'; }
+  catch { /* Storage may be unavailable in restricted renderer contexts. */ }
+  if (diagnosticsEnabled) {
+    Object.defineProperty(window, '__POLYTRAY_TEST_THUMBNAIL_IMAGE_CACHE_STATS__', {
+      configurable: true,
+      enumerable: false,
+      value: () => thumbnailImageCache.getStats(),
+    });
+  }
+}
 
 /**
  * Connects one mounted image to the shared cache. The returned cleanup is safe
