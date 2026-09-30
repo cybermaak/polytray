@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
+import path from 'node:path';
 import * as isolatedApp from '../../support/helpers/isolatedApp';
 
 function fakeProcess(onKill: (signal: NodeJS.Signals, exit: () => void) => void) {
@@ -90,4 +91,31 @@ test('an early app-close rejection still waits for owned process exit before del
   });
   assert.deepEqual(signals, ['SIGTERM']);
   assert.equal(removed, true);
+});
+
+test('private fixture rename retries a transient Windows handle lock and preserves exact paths', async () => {
+  const rename = (isolatedApp as any).renameIsolatedFixtureRoot;
+  assert.equal(typeof rename, 'function');
+  const source = path.join('/private', 'polytray-isolated-test', 'scratch', 'library');
+  const destination = `${source}-offline`;
+  let calls = 0;
+  await rename(source, destination, {
+    platform: 'win32', retryDelayMs: 0, maxRetries: 2,
+    rename: (from: string, to: string) => {
+      assert.equal(from, source);
+      assert.equal(to, destination);
+      if (calls++ < 2) throw Object.assign(new Error('locked'), { code: 'EPERM' });
+    },
+  });
+  assert.equal(calls, 3);
+});
+
+test('private fixture rename refuses an unrelated directory before retrying', async () => {
+  const rename = (isolatedApp as any).renameIsolatedFixtureRoot;
+  assert.equal(typeof rename, 'function');
+  let called = false;
+  await assert.rejects(rename('/private/library', '/private/library-offline', {
+    platform: 'win32', rename: () => { called = true; },
+  }), /isolated scratch/);
+  assert.equal(called, false);
 });

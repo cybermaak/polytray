@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import JSZip from 'jszip';
-import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
+import { launchIsolatedApp, renameIsolatedFixtureRoot } from '../../support/helpers/isolatedApp';
 import { attachGridFailureEvidence } from '../../support/helpers/gridFailureEvidence';
 import { createThumbnailIdentity, thumbnailCacheFilename } from '../../../src/main/thumbnailIdentity';
 
@@ -250,7 +250,14 @@ test('background job controls retain browse state and watch follows only watch s
     const scanCompleteBeforeOffline = await page.evaluate(() => (window as Window & { __scanCompleteCount?: number }).__scanCompleteCount ?? 0);
     const unavailableBefore = await page.evaluate(() => (window as Window & { __rootUnavailableCount?: number }).__rootUnavailableCount ?? 0);
     const offlineRoot = `${root}-offline`;
-    fs.renameSync(root, offlineRoot);
+    const stoppedRuntime = { thumbnail_timeout: 30_000, scanning_batch_size: 50, watcher_stability: 160, page_size: 120, thumbnailColor: '#336699', thumbQuality: '512' as const };
+    // A live Windows watcher may lock its root against rename; restart it on the missing path.
+    if (process.platform === 'win32') await page.evaluate(() => window.polytray.stopWatching());
+    await renameIsolatedFixtureRoot(root, offlineRoot);
+    if (process.platform === 'win32') {
+      await page.evaluate(({ folder, runtime }) => window.polytray.startWatching([folder], runtime),
+        { folder: root, runtime: stoppedRuntime });
+    }
     await expect.poll(() => page!.evaluate((before) => ((window as Window & { __rootUnavailableCount?: number }).__rootUnavailableCount ?? 0) > before, unavailableBefore), { timeout: 15_000 }).toBe(true);
     const offlineStatus = page.locator('.offline-root-status');
     await expect(offlineStatus).toBeVisible();
@@ -261,13 +268,12 @@ test('background job controls retain browse state and watch follows only watch s
     await page.getByRole('button', { name: 'Settings' }).click();
     await page.locator('label.toggle-switch:has(#setting-watch)').click();
     await expect(page.locator('#setting-watch')).not.toBeChecked();
-    const stoppedRuntime = { thumbnail_timeout: 30_000, scanning_batch_size: 50, watcher_stability: 160, page_size: 120, thumbnailColor: '#336699', thumbQuality: '512' as const };
     await expect.poll(() => page!.evaluate((runtime) => window.polytray.updateWatcherSettings(runtime), stoppedRuntime)).toBe(false);
     await page.locator('#settings-close').click();
     fs.rmSync(path.join(offlineRoot, 'offline-target.stl'));
     fs.rmSync(releasePath, { force: true });
     fs.rmSync(reachedPath, { force: true });
-    fs.renameSync(offlineRoot, root);
+    await renameIsolatedFixtureRoot(offlineRoot, root);
     await expect.poll(() => page!.evaluate(() => (window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0)).toBe(2);
     await expect(offlineStatus).toBeVisible();
     await expect(offlineCard).toBeVisible();
@@ -319,7 +325,12 @@ test('background job controls retain browse state and watch follows only watch s
     await page.locator('#settings-close').click();
     const unavailableBeforePartial = await page.evaluate(() => (window as Window & { __rootUnavailableCount?: number }).__rootUnavailableCount ?? 0);
     const partiallyOfflineRoot = `${root}-partial-offline`;
-    fs.renameSync(root, partiallyOfflineRoot);
+    if (process.platform === 'win32') await page.evaluate(() => window.polytray.stopWatching());
+    await renameIsolatedFixtureRoot(root, partiallyOfflineRoot);
+    if (process.platform === 'win32') {
+      await page.evaluate(({ folder, runtime }) => window.polytray.startWatching([folder], runtime),
+        { folder: root, runtime: rapidRuntime });
+    }
     await expect.poll(() => page!.evaluate((before) => ((window as Window & { __rootUnavailableCount?: number }).__rootUnavailableCount ?? 0) > before, unavailableBeforePartial), { timeout: 15_000 }).toBe(true);
     const partialOfflineStatus = page.locator('.offline-root-status');
     await expect(partialOfflineStatus).toBeVisible();
@@ -327,7 +338,12 @@ test('background job controls retain browse state and watch follows only watch s
     fs.rmSync(releasePath, { force: true });
     fs.rmSync(reachedPath, { force: true });
     const availableBeforePartial = await page.evaluate(() => (window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0);
-    fs.renameSync(partiallyOfflineRoot, root);
+    if (process.platform === 'win32') await page.evaluate(() => window.polytray.stopWatching());
+    await renameIsolatedFixtureRoot(partiallyOfflineRoot, root);
+    if (process.platform === 'win32') {
+      await page.evaluate(({ folder, runtime }) => window.polytray.startWatching([folder], runtime),
+        { folder: root, runtime: rapidRuntime });
+    }
     await expect.poll(() => page!.evaluate((before) => ((window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0) > before, availableBeforePartial), { timeout: 15_000 }).toBe(true);
     await expect(partialOfflineStatus).toHaveCount(0);
     await expect.poll(() => fs.existsSync(reachedPath), { timeout: 15_000 }).toBe(true);

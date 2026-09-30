@@ -65,6 +65,36 @@ export async function cleanupTimedOutIsolatedApp(
   })))(ownerDir);
 }
 
+/** Rename only a private test root, allowing Windows a bounded handle-release window. */
+export async function renameIsolatedFixtureRoot(
+  source: string,
+  destination: string,
+  options: {
+    platform?: NodeJS.Platform;
+    maxRetries?: number;
+    retryDelayMs?: number;
+    rename?: (from: string, to: string) => void;
+  } = {},
+) {
+  const sourceParent = path.dirname(path.resolve(source));
+  if (path.basename(sourceParent) !== 'scratch' ||
+      !path.basename(path.dirname(sourceParent)).startsWith('polytray-isolated-') ||
+      path.dirname(path.resolve(destination)) !== sourceParent) {
+    throw new Error('Refusing rename outside isolated scratch');
+  }
+  const rename = options.rename ?? fs.renameSync;
+  const maxRetries = options.maxRetries ?? 30;
+  for (let attempt = 0; ; attempt++) {
+    try { rename(source, destination); return; }
+    catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if ((options.platform ?? process.platform) !== 'win32' ||
+          (code !== 'EPERM' && code !== 'EBUSY') || attempt >= maxRetries) throw error;
+      await new Promise<void>(resolve => setTimeout(resolve, options.retryDelayMs ?? 100));
+    }
+  }
+}
+
 /** Close an isolated app, recovering a timeout or rejection through its exact owned process. */
 export async function closeIsolatedAppWithFallback(
   isolated: Pick<IsolatedApp, 'app' | 'userDataDir' | 'close'>,
