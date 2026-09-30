@@ -194,8 +194,10 @@ test('preview metadata, thumbnail arrival, retry, and archive paging preserve vi
     await expect(page.locator('#viewer-filename')).toHaveText('retry.stl');
 
     await page.locator('#btn-close-viewer').click();
-    await page.locator('#search-input').fill('');
+    await page.locator('#search-clear').click();
+    await expect(page.locator('#search-input')).toHaveValue('');
     const archiveCard = page.locator('.file-card.archive-summary').filter({ has: page.locator('.card-name[title="library.zip"]') });
+    await expect(archiveCard).toBeVisible({ timeout: 30000 });
     await archiveCard.click();
     await expect(page.locator('#archive-preview-count')).toHaveText('1 of 30 models', { timeout: 30000 });
     const archiveModelButtons = page.locator('#archive-preview-models .multi-model-thumb[title$=".stl"]');
