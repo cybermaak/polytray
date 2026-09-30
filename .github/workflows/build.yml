@@ -9,6 +9,7 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -18,6 +19,17 @@ jobs:
 
       - name: Setup and Test
         uses: ./.github/actions/setup-and-test
+
+      - name: Upload Test Failure Evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: polytray-${{ runner.os }}-test-failures
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Package App
         uses: ./.github/actions/package-app

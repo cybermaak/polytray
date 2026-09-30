@@ -27,6 +27,13 @@ test('build workflow runs on push and no longer schedules daily builds', () => {
   expectNoMatch(buildWorkflow, /^\s*check-commits:/m);
 });
 
+test('build matrix retains independent platform results and failed E2E context', () => {
+  expectMatch(buildWorkflow, /strategy:\n\s+fail-fast: false\n\s+matrix:/);
+  expectMatch(buildWorkflow, /name: Upload Test Failure Evidence\n\s+if: failure\(\)\n\s+uses: actions\/upload-artifact@v7/);
+  expectMatch(buildWorkflow, /name: polytray-\$\{\{ runner\.os \}\}-test-failures/);
+  expectMatch(buildWorkflow, /test-results\//);
+});
+
 test('build and release workflows share setup and packaging actions', () => {
   expectMatch(buildWorkflow, /uses: \.\/\.github\/actions\/setup-and-test/);
   expectMatch(buildWorkflow, /uses: \.\/\.github\/actions\/package-app/);
