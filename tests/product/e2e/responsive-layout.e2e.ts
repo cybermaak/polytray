@@ -157,6 +157,7 @@ test("responsive panels preserve browsing space across supported window sizes", 
             has: mainWindow.locator(".card-name[title^='A deliberately long model filename']"),
           }).first();
           await expect(longNameCard).toBeVisible();
+          const selectedPath = await longNameCard.getAttribute('title');
           await longNameCard.locator(".card-name").click();
           await expect(mainWindow.locator("#preview-panel")).not.toHaveClass(/hidden/);
           try {
@@ -165,12 +166,29 @@ test("responsive panels preserve browsing space across supported window sizes", 
             await attachJsonFailureEvidence('responsive-preview-state', async () => ({
               sizeCase, windowCase, lightMode, rendererErrors,
               windowUrls: isolated.app.windows().map(candidate => candidate.url()),
-              renderer: await mainWindow.evaluate(async () => ({
-                loadingClass: document.querySelector('#viewer-loading')?.className ?? null,
-                loadingText: document.querySelector('#viewer-loading')?.textContent ?? null,
-                pending: window.polytray.__previewParsePendingCounts?.() ?? null,
-                jobs: await window.polytray.getBackgroundJobs(),
-              })),
+              workerUrls: mainWindow.workers().map(worker => worker.url()),
+              selectedPath,
+              renderer: await mainWindow.evaluate(async (filePath) => {
+                const container = document.querySelector<HTMLElement>('#viewer-container')?.getBoundingClientRect();
+                let fetchProbe: unknown = null;
+                if (filePath) {
+                  const controller = new AbortController();
+                  const timer = setTimeout(() => controller.abort(), 2_000);
+                  try {
+                    const response = await fetch(`polytray://local/${encodeURIComponent(filePath)}`, { signal: controller.signal });
+                    fetchProbe = { status: response.status, bytes: (await response.arrayBuffer()).byteLength };
+                  } catch (cause) { fetchProbe = { error: String(cause) }; }
+                  finally { clearTimeout(timer); }
+                }
+                return {
+                  loadingClass: document.querySelector('#viewer-loading')?.className ?? null,
+                  loadingText: document.querySelector('#viewer-loading')?.textContent ?? null,
+                  container: container ? { width: container.width, height: container.height } : null,
+                  pending: window.polytray.__previewParsePendingCounts?.() ?? null,
+                  jobs: await window.polytray.getBackgroundJobs(),
+                  fetchProbe,
+                };
+              }, selectedPath),
             }));
             throw error;
           }

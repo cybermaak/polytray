@@ -183,10 +183,22 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
     expect(progressBeforeRelease.some((event) => event.indexed > 0 && event.total === null)).toBe(true);
     expect(maxRegularPerSecond).toBeLessThanOrEqual(4);
     await expect.poll(() => fs.existsSync(heartbeatPath)).toBe(true);
-    const heartbeat = JSON.parse(fs.readFileSync(heartbeatPath, 'utf8')) as { intervalMs: number; samples: number; maxGapMs: number | null };
+    const heartbeat = JSON.parse(fs.readFileSync(heartbeatPath, 'utf8')) as {
+      intervalMs: number; samples: number; maxGapMs: number | null; gapsMs: number[];
+      slowPhases: Array<{ phase: string; elapsedMs: number; durationMs: number; discovered: number; indexed: number }>;
+    };
     expect(heartbeat.intervalMs).toBe(25);
     expect(heartbeat.samples).toBeGreaterThan(0);
     expect(heartbeat.maxGapMs).not.toBeNull();
+    if (heartbeat.maxGapMs! > 250) {
+      let elapsedMs = 0;
+      await attachJsonFailureEvidence('scan-heartbeat-gap', async () => ({
+        maxGapMs: heartbeat.maxGapMs,
+        topGaps: heartbeat.gapsMs.map((gapMs, index) => ({ index, gapMs, elapsedMs: elapsedMs += gapMs }))
+          .sort((a, b) => b.gapMs - a.gapMs).slice(0, 10),
+        slowPhases: heartbeat.slowPhases,
+      }));
+    }
     expect(heartbeat.maxGapMs!).toBeLessThanOrEqual(250);
     console.info('[S02 scan metrics]', JSON.stringify({
       firstQueryableBatchMs: proof.elapsedMs,
