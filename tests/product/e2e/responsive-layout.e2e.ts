@@ -2,6 +2,7 @@ const { test, expect } = require("@playwright/test");
 const path = require("node:path");
 const fs = require("node:fs");
 const { launchIsolatedApp } = require("../../support/helpers/isolatedApp");
+const { attachJsonFailureEvidence } = require("../../support/helpers/failureEvidence");
 
 const APP_DIR = path.resolve(__dirname, "../../..");
 const SIZE_CASES = [
@@ -70,6 +71,16 @@ test("responsive panels preserve browsing space across supported window sizes", 
 
   try {
     mainWindow = await findMainWindow(isolated.app);
+    const rendererErrors = [];
+    const observePage = (candidate) => {
+      const note = (message) => {
+        if (rendererErrors.length < 30) rendererErrors.push({ url: candidate.url(), message: String(message).slice(0, 500) });
+      };
+      candidate.on('console', entry => { if (entry.type() === 'error') note(entry.text()); });
+      candidate.on('pageerror', error => note(error));
+    };
+    isolated.app.windows().forEach(observePage);
+    isolated.app.on('window', observePage);
     const nativeWindow = await isolated.app.browserWindow(mainWindow);
     const measurementsByCase = [];
     const libraryRoot = path.join(isolated.scratchDir, "library");
@@ -84,10 +95,36 @@ test("responsive panels preserve browsing space across supported window sizes", 
       (await window.polytray.getFiles({ limit: 500, offset: 0 })).total,
     ), { timeout: 30000 }).toBeGreaterThanOrEqual(40);
     await dismissTerminalBackgroundJobs(mainWindow);
-    await expect.poll(() => mainWindow.evaluate(async () => {
-      const result = await window.polytray.getFiles({ limit: 500, offset: 0 });
-      return result.files.filter((file) => file.thumbnail || file.thumbnail_failed).length;
-    }), { timeout: 60000 }).toBeGreaterThanOrEqual(40);
+    try {
+      await expect.poll(() => mainWindow.evaluate(async () => {
+        const result = await window.polytray.getFiles({ limit: 500, offset: 0 });
+        return result.files.filter((file) => file.thumbnail || file.thumbnail_failed).length;
+      }), { timeout: 60000 }).toBeGreaterThanOrEqual(40);
+    } catch (error) {
+      await attachJsonFailureEvidence('thumbnail-settlement-state', async () => {
+        const cacheDir = path.join(isolated.userDataDir, 'thumbnails');
+        return {
+          windowUrls: isolated.app.windows().map(candidate => candidate.url()),
+          rendererErrors,
+          cacheFiles: fs.existsSync(cacheDir) ? fs.readdirSync(cacheDir).slice(0, 60) : [],
+          renderer: await mainWindow.evaluate(async () => {
+            const [files, jobs] = await Promise.all([
+              window.polytray.getFiles({ limit: 500, offset: 0 }),
+              window.polytray.getBackgroundJobs(),
+            ]);
+            return {
+              total: files.total,
+              thumbnailRows: files.files.map(file => ({
+                id: file.id, path: file.path, contentRevision: file.content_revision,
+                thumbnail: file.thumbnail, thumbnailFailed: file.thumbnail_failed,
+              })),
+              jobs,
+            };
+          }),
+        };
+      });
+      throw error;
+    }
     await mainWindow.evaluate((folder) => {
       localStorage.setItem("polytray-library-state", JSON.stringify({
         libraryFolders: [folder],

@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
+import { attachJsonFailureEvidence } from '../../support/helpers/failureEvidence';
 import { LIBRARY_STATE_STORAGE_KEY } from '../../../src/shared/libraryState';
 import { SETTINGS_STORAGE_KEY } from '../../../src/shared/settings';
 
@@ -124,9 +125,35 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
       __scanProgress: Array<{ at: number; total: number | null; indexed: number; discovered: number }>;
     }).__scanProgress);
 
+    const releasedAt = Date.now();
     fs.writeFileSync(releasePath, 'release');
-    await expect.poll(async () => window.evaluate(() => (window as unknown as { __scanFinished: boolean }).__scanFinished))
-      .toBe(true);
+    try {
+      await expect.poll(async () => window.evaluate(() => (window as unknown as { __scanFinished: boolean }).__scanFinished))
+        .toBe(true);
+    } catch (error) {
+      await attachJsonFailureEvidence('scan-terminal-state', async () => ({
+        elapsedSinceReleaseMs: Date.now() - releasedAt,
+        releaseMarkerExists: fs.existsSync(releasePath),
+        queueMetricsWritten: fs.existsSync(queueMetricsPath),
+        heartbeatWritten: fs.existsSync(heartbeatPath),
+        renderer: await window.evaluate(async () => {
+          const view = window as unknown as Window & {
+            __scanFinished?: boolean;
+            __scanError?: string;
+            __scanResult?: unknown;
+            __scanProgress?: Array<{ at: number; total: number | null; indexed: number; discovered: number }>;
+          };
+          return {
+            finished: view.__scanFinished,
+            error: view.__scanError,
+            result: view.__scanResult,
+            latestProgress: view.__scanProgress?.slice(-8) ?? [],
+            jobs: await window.polytray.getBackgroundJobs(),
+          };
+        }),
+      }));
+      throw error;
+    }
     const result = await window.evaluate(() => (window as unknown as {
       __scanResult: { totalFiles: number };
       __scanError?: string;
