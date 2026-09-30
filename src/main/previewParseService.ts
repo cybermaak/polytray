@@ -11,6 +11,7 @@ import type {
 } from '../shared/previewContracts';
 import { parseArchiveEntryPath } from '../shared/archivePaths';
 import { isPathContained } from './pathContainment';
+import { isRegularNonSymlinkFilePath } from './localFileProtocol';
 import { getDb } from './database';
 import {
   parsePreviewParseCancelRequest,
@@ -176,6 +177,7 @@ export async function readIndexedPreviewArchiveBuffer(
   const record = validateIndexedPreviewRequest(db, request);
   const archiveEntry = parseArchiveEntryPath(request.path);
   if (!archiveEntry || !record.archive_path) throw new Error('Preview source is not an archive entry');
+  if (!isRegularNonSymlinkFilePath(record.archive_path)) throw new Error('Indexed preview archive is no longer a regular file');
   const directory = await openArchive(record.archive_path);
   if (signal.aborted) throw new DOMException('Preview archive read aborted', 'AbortError');
   const entry = directory.files.find((candidate) => candidate.path === archiveEntry.entryPath && candidate.type === 'File');

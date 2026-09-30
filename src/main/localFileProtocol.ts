@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url';
+import fs from 'node:fs';
 
 import { isPathContained } from './pathContainment';
 
@@ -27,10 +28,30 @@ export function isAllowedLocalFilePath(
   policy: LocalFilePolicy,
 ): boolean {
   if (isPathContained(policy.thumbnailDir, filePath)) {
-    return true;
+    return isSafeThumbnailCacheFilePath(filePath, policy.thumbnailDir);
   }
 
-  return policy.isIndexedFilePath(filePath);
+  return policy.isIndexedFilePath(filePath) && isRegularNonSymlinkFilePath(filePath);
+}
+
+export function isRegularNonSymlinkFilePath(filePath: string): boolean {
+  try {
+    const stat = fs.lstatSync(filePath);
+    return stat.isFile() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+export function isSafeThumbnailCacheFilePath(filePath: string, thumbnailDir: string): boolean {
+  if (!isPathContained(thumbnailDir, filePath) || !isRegularNonSymlinkFilePath(filePath)) return false;
+  try {
+    const directory = fs.lstatSync(thumbnailDir);
+    if (!directory.isDirectory() || directory.isSymbolicLink()) return false;
+    return isPathContained(fs.realpathSync(thumbnailDir), fs.realpathSync(filePath));
+  } catch {
+    return false;
+  }
 }
 
 export function resolveAllowedPolytrayLocalFilePath(
