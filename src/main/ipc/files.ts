@@ -27,6 +27,7 @@ import { createFileIndexRepository } from "../fileIndexing";
 import { getLibraryFiles, getLibraryPage } from "../libraryQueries";
 import { getLibrarySummaryService } from "../librarySummary";
 import { countIsolatedRequest } from "../testing/isolatedRequestCounters";
+import { isRegularNonSymlinkFilePath } from "../localFileProtocol";
 
 export interface FileHandlerReadiness {
   isScopeIndexReady(): boolean;
@@ -195,6 +196,9 @@ export function registerFileHandlers(readiness: FileHandlerReadiness) {
     }
 
     const archiveEntry = parseArchiveEntryPath(parsedFilePath);
+    if (!isRegularNonSymlinkFilePath(archiveEntry?.archivePath ?? parsedFilePath)) {
+      throw new Error("Access denied: Indexed source is no longer a regular file");
+    }
     const buffer = archiveEntry
       ? await readArchiveEntryBuffer(archiveEntry.archivePath, archiveEntry.entryPath)
       : await fs.promises.readFile(parsedFilePath);

@@ -12,7 +12,7 @@ import {
 } from "../thumbnails";
 import { IPC } from "../../shared/types";
 import { DEFAULT_APP_SETTINGS, toRuntimeSettings } from "../../shared/settings";
-import { isPathContained } from "../pathContainment";
+import { isSafeThumbnailCacheFilePath } from "../localFileProtocol";
 import { createFileIndexRepository } from "../fileIndexing";
 import { createThumbnailIdentity, generateForCapturedThumbnailIdentity } from "../thumbnailIdentity";
 import {
@@ -32,7 +32,7 @@ export function registerThumbnailHandlers(
 
     // Security check: Ensure we only read from the dedicated thumbnail directory
     const thumbDir = getThumbnailDir();
-    if (!isPathContained(thumbDir, parsedThumbnailPath)) {
+    if (!isSafeThumbnailCacheFilePath(parsedThumbnailPath, thumbDir)) {
       throw new Error("Access denied: Path is outside thumbnail directory");
     }
 

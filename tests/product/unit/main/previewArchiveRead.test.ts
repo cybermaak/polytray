@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import JSZip from 'jszip';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
 import { PassThrough } from 'node:stream';
 import { createArchiveEntryPath } from '../../../../src/shared/archivePaths';
 import { readIndexedPreviewArchiveBuffer, validateIndexedPreviewRequest } from '../../../../src/main/previewParseService';
@@ -44,7 +46,9 @@ test('archive source read uses the exact indexed member and validates content re
 });
 
 test('main archive stream stops on cancellation and rejects an unindexed member', async () => {
-  const archivePath = path.join('/tmp', 'unused-preview.zip');
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-preview-read-'));
+  const archivePath = path.join(tempDir, 'unused-preview.zip');
+  fs.writeFileSync(archivePath, 'test stream source');
   const entryPath = 'parts/model.3mf';
   const db = createDatabase(archivePath, entryPath);
   const streamCreated = (() => {
@@ -69,5 +73,24 @@ test('main archive stream stops on cancellation and rejects an unindexed member'
     assert.throws(() => validateIndexedPreviewRequest(db, makeRequest(archivePath, 'missing.3mf')), /not indexed/i);
   } finally {
     db.close();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('main archive read rejects an indexed archive replaced by a symlink', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-preview-read-'));
+  const archivePath = path.join(tempDir, 'indexed.zip');
+  const outside = path.join(tempDir, 'outside.zip');
+  fs.writeFileSync(outside, 'private');
+  fs.symlinkSync(outside, archivePath);
+  const db = createDatabase(archivePath, 'parts/model.3mf');
+  try {
+    await assert.rejects(
+      readIndexedPreviewArchiveBuffer(db, makeRequest(archivePath), new AbortController().signal),
+      /regular file/i,
+    );
+  } finally {
+    db.close();
+    fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
