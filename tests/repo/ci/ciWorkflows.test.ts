@@ -61,6 +61,16 @@ test('setup-and-test installs dependencies normally but skips only the repo post
   expectNoMatch(setupAndTestAction, /ignore-scripts/);
 });
 
+test('Linux Product runs with a ready window manager inside its Xvfb display', () => {
+  expectMatch(setupAndTestAction, /apt-get install[^\n]*openbox[^\n]*x11-utils/);
+  expectMatch(setupAndTestAction, /xvfb-run[^\n]*bash -c/);
+  expectMatch(setupAndTestAction, /openbox --sm-disable/);
+  expectMatch(setupAndTestAction, /xprop -root _NET_SUPPORTING_WM_CHECK/);
+  expectMatch(setupAndTestAction, /cleanup\(\)[^\n]*wm_pid/);
+  expectMatch(setupAndTestAction, /trap cleanup EXIT/);
+  expectMatch(setupAndTestAction, /npm run test:product/);
+});
+
 test('package postinstall honors the skip flag and otherwise rebuilds native deps', () => {
   const script = packageJson.scripts?.postinstall ?? '';
   expectMatch(script, /build\/scripts\/postinstall/);

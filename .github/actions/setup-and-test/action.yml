@@ -19,7 +19,29 @@ runs:
       shell: bash
       run: |
         if [ "$RUNNER_OS" == "Linux" ]; then
-          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" npm run test:product
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends openbox x11-utils
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" bash -c '
+            set -euo pipefail
+            openbox --sm-disable > "${RUNNER_TEMP:-/tmp}/polytray-openbox.log" 2>&1 &
+            wm_pid=$!
+            cleanup() { kill "$wm_pid" 2>/dev/null || true; wait "$wm_pid" 2>/dev/null || true; }
+            trap cleanup EXIT
+            for attempt in {1..50}; do
+              if xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q "window id"; then
+                npm run test:product
+                exit
+              fi
+              if ! kill -0 "$wm_pid" 2>/dev/null; then
+                cat "${RUNNER_TEMP:-/tmp}/polytray-openbox.log" >&2
+                exit 1
+              fi
+              sleep 0.1
+            done
+            echo "Openbox did not claim the Xvfb display" >&2
+            cat "${RUNNER_TEMP:-/tmp}/polytray-openbox.log" >&2
+            exit 1
+          '
         else
           npm run test:product
         fi
