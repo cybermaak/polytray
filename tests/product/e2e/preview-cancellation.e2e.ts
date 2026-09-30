@@ -1,7 +1,9 @@
 const { test, expect } = require('@playwright/test');
 const path = require('node:path');
 const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
 const { launchIsolatedApp } = require('../../support/helpers/isolatedApp');
+const { attachJsonFailureEvidence } = require('../../support/helpers/failureEvidence');
 const JSZip = require('jszip');
 
 const APP_DIR = path.resolve(__dirname, '../../..');
@@ -199,10 +201,44 @@ test('held 3MF parsing is cancelled by latest request without stopping main or t
       (error) => { replacementDispatchFinished = true; replacementDispatchError = error; },
     );
 
-    await expect.poll(() => pidIsAlive(heldPid), { timeout: 1500, intervals: [20, 50, 100] }).toBe(false);
-    const stoppedInMs = Date.now() - replacementStartedAt;
-    console.log('[preview-e2e] old renderer stopped', stoppedInMs);
-    expect(stoppedInMs, 'obsolete renderer is stopped within the C10 replacement budget').toBeLessThanOrEqual(500);
+    let stoppedInMs = 0;
+    try {
+      await expect.poll(() => pidIsAlive(heldPid), { timeout: 1500, intervals: [20, 50, 100] }).toBe(false);
+      stoppedInMs = Date.now() - replacementStartedAt;
+      console.log('[preview-e2e] old renderer stopped', stoppedInMs);
+      expect(stoppedInMs, 'obsolete renderer is stopped within the C10 replacement budget').toBeLessThanOrEqual(500);
+    } catch (error) {
+      await attachJsonFailureEvidence('preview-old-pid-state', async () => {
+        const procStatPath = `/proc/${heldPid}/stat`;
+        let procStat = null;
+        if (process.platform === 'linux') {
+          try { procStat = fs.readFileSync(procStatPath, 'utf8'); }
+          catch { /* The PID may have exited during the diagnostic. */ }
+        }
+        const command = process.platform === 'win32' ? null
+          : spawnSync('ps', ['-o', 'pid,ppid,stat,command', '-p', String(heldPid)], {
+            encoding: 'utf8', timeout: 1000, maxBuffer: 64 * 1024,
+          }).stdout;
+        return {
+          heldPid, mainPid, thumbnailPid,
+          aliveBySignalZero: pidIsAlive(heldPid),
+          linuxProcessState: procStat?.slice(procStat.lastIndexOf(')') + 2).split(' ')[0] ?? null,
+          processListing: command,
+          replacementElapsedMs: Date.now() - replacementStartedAt,
+          replacementDispatchFinished,
+          replacementDispatchError: replacementDispatchError ? String(replacementDispatchError) : null,
+          windows: await Promise.all(isolated.app.windows().map(async candidate => {
+            const url = candidate.url();
+            try {
+              const owner = await isolated.app.browserWindow(candidate);
+              return { url, pid: await owner.evaluate(win => win.webContents.getOSProcessId()) };
+            } catch (cause) { return { url, error: String(cause) }; }
+          })),
+          bridge: await mainWindow.evaluate(() => window.polytray.__previewParsePendingCounts?.()),
+        };
+      });
+      throw error;
+    }
     await expect.poll(() => replacementDispatchFinished, { timeout: 5000 }).toBe(true);
     expect(replacementDispatchError).toBeUndefined();
     await replacementDispatch;
