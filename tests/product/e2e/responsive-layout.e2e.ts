@@ -94,12 +94,12 @@ test("responsive panels preserve browsing space across supported window sizes", 
     await expect.poll(() => mainWindow.evaluate(async () =>
       (await window.polytray.getFiles({ limit: 500, offset: 0 })).total,
     ), { timeout: 30000 }).toBeGreaterThanOrEqual(40);
-    await dismissTerminalBackgroundJobs(mainWindow);
     try {
+      // Hosted software rendering settles about 20 of 40 serial thumbnails per minute.
       await expect.poll(() => mainWindow.evaluate(async () => {
         const result = await window.polytray.getFiles({ limit: 500, offset: 0 });
         return result.files.filter((file) => file.thumbnail || file.thumbnail_failed).length;
-      }), { timeout: 60000 }).toBeGreaterThanOrEqual(40);
+      }), { timeout: 150000 }).toBeGreaterThanOrEqual(40);
     } catch (error) {
       await attachJsonFailureEvidence('thumbnail-settlement-state', async () => {
         const cacheDir = path.join(isolated.userDataDir, 'thumbnails');
@@ -125,6 +125,7 @@ test("responsive panels preserve browsing space across supported window sizes", 
       });
       throw error;
     }
+    await dismissTerminalBackgroundJobs(mainWindow);
     await mainWindow.evaluate((folder) => {
       localStorage.setItem("polytray-library-state", JSON.stringify({
         libraryFolders: [folder],
