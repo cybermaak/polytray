@@ -54,11 +54,12 @@ test.afterAll(async () => {
 });
 
 test('scan pause keeps browsing responsive and cancel never prunes committed rows', async () => {
-  const seeded = await page.evaluate(async ({ rootPath, runtimeSettings }) => {
+  const expectedSeedPath = path.join(controlRoot, 'seed.stl');
+  const seeded = await page.evaluate(async ({ rootPath, runtimeSettings, seedPath }) => {
     await window.polytray.scanFolder(rootPath, runtimeSettings);
     const result = await window.polytray.getFiles({ limit: 100, offset: 0 });
-    return result.files.find((file) => file.path === `${rootPath}/seed.stl`)?.id;
-  }, { rootPath: controlRoot, runtimeSettings: settings });
+    return result.files.find((file) => file.path === seedPath)?.id;
+  }, { rootPath: controlRoot, runtimeSettings: settings, seedPath: expectedSeedPath });
   expect(seeded).toBeTruthy();
   fs.unlinkSync(path.join(controlRoot, 'seed.stl'));
   fs.mkdirSync(holdPath);

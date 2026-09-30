@@ -91,6 +91,16 @@ test.afterAll(async () => {
   if (scratch) fs.rmSync(scratch, { recursive: true, force: true });
 });
 
+function prepareHeldSlicerLaunch() {
+  fs.rmSync(launchReachedPath, { force: true });
+  fs.rmSync(launchReleasePath, { force: true });
+  fs.writeFileSync(launchHoldPath, 'hold');
+}
+
+function launchCount() {
+  return fs.existsSync(launchLog) ? fs.readFileSync(launchLog, 'utf8').trim().split('\n').filter(Boolean).length : 0;
+}
+
 test('explicitly hands off an indexed model and only a chosen archive member', async () => {
   await page.locator('#btn-settings').click();
   await page.locator('#pick-slicer-application').click();
@@ -131,7 +141,8 @@ test('does not carry completed or in-flight slicer state to a different archive 
   await page.locator('#btn-settings').click();
   await page.locator('#pick-slicer-application').click();
   await page.locator('#settings-close').click();
-  fs.writeFileSync(launchHoldPath, 'hold');
+  const launchesBefore = launchCount();
+  prepareHeldSlicerLaunch();
   try {
     const regularCard = page.locator('.file-card').filter({ has: page.locator('.card-name[title="regular"]') });
     await regularCard.click();
@@ -150,7 +161,9 @@ test('does not carry completed or in-flight slicer state to a different archive 
     await expect(page.getByRole('status').filter({ hasText: 'Model opened in the selected application.' })).toHaveCount(0);
 
     fs.writeFileSync(launchReleasePath, 'release');
-    await expect.poll(() => fs.readFileSync(launchLog, 'utf8').trim().split('\n').length).toBe(3);
+    await expect.poll(launchCount).toBe(launchesBefore + 1);
+    const lastLaunch = JSON.parse(fs.readFileSync(launchLog, 'utf8').trim().split('\n').at(-1)!) as { modelPath: string };
+    expect(lastLaunch.modelPath).toBe(path.join(library, 'regular.stl'));
     await expect(page.getByRole('status').filter({ hasText: 'Preparing slicer handoff…' })).toHaveCount(0);
     await expect(page.getByRole('status').filter({ hasText: 'Model opened in the selected application.' })).toHaveCount(0);
   } finally {
@@ -162,7 +175,10 @@ test('does not carry completed or in-flight slicer state to a different archive 
 });
 
 test('announces slicer preparation while the isolated mock launch is held', async () => {
-  fs.writeFileSync(launchHoldPath, 'hold');
+  await page.locator('#btn-settings').click();
+  await page.locator('#pick-slicer-application').click();
+  await page.locator('#settings-close').click();
+  prepareHeldSlicerLaunch();
   try {
     const regularCard = page.locator('.file-card').filter({ has: page.locator('.card-name[title="regular"]') });
     await regularCard.click();
