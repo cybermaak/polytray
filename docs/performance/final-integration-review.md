@@ -2,7 +2,7 @@
 
 ## Review state
 
-**Prepared for Astra review. G02 remains REVIEW and G03 remains IN_PROGRESS.** This packet freezes the integrated source/test candidate at `2ee8523`; later local commits update performance evidence, the G02 handoff, and this packet without changing application or test code. The current documentation checkpoint is `2327c92` before this packet is committed.
+**Prepared for Astra review. G02 remains REVIEW and G03 remains IN_PROGRESS.** This packet freezes the integrated source/test candidate at `2ee8523`. Later commits update evidence and documentation only; no application/test code changed after the frozen candidate.
 
 No push, release, publication, or real user-library test was performed. The generated ZIP fixture was restored to SHA256 `6ca9f75c11d9330221860ade9fdb641cac6728a9f0a4cc1883989506a39fc109`. Existing user edits in `AGENTS.md`, `DEV_CONTEXT.md`, `scripts/capture-readme-media.ts`, and untracked marketing/superpowers paths are preserved and excluded from the candidate.
 
@@ -18,6 +18,7 @@ No push, release, publication, or real user-library test was performed. The gene
 - `npm run test:repo` — not fully green in this checkout. The two failing assertions in `tests/repo/structure/testOrganization.test.ts` are due to ignored local `.agent-tmp/`, root `.DS_Store`, and `docs/.DS_Store` artifacts; the other repo checks passed. Those files were preserved rather than deleted to satisfy this test.
 - Responsive-layout harness: 80px bounded wheel steps, max 40; focused E2E and Product passed.
 - Preview-state harness: an archive-card miss after a draft-only search clear reproduced once in three focused repetitions. The test now uses the toolbar's synchronous clear control and waits for the archive card; the archive assertions are unchanged. The focused repair repeat passed 3/3, then Product passed.
+- CPU outlier follow-up: inspected the retained long-task observer first (it records only start time and duration, no stack attribution), then ran the unchanged `npx playwright test tests/product/e2e/preview-preparation.e2e.ts` once. It passed 1/1; dense/multipart long-task maxima were 0 ms, first frames 282.3/29.2 ms, and CPU render-submit 19.9/8.8 ms. The historical 107 ms multipart observation did not recur and could not be attributed; no source changes or further retries were made.
 
 ## Task and evidence matrix
 
@@ -89,12 +90,12 @@ On the M3 Ultra, `EXT_disjoint_timer_query_webgl2` was supported on dense and mu
 
 The GPU query starts at the first bufferData/bufferSubData call and ends immediately before the first draw. It records driver elapsed time for that command interval, not guaranteed physical transfer completion. Values remain per-run observations; no portable GPU budget is inferred. Multipart extension support was detected but the multipart upload was not timer-queried.
 
-The 107 ms multipart CPU long task exceeded C10's <=100 ms reference target once. Three isolated repeats and the integrated Product run recorded 0 ms; the outlier remains unexplained and open with V04. Dense GPU upload is measured locally, but multipart and other GPU/vendor/platform behavior remain unverified.
+The 107 ms observation was on the multipart fixture. C10's numeric <=100 ms CPU long-task row applies to dense preview; V04 separately requires both large single and multipart fixtures to remain interactive. The historical multipart overrun remains an unexplained V04 finding despite three repeats, the integrated Product run, and the bounded follow-up all recording 0 ms. The test logs long-task start/duration but does not assert the dense 100 ms reference ceiling. Dense GPU upload is measured locally; multipart and other GPU/vendor/platform behavior remain unverified.
 
 ## Remaining blockers and residuals
 
 1. Windows/Linux app-level Product coverage and CI timing calibration remain outstanding. Only macOS 25.6 arm64 on an Apple M3 Ultra was exercised; supported-platform readiness is not established.
-2. One multipart CPU long task measured 107 ms against C10's <=100 ms target. Three later isolated runs and Product measured 0 ms, but the original overrun is unexplained and remains open with V04.
+2. One multipart CPU long task measured 107 ms. C10's <=100 ms numeric CPU budget is explicitly in the dense-preview row, while V04 still requires multipart interactivity. Three later isolated runs, Product, and one bounded follow-up measured 0 ms; the outlier remains unexplained, and the E2E does not assert the dense 100 ms reference ceiling.
 3. The 20-cycle owner counters verify app-owned port/request/timer settlement. Raw MessageChannelMain creation/close totals and a full active EventTarget listener census remain outside their scope. Decoded image/GPU memory and multipart/other-vendor GPU timing also remain unmeasured.
 4. Total cross-stage backlog was not directly sampled. C10 bounds the documented queues separately; the measured queues stayed within 50/100 capacities, and the consumer staging batch and sequential producer hold have source-derived bounds. Keep aggregate occupancy as optional memory characterization, not a missing numeric C10 threshold.
 5. The incomplete-index first page took 1,364.3 ms after the user-facing first card appeared; the preseeded page took 100.1 ms. Full index-build duration was not recorded. Optional real `base.3mf` was not run; its absence is not a pass. Portable dense and multipart fixtures did run.
