@@ -13,6 +13,38 @@ const SETTINGS = {
   thumbnailColor: '#8888aa',
 };
 
+interface GpuUploadProbe {
+  armed: boolean;
+  contextType: 'webgl1' | 'webgl2' | null;
+  timerQueryExtension: string | null;
+  supported: boolean | null;
+  queryStarted: boolean;
+  queryEndedBeforeFirstDraw: boolean;
+  queryEndStatus: 'not-started' | 'ended-before-first-draw' | 'end-failed';
+  methodsRestored: boolean;
+  bufferApiPayloadOrAllocationBytes: number;
+  cpuUploadCallSpanMs: number | null;
+  timerApi: 'webgl1' | 'webgl2' | null;
+  context?: WebGLRenderingContext | WebGL2RenderingContext;
+  extension?: {
+    TIME_ELAPSED_EXT: number;
+    GPU_DISJOINT_EXT: number;
+    QUERY_RESULT_AVAILABLE_EXT?: number;
+    QUERY_RESULT_EXT?: number;
+    createQueryEXT?: () => unknown;
+    beginQueryEXT?: (target: number, query: unknown) => void;
+    endQueryEXT?: (target: number) => void;
+    getQueryObjectEXT?: (query: unknown, parameter: number) => unknown;
+    deleteQueryEXT?: (query: unknown) => void;
+  };
+  query?: unknown;
+  uploadStartedAt?: number;
+}
+
+declare global {
+  interface Window { __G02_GPU_UPLOAD_PROBE?: GpuUploadProbe; }
+}
+
 function writeDenseBinaryStl(filePath: string, triangleCount: number) {
   const buffer = Buffer.alloc(84 + triangleCount * 50);
   buffer.write('Polytray V04 dense preparation fixture', 0, 'ascii');
@@ -92,6 +124,12 @@ test('dense and transformed multipart previews report first-frame and render-sub
         };
       };
       contextWindow.__V05_WEBGL_CONTEXTS = [];
+      const gpuUploadProbe: GpuUploadProbe = {
+        armed: false, contextType: null, timerQueryExtension: null, supported: null,
+        queryStarted: false, queryEndedBeforeFirstDraw: false, queryEndStatus: 'not-started', methodsRestored: false, bufferApiPayloadOrAllocationBytes: 0,
+        cpuUploadCallSpanMs: null, timerApi: null,
+      };
+      window.__G02_GPU_UPLOAD_PROBE = gpuUploadProbe;
       const probe = { inactive: false, pendingBlobs: 0, lateBlobs: 0, latePublications: 0, lifecycle: [] as Array<{ renderer: boolean; camera: boolean; cleanupCount: number }> };
       probeWindow.__V05_PROBE = probe;
       (window as Window & { __POLYTRAY_RENDERER_PROBE?: { markPartThumbnailLifecycle?: (renderer: boolean, camera: boolean, cleanupCount: number) => void } }).__POLYTRAY_RENDERER_PROBE = {
@@ -115,7 +153,128 @@ test('dense and transformed multipart previews report first-frame and render-sub
       const original = HTMLCanvasElement.prototype.getContext;
       HTMLCanvasElement.prototype.getContext = function(type: string, ...args: unknown[]) {
         const context = original.call(this, type, ...args) as RenderingContext | null;
-        if ((type === 'webgl' || type === 'webgl2') && context) contextWindow.__V05_WEBGL_CONTEXTS!.push(context as WebGLRenderingContext | WebGL2RenderingContext);
+        if ((type === 'webgl' || type === 'webgl2') && context) {
+          const gl = context as WebGLRenderingContext | WebGL2RenderingContext;
+          contextWindow.__V05_WEBGL_CONTEXTS!.push(gl);
+          if (gpuUploadProbe.armed) {
+            gpuUploadProbe.armed = false;
+            const isWebGL2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
+            const extensionName = isWebGL2 ? 'EXT_disjoint_timer_query_webgl2' : 'EXT_disjoint_timer_query';
+            const extension = gl.getExtension(extensionName) as GpuUploadProbe['extension'] ?? undefined;
+            gpuUploadProbe.context = gl;
+            gpuUploadProbe.contextType = isWebGL2 ? 'webgl2' : 'webgl1';
+            gpuUploadProbe.timerQueryExtension = extensionName;
+            gpuUploadProbe.supported = Boolean(extension);
+            gpuUploadProbe.extension = extension;
+            gpuUploadProbe.timerApi = isWebGL2 ? 'webgl2' : 'webgl1';
+            if (extension) {
+              const raw = gl as unknown as Record<string, (...args: unknown[]) => unknown>;
+              const byteLength = (value: unknown) => {
+                if (typeof value === 'number') return value;
+                if (value instanceof ArrayBuffer) return value.byteLength;
+                return ArrayBuffer.isView(value) ? value.byteLength : 0;
+              };
+              const restoreWrappedMethods: Array<() => void> = [];
+              const restoreMethods = () => {
+                if (gpuUploadProbe.methodsRestored) return;
+                for (const restore of restoreWrappedMethods.splice(0).reverse()) restore();
+                gpuUploadProbe.methodsRestored = true;
+              };
+              const beginQuery = () => {
+                if (gpuUploadProbe.queryStarted || !gpuUploadProbe.supported) return;
+                let query: unknown;
+                try {
+                  query = isWebGL2
+                    ? (gl as WebGL2RenderingContext).createQuery()
+                    : extension.createQueryEXT?.();
+                  if (!query) return;
+                  gpuUploadProbe.query = query;
+                  if (isWebGL2) (gl as WebGL2RenderingContext).beginQuery(extension.TIME_ELAPSED_EXT, query as WebGLQuery);
+                  else extension.beginQueryEXT?.(extension.TIME_ELAPSED_EXT, query);
+                  gpuUploadProbe.queryStarted = true;
+                  gpuUploadProbe.uploadStartedAt = performance.now();
+                } catch (error) {
+                  try {
+                    if (query) {
+                      if (isWebGL2) (gl as WebGL2RenderingContext).deleteQuery(query as WebGLQuery);
+                      else extension.deleteQueryEXT?.(query);
+                    }
+                  } catch { /* The context may already be lost. */ }
+                  gpuUploadProbe.query = undefined;
+                  gpuUploadProbe.supported = false;
+                  (gpuUploadProbe as GpuUploadProbe & { instrumentationError?: string }).instrumentationError = String(error);
+                }
+              };
+              const wrapUpload = (name: 'bufferData' | 'bufferSubData', dataArgument: number) => {
+                const originalMethod = raw[name].bind(gl);
+                const ownDescriptor = Object.getOwnPropertyDescriptor(gl, name);
+                Object.defineProperty(gl, name, {
+                  configurable: true,
+                  value: (...callArgs: unknown[]) => {
+                    beginQuery();
+                    gpuUploadProbe.bufferApiPayloadOrAllocationBytes += byteLength(callArgs[dataArgument]);
+                    return originalMethod(...callArgs);
+                  },
+                });
+                restoreWrappedMethods.push(() => {
+                  if (ownDescriptor) Object.defineProperty(gl, name, ownDescriptor);
+                  else delete (gl as unknown as Record<string, unknown>)[name];
+                });
+              };
+              const endBeforeDraw = (name: 'drawArrays' | 'drawElements' | 'drawRangeElements') => {
+                const originalMethod = raw[name];
+                if (typeof originalMethod !== 'function') return;
+                const bound = originalMethod.bind(gl);
+                Object.defineProperty(gl, name, {
+                  configurable: true,
+                  value: (...callArgs: unknown[]) => {
+                    try {
+                      if (gpuUploadProbe.queryStarted && !gpuUploadProbe.queryEndedBeforeFirstDraw) {
+                        try {
+                          if (isWebGL2) (gl as WebGL2RenderingContext).endQuery(extension.TIME_ELAPSED_EXT);
+                          else extension.endQueryEXT?.(extension.TIME_ELAPSED_EXT);
+                          gpuUploadProbe.queryEndedBeforeFirstDraw = true;
+                          gpuUploadProbe.queryEndStatus = 'ended-before-first-draw';
+                        } catch (error) {
+                          gpuUploadProbe.queryEndStatus = 'end-failed';
+                          (gpuUploadProbe as GpuUploadProbe & { queryError?: string }).queryError = `endQuery failed before first draw: ${String(error)}`;
+                          // Retry once to avoid leaving an active query in the viewer if the first end call failed transiently.
+                          try {
+                            if (isWebGL2) (gl as WebGL2RenderingContext).endQuery(extension.TIME_ELAPSED_EXT);
+                            else extension.endQueryEXT?.(extension.TIME_ELAPSED_EXT);
+                            gpuUploadProbe.queryEndStatus = 'ended-before-first-draw';
+                            gpuUploadProbe.queryEndedBeforeFirstDraw = true;
+                          } catch (retryError) {
+                            (gpuUploadProbe as GpuUploadProbe & { queryError?: string }).queryError += `; retry failed: ${String(retryError)}`;
+                          }
+                        }
+                        gpuUploadProbe.cpuUploadCallSpanMs = performance.now() - (gpuUploadProbe.uploadStartedAt ?? performance.now());
+                      }
+                    } finally {
+                      restoreMethods();
+                    }
+                    return bound(...callArgs);
+                  },
+                });
+                restoreWrappedMethods.push(() => {
+                  if (ownDescriptor) Object.defineProperty(gl, name, ownDescriptor);
+                  else delete (gl as unknown as Record<string, unknown>)[name];
+                });
+              };
+              try {
+                wrapUpload('bufferData', 1);
+                wrapUpload('bufferSubData', 2);
+                endBeforeDraw('drawArrays');
+                endBeforeDraw('drawElements');
+                endBeforeDraw('drawRangeElements');
+              } catch (error) {
+                restoreMethods();
+                gpuUploadProbe.supported = false;
+                (gpuUploadProbe as GpuUploadProbe & { instrumentationError?: string }).instrumentationError = String(error);
+              }
+            }
+          }
+        }
         return context;
       } as typeof HTMLCanvasElement.prototype.getContext;
     });
@@ -150,11 +309,36 @@ test('dense and transformed multipart previews report first-frame and render-sub
       const card = page.locator('.file-card').filter({ has: page.locator(`.card-name[title="${model}"]`) }).first();
       await expect(card).toBeVisible();
       const contextStart = await page.evaluate(() => (window as Window & { __V05_WEBGL_CONTEXTS?: WebGLRenderingContext[] }).__V05_WEBGL_CONTEXTS?.length ?? 0);
+      if (model === 'dense') {
+        await page.evaluate(() => {
+          const probe = window.__G02_GPU_UPLOAD_PROBE;
+          if (probe) probe.armed = true;
+        });
+      }
       await card.click();
       await expect(page.locator('#viewer-loading')).toHaveClass(/hidden/, { timeout: 30000 });
       if (model === 'multipart') {
         await expect(page.getByRole('group', { name: 'Model parts' })).toBeVisible();
       }
+      const gpuTimerCapability = await page.evaluate((start) => {
+        const contexts = ((window as Window & { __V05_WEBGL_CONTEXTS?: Array<WebGLRenderingContext | WebGL2RenderingContext> }).__V05_WEBGL_CONTEXTS ?? []).slice(start);
+        return contexts.map((context) => {
+          const isWebGL2 = typeof WebGL2RenderingContext !== 'undefined' && context instanceof WebGL2RenderingContext;
+          const extensionName = isWebGL2 ? 'EXT_disjoint_timer_query_webgl2' : 'EXT_disjoint_timer_query';
+          const timerExtension = context.getExtension(extensionName) as ({
+            TIME_ELAPSED_EXT?: number;
+            GPU_DISJOINT_EXT?: number;
+          } & WebGLExtension) | null;
+          return {
+            contextType: isWebGL2 ? 'webgl2' : 'webgl1',
+            timerQueryExtension: extensionName,
+            supported: Boolean(timerExtension),
+            timeElapsedEnum: timerExtension?.TIME_ELAPSED_EXT ?? null,
+            gpuDisjointEnum: timerExtension?.GPU_DISJOINT_EXT ?? null,
+          };
+        });
+      }, contextStart);
+      console.info(`[G02 GPU timer-query capability] ${model} ${JSON.stringify(gpuTimerCapability)}`);
       expect(await page.evaluate(() => performance.getEntriesByName('polytray-preview-first-render').length)).toBeGreaterThan(0);
       await expect.poll(() => page.evaluate(() => performance.getEntriesByName('polytray-preview-first-render').length), { timeout: 30000 }).toBeGreaterThan(0);
       const result = await page.evaluate(() => {
@@ -173,6 +357,82 @@ test('dense and transformed multipart previews report first-frame and render-sub
       expect(result.firstFrameMs, `${model} should reach a usable frame within the 8ms-sliced assembly window plus background parse`).toBeLessThan(3000);
       expect(result.firstFrameMs).not.toBeNull();
       expect(result.renderSubmitMs).not.toBeNull();
+      if (model === 'dense') {
+        const gpuUpload = await page.evaluate(async () => {
+          const probe = window.__G02_GPU_UPLOAD_PROBE;
+          if (!probe) return { status: 'probe-not-installed' as const };
+          const common = {
+            contextType: probe.contextType,
+            timerQueryExtension: probe.timerQueryExtension,
+            extensionSupported: probe.supported,
+            queryStarted: probe.queryStarted,
+            queryEndedBeforeFirstDraw: probe.queryEndedBeforeFirstDraw,
+            bufferApiPayloadOrAllocationBytes: probe.bufferApiPayloadOrAllocationBytes,
+            cpuUploadCallSpanMs: probe.cpuUploadCallSpanMs,
+            instrumentationMethodsRestored: probe.methodsRestored,
+            instrumentationError: (probe as GpuUploadProbe & { instrumentationError?: string }).instrumentationError ?? null,
+          };
+          if (!probe.supported || !probe.context || !probe.extension || !probe.queryStarted || !probe.query) {
+            return { ...common, status: 'timer-query-unavailable-or-not-started' as const, queryAvailable: false, gpuDisjoint: null, gpuElapsedNs: null };
+          }
+          const context = probe.context;
+          const extension = probe.extension;
+          const query = probe.query;
+          const isWebGL2 = probe.timerApi === 'webgl2';
+          const webgl2 = context as WebGL2RenderingContext;
+          const queryObject = query as WebGLQuery;
+          const isAvailable = () => isWebGL2
+            ? Boolean(webgl2.getQueryParameter(queryObject, webgl2.QUERY_RESULT_AVAILABLE))
+            : Boolean(extension.getQueryObjectEXT?.(query, extension.QUERY_RESULT_AVAILABLE_EXT ?? 0));
+          const deadline = Date.now() + 3_000;
+          let queryAvailable = false;
+          let gpuDisjoint: boolean | null = null;
+          let gpuElapsedNs: number | null = null;
+          let queryError: string | null = null;
+          try {
+            while (Date.now() < deadline) {
+              queryAvailable = isAvailable();
+              if (queryAvailable) break;
+              await new Promise((resolve) => setTimeout(resolve, 16));
+            }
+            if (queryAvailable) {
+              gpuDisjoint = Boolean(context.getParameter(extension.GPU_DISJOINT_EXT));
+              if (!gpuDisjoint) {
+                gpuElapsedNs = Number(isWebGL2
+                  ? webgl2.getQueryParameter(queryObject, webgl2.QUERY_RESULT)
+                  : extension.getQueryObjectEXT?.(query, extension.QUERY_RESULT_EXT ?? 0));
+              }
+            }
+          } catch (error) {
+            queryError = String(error);
+          } finally {
+            try {
+              if (isWebGL2) webgl2.deleteQuery(queryObject);
+              else extension.deleteQueryEXT?.(query);
+            } catch (error) {
+              queryError ??= `query cleanup failed: ${String(error)}`;
+            }
+            probe.query = undefined;
+          }
+          const finiteNonnegative = gpuElapsedNs !== null && Number.isFinite(gpuElapsedNs) && gpuElapsedNs >= 0;
+          const status = queryError ? 'query-error' as const
+            : !queryAvailable ? 'query-unavailable' as const
+              : gpuDisjoint ? 'disjoint' as const
+                : !probe.queryEndedBeforeFirstDraw || !finiteNonnegative || probe.bufferApiPayloadOrAllocationBytes <= 0
+                  ? 'invalid-result' as const : 'valid' as const;
+          return { ...common, status, queryAvailable, gpuDisjoint, gpuElapsedNs, queryError };
+        });
+        console.info(`[G02 GPU upload] dense ${JSON.stringify({ ...gpuUpload, cpuRenderSubmitMs: result.renderSubmitMs })}`);
+        if (gpuUpload.queryStarted) {
+          expect(gpuUpload.queryEndedBeforeFirstDraw).toBe(true);
+          expect(gpuUpload.instrumentationMethodsRestored).toBe(true);
+        }
+        if (gpuUpload.status === 'valid') {
+          expect(gpuUpload.bufferApiPayloadOrAllocationBytes).toBeGreaterThan(0);
+          expect(Number.isFinite(gpuUpload.gpuElapsedNs)).toBe(true);
+          expect(gpuUpload.gpuElapsedNs).toBeGreaterThanOrEqual(0);
+        }
+      }
       if (model === 'multipart') {
         const progressive = await page.evaluate(async () => {
           return new Promise<{ ready: boolean; placeholders: number; inFlight: number }>((resolve) => {
