@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 
 import { createRefreshDebouncer } from '../../../../src/renderer/lib/refreshDebouncer';
 
-test('createRefreshDebouncer coalesces rapid triggers into one refresh', async () => {
+// Mock timers make the debounce deterministic: real sleeps of 45-70ms against 20-50ms delays
+// could fail on a loaded CI runner when the debounce timer fired late.
+
+test('createRefreshDebouncer coalesces rapid triggers into one refresh', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   let callCount = 0;
   const debouncer = createRefreshDebouncer(() => {
     callCount += 1;
@@ -13,12 +17,16 @@ test('createRefreshDebouncer coalesces rapid triggers into one refresh', async (
   debouncer.trigger();
   debouncer.trigger();
 
-  await new Promise((resolve) => setTimeout(resolve, 60));
-
+  t.mock.timers.tick(24);
+  assert.equal(callCount, 0, 'does not refresh before the delay elapses');
+  t.mock.timers.tick(1);
+  assert.equal(callCount, 1);
+  t.mock.timers.tick(100);
   assert.equal(callCount, 1);
 });
 
-test('createRefreshDebouncer can flush immediately and cancel pending timer', async () => {
+test('createRefreshDebouncer can flush immediately and cancel pending timer', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   let callCount = 0;
   const debouncer = createRefreshDebouncer(() => {
     callCount += 1;
@@ -26,13 +34,14 @@ test('createRefreshDebouncer can flush immediately and cancel pending timer', as
 
   debouncer.trigger();
   debouncer.flush();
+  assert.equal(callCount, 1);
 
-  await new Promise((resolve) => setTimeout(resolve, 70));
-
+  t.mock.timers.tick(100);
   assert.equal(callCount, 1);
 });
 
-test('createRefreshDebouncer cancel prevents a queued refresh from firing', async () => {
+test('createRefreshDebouncer cancel prevents a queued refresh from firing', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   let callCount = 0;
   const debouncer = createRefreshDebouncer(() => {
     callCount += 1;
@@ -41,40 +50,42 @@ test('createRefreshDebouncer cancel prevents a queued refresh from firing', asyn
   debouncer.trigger();
   debouncer.cancel();
 
-  await new Promise((resolve) => setTimeout(resolve, 60));
-
+  t.mock.timers.tick(100);
   assert.equal(callCount, 0);
 });
 
-test('createRefreshDebouncer coalesces refresh targets without losing independent invalidations', async () => {
+test('createRefreshDebouncer coalesces refresh targets without losing independent invalidations', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const calls: Array<{ pages: boolean; stats: boolean; topology: boolean }> = [];
   const debouncer = createRefreshDebouncer((targets) => calls.push(targets), 20);
 
   debouncer.trigger({ pages: true, stats: false, topology: false });
   debouncer.trigger({ pages: false, stats: true, topology: false });
   debouncer.trigger({ pages: false, stats: false, topology: true });
-  await new Promise((resolve) => setTimeout(resolve, 45));
+  t.mock.timers.tick(20);
 
   assert.deepEqual(calls, [{ pages: true, stats: true, topology: true }]);
 });
 
-test('createRefreshDebouncer cancel discards pending refresh targets', async () => {
+test('createRefreshDebouncer cancel discards pending refresh targets', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const calls: unknown[] = [];
   const debouncer = createRefreshDebouncer((targets) => calls.push(targets), 20);
 
   debouncer.trigger({ pages: true, stats: true, topology: true });
   debouncer.cancel();
-  await new Promise((resolve) => setTimeout(resolve, 45));
+  t.mock.timers.tick(100);
 
   assert.deepEqual(calls, []);
 });
 
-test('createRefreshDebouncer preserves page-only refresh targets', async () => {
+test('createRefreshDebouncer preserves page-only refresh targets', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const calls: Array<{ pages: boolean; stats: boolean; topology: boolean }> = [];
   const debouncer = createRefreshDebouncer((targets) => calls.push(targets), 20);
 
   debouncer.trigger({ pages: true, stats: false, topology: false });
-  await new Promise((resolve) => setTimeout(resolve, 45));
+  t.mock.timers.tick(20);
 
   assert.deepEqual(calls, [{ pages: true, stats: false, topology: false }]);
 });

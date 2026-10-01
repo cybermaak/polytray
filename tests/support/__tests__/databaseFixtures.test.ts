@@ -4,12 +4,12 @@ import fs from 'node:fs';
 
 import Database from 'better-sqlite3';
 
-import { createDbAtVersion } from '../../../support/helpers/databaseFixtures';
+import { createDbAtVersion } from '../helpers/databaseFixtures';
 
 import {
   LATEST_DB_VERSION,
   runMigrationsOnDatabase,
-} from '../../../../src/main/database';
+} from '../../../src/main/database';
 
 test('createDbAtVersion creates a reusable database fixture without sqlite3 cli', () => {
   const { dbPath, dir } = createDbAtVersion(2);

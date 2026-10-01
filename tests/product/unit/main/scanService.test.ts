@@ -666,7 +666,7 @@ test('prunes only a starting row after a complete empty root stream', async () =
   }
 });
 
-test('an unavailable root retains its starting rows', async () => {
+test('an unavailable root retains its starting rows and their annotations', async () => {
   const fixture = createTestDb();
   const rootPath = path.join(os.tmpdir(), `polytray-scan-unavailable-${process.pid}-${Date.now()}`);
   const oldPath = path.join(rootPath, 'kept.stl');
@@ -675,12 +675,17 @@ test('an unavailable root retains its starting rows', async () => {
     path: oldPath, name: 'kept', extension: 'stl', directory: rootPath,
     sizeBytes: 10, modifiedAt: 20, scanGeneration: 1,
   }] });
+  fixture.db.prepare('UPDATE files SET tags = ?, notes = ? WHERE path = ?').run('["kept-tag"]', 'kept note', oldPath);
   const service = createScanService({ db: fixture.db });
   try {
     const result = await service.scan(rootPath);
     assert.equal(result.state, 'failed');
     assert.equal(result.deletedCount, 0);
     assert.equal(repository.getFileIdentityByPath(oldPath) !== null, true);
+    assert.deepEqual(
+      fixture.db.prepare('SELECT tags, notes FROM files WHERE path = ?').get(oldPath),
+      { tags: '["kept-tag"]', notes: 'kept note' },
+    );
   } finally {
     await service.dispose();
     fixture.cleanup();
