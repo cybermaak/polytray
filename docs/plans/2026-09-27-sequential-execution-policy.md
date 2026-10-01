@@ -1,5 +1,12 @@
 # Sequential coordinator/worker execution policy
 
+> **Superseded for the current stream on 2026-09-30.** Implementation and hourly
+> supervision are PAUSED. The user's new process uses one implementation and
+> verification owner, with independent review at the final acceptance stage.
+> See the [execution reset plan](2026-09-30-execution-reset-plan.md) and
+> [restart tracker](2026-09-30-execution-reset-tracker.md). The active/resume and
+> two-reviewer statements below are historical, not current dispatch instructions.
+
 ## User decision and current execution state
 
 The user requested that parallel implementation stop. Luna remains the coordinator for selecting work and applying acceptance criteria; one Luna worker performs the selected task. Astra remains reserved for final integration review. This policy supersedes the concurrency and scheduling sections of the earlier Luna handoff; the task scope, contracts, and required verification gates remain in force.

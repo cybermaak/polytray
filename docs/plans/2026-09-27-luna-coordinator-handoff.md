@@ -1,5 +1,11 @@
 # Luna coordination plan for the remaining performance/UX work
 
+> **Historical handoff, superseded 2026-09-30.** Work and hourly supervision are
+> PAUSED. Do not restart Luna or dispatch per-task reviewer agents from this file.
+> The user's one-owner/final-review process and remaining work are in the
+> [execution reset plan](2026-09-30-execution-reset-plan.md) and
+> [restart tracker](2026-09-30-execution-reset-tracker.md).
+
 ## Authority, scope, and immediate state
 
 The user requested a new **GPT-6 Luna coordinator**, retaining the existing Astra chat for the **final integration review**. The new coordinator chat is `01a0e49e-6109-77d0-9035-574d005c8bd2` on host `local`. The newer [sequential execution policy](2026-09-27-sequential-execution-policy.md) supersedes this document's previous concurrency/scheduling instructions. Product scope and acceptance criteria remain unchanged.
