@@ -94,7 +94,12 @@ test('background job controls retain browse state and watch follows only watch s
     await expect(jobCard).not.toContainText('thumbnails generated');
     await expect(page.locator('.file-card[aria-label="first-batch.stl"]')).toBeVisible();
     const browseScroller = page.locator('[data-virtuoso-scroller]');
-    await browseScroller.evaluate((element) => { element.scrollTop = 500; });
+    // The first 31 files may still be arriving; retry until the grid is tall enough to scroll, or
+    // the browser clamps to 0 and the test silently checks the top of the list instead.
+    await expect.poll(() => browseScroller.evaluate((element) => {
+      element.scrollTop = 500;
+      return element.scrollTop;
+    })).toBe(500);
     await jobCard.getByRole('button', { name: 'Pause' }).click();
     fs.writeFileSync(releasePath, 'release bounded discovery unit for pause acknowledgement');
     await expect(jobCard).toHaveAttribute('data-job-state', 'paused');
