@@ -1,0 +1,106 @@
+name: E2E Stability
+
+# Manual measurement run: repeats the E2E suite (or a --grep subset) per platform and reports
+# each test's pass rate, so flaky tests can be found by data instead of one red Build at a time.
+# This workflow never gates merges.
+on:
+  workflow_dispatch:
+    inputs:
+      repeat_each:
+        description: "Repetitions of each test (1-20)"
+        required: true
+        default: "5"
+      grep:
+        description: "Optional Playwright --grep pattern (empty runs the whole suite)"
+        required: false
+        default: ""
+      platforms:
+        description: "Platforms to measure"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.platforms == 'all' && '["ubuntu-latest","macos-latest","windows-latest"]' || format('["{0}"]', inputs.platforms)) }}
+    runs-on: ${{ matrix.os }}
+    env:
+      STABILITY_REPEAT: ${{ inputs.repeat_each }}
+      STABILITY_GREP: ${{ inputs.grep }}
+      PLAYWRIGHT_JSON_OUTPUT_FILE: e2e-stability.json
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate inputs
+        shell: bash
+        run: |
+          if ! [[ "$STABILITY_REPEAT" =~ ^([1-9]|1[0-9]|20)$ ]]; then
+            echo "repeat_each must be an integer from 1 to 20 (got '$STABILITY_REPEAT')" >&2
+            exit 1
+          fi
+
+      # Unit tests are skipped: this run only measures E2E. --global-timeout stops Playwright
+      # before the job timeout so the JSON report is still written for a partial run.
+      - name: Setup and Measure
+        uses: ./.github/actions/setup-and-test
+        with:
+          test-command: >-
+            npx electron-builder install-app-deps &&
+            npm run test:product:e2e --
+            --repeat-each="$STABILITY_REPEAT"
+            --reporter=list,json
+            --global-timeout=15600000
+            ${STABILITY_GREP:+--grep "$STABILITY_GREP"}
+
+      - name: Summarize this platform
+        if: always()
+        shell: bash
+        run: node scripts/summarize-e2e-stability.mjs "${{ runner.os }}=e2e-stability.json"
+
+      - name: Upload stability report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-stability-${{ runner.os }}
+          path: |
+            e2e-stability.json
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  summarize:
+    needs: measure
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download stability reports
+        uses: actions/download-artifact@v7
+        with:
+          pattern: e2e-stability-*
+          path: reports
+
+      - name: Summarize all platforms
+        shell: bash
+        run: |
+          args=()
+          for os in Linux macOS Windows; do
+            if [ -d "reports/e2e-stability-$os" ]; then
+              args+=("$os=reports/e2e-stability-$os/e2e-stability.json")
+            fi
+          done
+          node scripts/summarize-e2e-stability.mjs "${args[@]}"

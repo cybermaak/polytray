@@ -58,7 +58,10 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **Current Version:** `v1.1.0` is released and the GitHub Release pipeline is green across Ubuntu, macOS, and Windows.
 - **Release State:** Tag `v1.1.0` now points at the post-release CI hardening fixes, and the GitHub Release entry is populated directly via Actions.
 - **CI/CD State:**
-  - `.github/workflows/build.yml` is now a straightforward `Build` workflow that runs on every push to `main` plus manual dispatch.
+  - `.github/workflows/build.yml` is a `Build` workflow that runs on every push to `main`, on pull requests (superseded PR runs are cancelled), and on manual dispatch. Jobs have a 60-minute timeout.
+  - `.github/workflows/e2e-stability.yml` is a manual, non-gating `E2E Stability` workflow that repeats the E2E suite (or a `--grep` subset) per platform and summarizes per-test pass rates via `scripts/summarize-e2e-stability.mjs`.
+  - CI Node is pinned by `.nvmrc` (Node 22) with npm caching; Playwright browser downloads were dropped because E2E drives the npm Electron binary, and Linux installs only Chromium system libraries plus Xvfb/Openbox.
+  - E2E builds `out/` once in Playwright global setup instead of inside `app.e2e.ts`/`viewer-idle.e2e.ts`, so filtered/repeated runs use a fresh build.
   - `.github/workflows/release.yml` remains tag-driven for `v*` releases and reuses the same setup/test and packaging logic.
   - Shared packaging logic lives in `.github/actions/package-app/action.yml`.
   - Artifact patterns were tightened to preserve Electron auto-update compatibility (`*.dmg`, `*-mac.zip`, `*.blockmap`, `latest*.yml`) while dropping unused `snap` artifacts.

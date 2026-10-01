@@ -42,6 +42,17 @@ function copyModel(source: string, target: string) {
   fs.copyFileSync(source, target);
 }
 
+/** Overwrite with a valid binary STL one triangle larger, so size and bytes change as well as mtime. */
+function writeGrownModel(source: string, target: string) {
+  const original = fs.readFileSync(source);
+  const triangleCount = original.readUInt32LE(80);
+  const lastTriangle = original.subarray(84 + (triangleCount - 1) * 50, 84 + triangleCount * 50);
+  const grown = Buffer.concat([original.subarray(0, 84 + triangleCount * 50), lastTriangle]);
+  grown.writeUInt32LE(triangleCount + 1, 80);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, grown);
+}
+
 test('utility watcher indexes before enrichment, fences scan churn, and recovers an unavailable root', async () => {
   const env: NodeJS.ProcessEnv = {};
   let root = '';
@@ -130,7 +141,9 @@ test('utility watcher indexes before enrichment, fences scan churn, and recovers
       catch { return 0; }
     }, outsidePath)).toBe(403);
 
-    copyModel(path.join(process.cwd(), 'tests/support/fixtures/test_model_b.stl'), watchedPath);
+    // test_model_a/b are byte-identical; an identical overwrite only changes mtime, which coarse
+    // Windows timestamps and event coalescing can miss.
+    writeGrownModel(path.join(process.cwd(), 'tests/support/fixtures/test_model_a.stl'), watchedPath);
     await expect.poll(async () => (await readRow(page, beforeScan, watchedPath))?.content_revision ?? 0, { timeout: 15_000 })
       .toBeGreaterThan(firstRevision!.content_revision);
     await expect.poll(async () => {

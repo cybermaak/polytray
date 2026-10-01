@@ -124,11 +124,21 @@ Notes:
 - If the very first sandbox attempt succeeds for a given Actions change, it is reasonable to push that change to `main` after local verification.
 - If the fix required multiple sandbox attempts, pause and confirm with the user before pushing to `main`.
 
+## CI Feedback Loop for Feature Work
+
+- `Build` runs on pull requests as well as `main` pushes. For multi-day feature work, open a draft PR early so every push gets the three-platform Product gate; a newer push cancels the PR's superseded run.
+- Prefer small PRs that each pass CI over one large batch validated at the end: when a large batch goes red, failures cannot be attributed to a change and fixes turn into whack-a-mole.
+- Before pushing, run `npm run test:e2e:changed` for a fast local loop (only spec files that changed against `origin/main` or import a changed module). App code that runs inside Electron is not traced, so still run the full gate before merging.
+- A single local or hosted pass does not prove a test is stable. Use the manual `E2E Stability` workflow (`.github/workflows/e2e-stability.yml`) with `repeat_each` and an optional `grep` to measure per-test pass rates on each platform; its job summary lists every test with a failure and the estimated chance of a fully green matrix. It never gates merges. Like any dispatch-only workflow, it can be dispatched only after it exists on `main`.
+
 ## E2E Gotchas
 
 - `ELECTRON_RUN_AS_NODE` in the environment will break Electron launch if it leaks into the app process.
 - Use the shared helper in `tests/support/helpers/electronLaunch.ts` rather than open-coding Electron env handling.
 - The `base.3mf` perf test is optional/gated by `POLYTRAY_REAL_BASE_3MF_PATH`.
+- Playwright global setup (`tests/support/playwright/globalSetup.ts`) runs `npm run build` once before any spec file, so filtered or repeated runs never launch a stale `out/`. Do not add per-file builds; set `POLYTRAY_E2E_SKIP_BUILD=1` to reuse a build you just made.
+- Do not use byte-identical fixtures to simulate a content change: `test_model_a.stl` and `test_model_b.stl` are identical, so overwriting one with the other changes only mtime, which Windows can coalesce or miss.
+- Wait for the specific new value, not just any truthy value, when polling for a replacement result (e.g. a regenerated thumbnail path), or the poll can return the stale one.
 
 ## Documentation Hygiene
 
