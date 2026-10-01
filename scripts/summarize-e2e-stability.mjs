@@ -64,16 +64,23 @@ export function summarizeReports(reports) {
   return { labels, tests };
 }
 
-/** Probability that every executed test passes in one run, assuming independent failures. */
+/**
+ * Probability that every executed test passes in one run, assuming independent failures.
+ * Returns null when nothing executed (no grep match, or everything skipped): no data is not green.
+ */
 export function estimatedGreenRate(summary) {
   let rate = 1;
+  let executed = false;
   for (const test of summary.tests) {
     for (const counts of Object.values(test.perLabel)) {
       const runs = counts.passed + counts.failed;
-      if (runs > 0) rate *= counts.passed / runs;
+      if (runs > 0) {
+        executed = true;
+        rate *= counts.passed / runs;
+      }
     }
   }
-  return rate;
+  return executed ? rate : null;
 }
 
 function cell(counts) {
@@ -88,10 +95,19 @@ export function renderMarkdown(summary, { missing = [], showAll = false } = {}) 
   const unstable = summary.tests.filter((test) => test.failed > 0);
   const green = estimatedGreenRate(summary);
   lines.push(`Tests observed: ${summary.tests.length}. Tests with at least one failure: ${unstable.length}.`);
-  lines.push(`Estimated chance a single full matrix run is green: **${(green * 100).toFixed(1)}%** (product of observed per-platform pass rates).`);
+  if (green === null) {
+    lines.push('Estimated chance a single full matrix run is green: **unavailable** (no tests executed).');
+  } else {
+    const scope = missing.length > 0 ? 'platforms with a report only' : 'product of observed per-platform pass rates';
+    lines.push(`Estimated chance a single full matrix run is green: **${(green * 100).toFixed(1)}%** (${scope}).`);
+  }
   for (const label of missing) lines.push(`> ⚠️ No report for \`${label}\` (job failed before Playwright wrote one).`);
   lines.push('');
   const rows = showAll ? summary.tests : unstable;
+  if (green === null) {
+    lines.push('No tests executed; check the grep pattern and the platform jobs.');
+    return `${lines.join('\n')}\n`;
+  }
   if (rows.length === 0) {
     lines.push('Every executed test passed on every repetition.');
     return `${lines.join('\n')}\n`;

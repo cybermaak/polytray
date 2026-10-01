@@ -89,18 +89,29 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download stability reports
+        # With no reports at all the summary below still runs and flags every platform as missing.
+        continue-on-error: true
         uses: actions/download-artifact@v7
         with:
           pattern: e2e-stability-*
           path: reports
 
+      # Pass every requested platform, even one whose job uploaded nothing, so a missing report
+      # is flagged in the summary instead of silently shrinking the matrix.
       - name: Summarize all platforms
         shell: bash
+        env:
+          STABILITY_PLATFORMS: ${{ inputs.platforms }}
         run: |
+          case "$STABILITY_PLATFORMS" in
+            all) labels=(Linux macOS Windows) ;;
+            ubuntu-latest) labels=(Linux) ;;
+            macos-latest) labels=(macOS) ;;
+            windows-latest) labels=(Windows) ;;
+            *) echo "Unknown platforms input: $STABILITY_PLATFORMS" >&2; exit 1 ;;
+          esac
           args=()
-          for os in Linux macOS Windows; do
-            if [ -d "reports/e2e-stability-$os" ]; then
-              args+=("$os=reports/e2e-stability-$os/e2e-stability.json")
-            fi
+          for os in "${labels[@]}"; do
+            args+=("$os=reports/e2e-stability-$os/e2e-stability.json")
           done
           node scripts/summarize-e2e-stability.mjs "${args[@]}"

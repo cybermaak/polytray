@@ -48,3 +48,23 @@ test('markdown lists only unstable tests by default and reports missing platform
   assert.match(markdown, /No report for `macOS`/);
   assert.match(renderMarkdown(summary, { showAll: true }), /› stable \| 2\/2/);
 });
+
+test('no executed tests is reported as unavailable, not as a 100% green matrix', () => {
+  const skippedOnly = { suites: [{ title: 'example.e2e.ts', specs: [spec('skipped', 3, ['skipped', 'skipped'])] }] };
+  for (const report of [skippedOnly, { suites: [] }]) {
+    const summary = summarizeReports([{ label: 'Linux', report }]);
+    assert.equal(estimatedGreenRate(summary), null);
+    const markdown = renderMarkdown(summary);
+    assert.match(markdown, /\*\*unavailable\*\* \(no tests executed\)/);
+    assert.doesNotMatch(markdown, /100\.0%|Every executed test passed/);
+  }
+});
+
+test('a missing platform report scopes the green rate and every platform can be missing', () => {
+  const partial = renderMarkdown(summarizeReports([{ label: 'Linux', report: linux }]), { missing: ['Windows'] });
+  assert.match(partial, /50\.0%\*\* \(platforms with a report only\)/);
+  assert.match(partial, /No report for `Windows`/);
+  const none = renderMarkdown(summarizeReports([]), { missing: ['Linux', 'macOS', 'Windows'] });
+  assert.match(none, /\*\*unavailable\*\*/);
+  for (const label of ['Linux', 'macOS', 'Windows']) assert.match(none, new RegExp(`No report for \`${label}\``));
+});

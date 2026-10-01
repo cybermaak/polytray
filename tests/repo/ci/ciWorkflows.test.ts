@@ -173,3 +173,11 @@ test('E2E stability workflow is manual, non-gating, and measures repeated runs p
   expectNoMatch(stabilityWorkflow, /test-command:[\s\S]*?\$\{\{ inputs\.[\s\S]*?- name: Summarize this platform/);
   expectMatch(stabilityWorkflow, /\^\(\[1-9\]\|1\[0-9\]\|20\)\$/);
 });
+
+test('E2E stability summary lists every requested platform, including ones with no report', () => {
+  expectMatch(stabilityWorkflow, /STABILITY_PLATFORMS: \$\{\{ inputs\.platforms \}\}/);
+  expectMatch(stabilityWorkflow, /all\) labels=\(Linux macOS Windows\)/);
+  // Placeholders are passed unconditionally; the script reports absent files as missing.
+  expectNoMatch(stabilityWorkflow, /if \[ -d "reports\/e2e-stability-/);
+  expectMatch(stabilityWorkflow, /name: Download stability reports\n\s+#[^\n]*\n\s+continue-on-error: true/);
+});
