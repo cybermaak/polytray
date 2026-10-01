@@ -87,6 +87,8 @@ Choose the smallest verification set that proves the change, but include all aff
 Notes:
 - `npm run test:product` intentionally rebuilds `better-sqlite3` for the host Node runtime first, then runs unit tests, then rebuilds native deps for Electron, then runs E2E.
 - This sequence matters. Do not collapse it back to a plain unit+E2E chain.
+- `npm rebuild better-sqlite3` can install a Node-ABI prebuilt without removing the `.forge-meta` marker from an earlier Electron rebuild; `install-app-deps` then skips the module and every E2E launch fails with a `NODE_MODULE_VERSION` mismatch. `build/scripts/clear-electron-rebuild-marker.js` runs between them for that reason; keep it.
+- The Node and Electron builds share one `better_sqlite3.node`. Never run two Product/unit/E2E commands concurrently in one checkout: a Node rebuild in one replaces the binary under the other's Electron app.
 
 ### Run `npm run test:repo` when changing
 

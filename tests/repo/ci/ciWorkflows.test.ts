@@ -123,6 +123,15 @@ test('product test script rebuilds native deps for electron between unit and e2e
   expectMatch(script, /npm run test:product:e2e/);
 });
 
+test('product test script clears the stale Electron rebuild marker after the Node rebuild', () => {
+  const script = packageJson.scripts?.['test:product'] ?? '';
+  const nodeRebuild = script.indexOf('npm rebuild better-sqlite3');
+  const clearMarker = script.indexOf('node build/scripts/clear-electron-rebuild-marker.js');
+  const electronRebuild = script.indexOf('electron-builder install-app-deps');
+  assert.ok(nodeRebuild >= 0 && nodeRebuild < clearMarker && clearMarker < electronRebuild, script);
+  expectMatch(read('build/scripts/clear-electron-rebuild-marker.js'), /better-sqlite3\/build\/Release\/\.forge-meta/);
+});
+
 test('package action rebuilds native deps for electron before packaging', () => {
   expectMatch(packageAppAction, /npm run build/);
   expectMatch(packageAppAction, /npx electron-builder install-app-deps/);
