@@ -121,14 +121,21 @@ test('background job controls retain browse state and watch follows only watch s
     await expect.poll(() => page!.evaluate(async () => (await window.polytray.getBackgroundJobs()).some((job) => job.kind === 'scan' && ['completed', 'partial'].includes(job.state)))).toBe(true);
     await expect.poll(() => page!.evaluate(() => (window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0)).toBe(0);
     expect(retainedAnchor).toBeTruthy();
+    // The anchor card must stay mounted near its old offset; re-measured row heights may shift it a
+    // few pixels (observed 5px on Linux), while a lost scroll position unmounts it (null) or jumps far.
+    const anchorDriftTolerancePx = 12;
     try {
-      await expect.poll(() => page!.evaluate((itemKey) => {
-        const scroller = document.querySelector<HTMLElement>('[data-virtuoso-scroller]');
-        if (!scroller || !itemKey) return null;
-        const bounds = scroller.getBoundingClientRect();
-        const card = [...scroller.querySelectorAll<HTMLElement>('.file-card')].find((candidate) => candidate.dataset.itemKey === itemKey);
-        return card ? Math.round(card.getBoundingClientRect().top - bounds.top) : null;
-      }, retainedAnchor?.itemKey)).toBe(retainedAnchor?.topOffset ?? null);
+      await expect.poll(async () => {
+        const offset = await page!.evaluate((itemKey) => {
+          const scroller = document.querySelector<HTMLElement>('[data-virtuoso-scroller]');
+          if (!scroller || !itemKey) return null;
+          const bounds = scroller.getBoundingClientRect();
+          const card = [...scroller.querySelectorAll<HTMLElement>('.file-card')].find((candidate) => candidate.dataset.itemKey === itemKey);
+          return card ? Math.round(card.getBoundingClientRect().top - bounds.top) : null;
+        }, retainedAnchor?.itemKey);
+        return offset === null ? null : Math.abs(offset - (retainedAnchor?.topOffset ?? 0));
+      }, { message: `anchor card stays mounted within ${anchorDriftTolerancePx}px of its offset (null = unmounted)` })
+        .toBeLessThanOrEqual(anchorDriftTolerancePx);
     } catch (error) {
       await attachGridFailureEvidence(page, 'background-anchor');
       throw error;
