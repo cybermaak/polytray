@@ -83,6 +83,7 @@ Related rule now in `AGENTS.md`: never run two unit/E2E/Product commands at the 
 | Platform | Test | Observation |
 |---|---|---|
 | Linux | `integrated-library`: click the tail card of a 600-item grid | Intermittent: failed on Linux in PR run 36807353965 and once on macOS (run 36782669694); the card did not become clickable within 2 s. Untouched by these changes; a candidate for the `E2E Stability` workflow. |
+| Windows | `preview-cancellation`: cleanup only | Intermittent: in PR run 36833204555 the test body passed, then deleting the isolated app's temp folder failed with `ENOTEMPTY` after 20 retries. This is the Windows file-handle cleanup class seen earlier as `EBUSY`; the cleanup helper in `tests/support/helpers/isolatedApp.ts` needs a longer handle-release wait or a best-effort delete. |
 | Windows | `responsive-layout` | A tiny STL preview stays on "Processing 3D data…" for 30 s after a page reload. Failed in every Windows run reviewed. |
 | Windows | `scan-streaming` | The main-process heartbeat gap exceeds 250 ms during a 5,000-file scan (329 ms, 351 ms, and 1,672 ms seen). Likely synchronous SQLite work on the main thread. Failed in every Windows run reviewed. |
 
