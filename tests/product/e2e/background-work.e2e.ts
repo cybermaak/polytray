@@ -94,25 +94,28 @@ test('background job controls retain browse state and watch follows only watch s
     await expect(jobCard).not.toContainText('thumbnails generated');
     await expect(page.locator('.file-card[aria-label="first-batch.stl"]')).toBeVisible();
     const browseScroller = page.locator('[data-virtuoso-scroller]');
-    await browseScroller.evaluate((element) => { element.scrollTop = 500; });
+    // The first 31 files may still be arriving; retry until the grid is tall enough to scroll, or
+    // the browser clamps to 0 and the test silently checks the top of the list instead.
+    await expect.poll(() => browseScroller.evaluate((element) => {
+      element.scrollTop = 500;
+      return element.scrollTop;
+    })).toBe(500);
     await jobCard.getByRole('button', { name: 'Pause' }).click();
     fs.writeFileSync(releasePath, 'release bounded discovery unit for pause acknowledgement');
     await expect(jobCard).toHaveAttribute('data-job-state', 'paused');
     await jobCard.getByRole('button', { name: 'Cancel' }).click();
     await expect(jobCard).toHaveAttribute('data-job-state', 'cancelled');
-    const retainedAnchor = await page.evaluate(() => {
+    // Cards in view when the scan was cancelled; the rescan below inserts 120 files above them.
+    const visibleKeysInScroller = () => page!.evaluate(() => {
       const scroller = document.querySelector<HTMLElement>('[data-virtuoso-scroller]');
-      if (!scroller) return null;
+      if (!scroller) return [];
       const bounds = scroller.getBoundingClientRect();
-      const card = [...document.querySelectorAll<HTMLElement>('.file-card')].find((candidate) => {
-        const rect = candidate.getBoundingClientRect();
+      return [...scroller.querySelectorAll<HTMLElement>('.file-card')].filter((card) => {
+        const rect = card.getBoundingClientRect();
         return rect.bottom > bounds.top && rect.top < bounds.bottom;
-      });
-      return card?.dataset.itemKey ? {
-        itemKey: card.dataset.itemKey,
-        topOffset: Math.round(card.getBoundingClientRect().top - bounds.top),
-      } : null;
+      }).map((card) => card.dataset.itemKey ?? '').filter(Boolean);
     });
+    const retainedVisibleKeys = await visibleKeysInScroller();
 
     // A rescan while watch is disabled must not start a watcher on completion.
     await page.evaluate(async (folder) => {
@@ -120,15 +123,16 @@ test('background job controls retain browse state and watch follows only watch s
     }, root);
     await expect.poll(() => page!.evaluate(async () => (await window.polytray.getBackgroundJobs()).some((job) => job.kind === 'scan' && ['completed', 'partial'].includes(job.state)))).toBe(true);
     await expect.poll(() => page!.evaluate(() => (window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0)).toBe(0);
-    expect(retainedAnchor).toBeTruthy();
+    expect(retainedVisibleKeys.length).toBeGreaterThan(0);
+    // The grid keeps the user's place by row, so cards that shared a row with inserted files may
+    // shift by one row; most of the cards that were in view must still be in view. Losing the
+    // scroll position instead leaves only newly inserted cards on screen.
     try {
-      await expect.poll(() => page!.evaluate((itemKey) => {
-        const scroller = document.querySelector<HTMLElement>('[data-virtuoso-scroller]');
-        if (!scroller || !itemKey) return null;
-        const bounds = scroller.getBoundingClientRect();
-        const card = [...scroller.querySelectorAll<HTMLElement>('.file-card')].find((candidate) => candidate.dataset.itemKey === itemKey);
-        return card ? Math.round(card.getBoundingClientRect().top - bounds.top) : null;
-      }, retainedAnchor?.itemKey)).toBe(retainedAnchor?.topOffset ?? null);
+      await expect.poll(async () => {
+        const visible = new Set(await visibleKeysInScroller());
+        return retainedVisibleKeys.filter((key) => visible.has(key)).length;
+      }, { message: `at least half of ${JSON.stringify(retainedVisibleKeys)} stay in view after the rescan` })
+        .toBeGreaterThanOrEqual(Math.ceil(retainedVisibleKeys.length / 2));
     } catch (error) {
       await attachGridFailureEvidence(page, 'background-anchor');
       throw error;

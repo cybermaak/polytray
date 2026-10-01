@@ -8,8 +8,8 @@ import * as THREE from 'three';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 
-import { createModelFixtures, reviseFixture } from '../../../support/fixtures/performanceFixtures';
-import { inspectFast3mfPreviewSupport, parseFast3mfPreviewGroup } from '../../../../src/renderer/lib/fast3mfPreviewParser';
+import { createModelFixtures, reviseFixture } from '../fixtures/performanceFixtures';
+import { inspectFast3mfPreviewSupport, parseFast3mfPreviewGroup } from '../../../src/renderer/lib/fast3mfPreviewParser';
 
 function asArrayBuffer(buffer: Buffer) { return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer; }
 

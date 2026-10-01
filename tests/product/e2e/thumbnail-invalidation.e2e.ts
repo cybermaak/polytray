@@ -94,13 +94,14 @@ test('refresh isolates a folder, clear regenerates current output, and startup r
   expect(bluePixels).toBeTruthy();
 
   await page.evaluate(({ folder, settings }) => window.polytray.refreshFolderThumbnails(folder, settings), { folder: targetFolder, settings: redSettings });
+  // Wait for the red output specifically: a still-settling blue pointer must not end the wait early.
   let refreshedPath: string | null = null;
   await expect.poll(async () => {
     const result = await getRecords(targetFolder);
-    refreshedPath = result.files.find((file) => file.path === targetPath)?.thumbnail ?? null;
+    const current = result.files.find((file) => file.path === targetPath)?.thumbnail ?? null;
+    refreshedPath = current && current !== first ? current : null;
     return refreshedPath;
-  }).toBeTruthy();
-  expect(refreshedPath).not.toBe(first);
+  }, { message: `refresh publishes a thumbnail path other than the blue ${first}` }).toBeTruthy();
   expect(fs.existsSync(refreshedPath!)).toBe(true);
   const redPixels = await pixelSignature(refreshedPath!);
   expect(redPixels).toBeTruthy();

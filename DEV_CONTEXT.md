@@ -58,7 +58,11 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **Current Version:** `v1.1.0` is released and the GitHub Release pipeline is green across Ubuntu, macOS, and Windows.
 - **Release State:** Tag `v1.1.0` now points at the post-release CI hardening fixes, and the GitHub Release entry is populated directly via Actions.
 - **CI/CD State:**
-  - `.github/workflows/build.yml` is now a straightforward `Build` workflow that runs on every push to `main` plus manual dispatch.
+  - `.github/workflows/build.yml` is a `Build` workflow that runs on every push to `main`, on pull requests (superseded PR runs are cancelled), and on manual dispatch. Jobs have a 60-minute timeout.
+  - `.github/workflows/e2e-stability.yml` is a manual, non-gating `E2E Stability` workflow that repeats the E2E suite (or a `--grep` subset) per platform and summarizes per-test pass rates via `scripts/summarize-e2e-stability.mjs`.
+  - CI Node is pinned by `.nvmrc` (Node 22) with npm caching; Playwright browser downloads were dropped because E2E drives the npm Electron binary, and Linux installs only Chromium system libraries plus Xvfb/Openbox.
+  - E2E builds `out/` once in Playwright global setup instead of inside `app.e2e.ts`/`viewer-idle.e2e.ts`, so filtered/repeated runs use a fresh build.
+  - Findings, fixes, and open items from the 2026-10-01 CI stability review are in `docs/plans/2026-10-01-ci-stability-review.md`. Harness self-tests live in `tests/support/__tests__/` and run in the Node unit phase.
   - `.github/workflows/release.yml` remains tag-driven for `v*` releases and reuses the same setup/test and packaging logic.
   - Shared packaging logic lives in `.github/actions/package-app/action.yml`.
   - Artifact patterns were tightened to preserve Electron auto-update compatibility (`*.dmg`, `*-mac.zip`, `*.blockmap`, `latest*.yml`) while dropping unused `snap` artifacts.
@@ -76,6 +80,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - One-off engineering helpers live under `tests/dev/`.
   - Node-side tests are now written in TypeScript and executed through `scripts/run-node-tests.mjs` with `tsx`.
 - **Virtualized grid keyboard focus:** `FileGrid` keeps the requested item key while `react-virtuoso` mounts a distant card. It retries a dropped scroll within a bounded animation-frame sequence and cancels that sequence if a different card or outside control receives focus, so a late mount cannot steal a newer focus choice.
+- **Library scroll anchoring during refreshes:** `refreshLibrary` keeps the user's place by row across library refreshes. While the user has not scrolled since the last restore it reuses the previously restored anchor card, and it never records a new anchor while a refresh or restore frame is pending (`src/renderer/lib/libraryScrollAnchor.ts`). Re-picking the top card on every refresh let a streaming scan drift the view onto newly inserted files.
 - **Hosted Product validation:** The local hardening candidate passes the complete Product gate (495 unit passes and 74 E2E passes, with one optional skip in each phase). [Sandbox run 36786572780](https://github.com/cybermaak/polytray/actions/runs/36786572780) passed full macOS and Linux Build jobs; Windows finished 72 E2E passes/2 failures because a completed 5,000-file scan exceeded the strict 250 ms main heartbeat gap and a tiny STL preview stayed loading for 30 seconds. Diagnostic work is ongoing; see `docs/performance/hosted-ci-36752768437.md` for exact evidence and limits.
   - Windows offline-root E2E stops the watcher before renaming its private fixture root because the open directory may return `EPERM`. It verifies restart with the root missing and recovery after return; disappearance during uninterrupted live watching remains unverified on Windows. macOS and Linux retain the live-disappearance test path.
 - **Docs State:** `README.md` was refreshed into a landing-page style product overview, and the demo media under `docs/assets/` is now generated from the live app via `scripts/capture-readme-media.ts`.

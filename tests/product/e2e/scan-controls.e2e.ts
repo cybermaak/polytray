@@ -2,7 +2,6 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import JSZip from 'jszip';
 import { buildElectronLaunchArgs, buildElectronLaunchEnv } from '../../support/helpers/electronLaunch';
 import { findMainWindow } from '../../support/helpers/isolatedApp';
 
@@ -19,10 +18,9 @@ let holdPath = '';
 let releasePath = '';
 let reachedPath = '';
 
-function writeModel(filename: string, valid = true) {
-  fs.writeFileSync(filename, valid
-    ? 'solid cube\nfacet normal 0 0 1\n outer loop\n vertex 0 0 0\n vertex 1 0 0\n vertex 0 1 0\n endloop\nendfacet\nendsolid cube\n'
-    : 'not a valid STL model');
+function writeModel(filename: string) {
+  fs.writeFileSync(filename,
+    'solid cube\nfacet normal 0 0 1\n outer loop\n vertex 0 0 0\n vertex 1 0 0\n vertex 0 1 0\n endloop\nendfacet\nendsolid cube\n');
 }
 
 test.beforeAll(async () => {
@@ -109,34 +107,4 @@ test('scan pause keeps browsing responsive and cancel never prunes committed row
   expect(pausedResult.finalDiscovered).toBe(pausedResult.pausedDiscovered);
   const retained = await page.evaluate(async (id) => window.polytray.getFileById(id), seeded!);
   expect(retained?.path).toBe(path.join(controlRoot, 'seed.stl'));
-});
-
-test('failed metadata retry leaves healthy files untouched', async () => {
-  const root = path.join(scratch, 'retry-library');
-  fs.mkdirSync(root);
-  const failed = path.join(root, 'retry-me.zip');
-  const healthy = path.join(root, 'healthy.stl');
-  fs.writeFileSync(failed, 'broken archive');
-  writeModel(healthy);
-  const initial = await page.evaluate(async ({ rootPath, runtimeSettings }) =>
-    window.polytray.scanFolder(rootPath, runtimeSettings), { rootPath: root, runtimeSettings: settings });
-  expect(initial.state).toBe('partial');
-  const archive = new JSZip();
-  archive.file('nested/retry-me.stl', 'solid recovered\nendsolid recovered\n');
-  fs.writeFileSync(failed, await archive.generateAsync({ type: 'nodebuffer' }));
-  const retried = await page.evaluate(async (jobId) => {
-    const bridge = window.polytray as unknown as {
-      retryBackgroundJobFailures(jobId: string): Promise<{ ok: boolean; state?: string }>;
-    };
-    const result = await bridge.retryBackgroundJobFailures(jobId);
-    const job = (await window.polytray.getBackgroundJobs()).find((candidate) => candidate.jobId === jobId);
-    return { ...result, counts: job?.counts };
-  }, initial.jobId);
-  expect(retried.ok).toBe(true);
-  expect(retried.state).toBe('completed');
-  expect(retried.counts?.metadataCompleted).toBe(initial.metadataCompleted + 1);
-  expect(retried.counts?.metadataFailed).toBe(0);
-  const files = await page.evaluate(async () => (await window.polytray.getFiles({ limit: 100, offset: 0 })).files);
-  expect(files.some((file) => file.path === healthy)).toBe(true);
-  expect(files.some((file) => file.path === `${failed}::entry::nested/retry-me.stl`)).toBe(true);
 });

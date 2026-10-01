@@ -1,26 +1,38 @@
 name: "Setup and Test"
 description: "Sets up Node, installs dependencies, and runs product tests"
+inputs:
+  test-command:
+    description: "Command to run under the platform display setup (Xvfb + Openbox on Linux)"
+    required: false
+    default: "npm run test:product"
 runs:
   using: "composite"
   steps:
     - name: Setup Node.js
       uses: actions/setup-node@v6
       with:
-        node-version: 20
+        node-version-file: .nvmrc
+        cache: npm
     - name: Install dependencies
       shell: bash
       env:
         POLYTRAY_SKIP_INSTALL_APP_DEPS: "1"
       run: npm ci
-    - name: Install Playwright Browsers
-      shell: bash
-      run: npx playwright install --with-deps
-    - name: Run Product Tests
+    # E2E drives the Electron binary from npm, so no Playwright browser downloads are needed.
+    # Linux still needs Chromium's shared libraries plus the Xvfb display and window manager.
+    - name: Install Linux system dependencies
+      if: runner.os == 'Linux'
       shell: bash
       run: |
+        sudo apt-get update
+        npx playwright install-deps chromium
+        sudo apt-get install -y --no-install-recommends xvfb openbox x11-utils
+    - name: Run Product Tests
+      shell: bash
+      env:
+        POLYTRAY_TEST_COMMAND: ${{ inputs.test-command }}
+      run: |
         if [ "$RUNNER_OS" == "Linux" ]; then
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends openbox x11-utils
           xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" bash -c '
             set -euo pipefail
             openbox --sm-disable > "${RUNNER_TEMP:-/tmp}/polytray-openbox.log" 2>&1 &
@@ -29,7 +41,7 @@ runs:
             trap cleanup EXIT
             for attempt in {1..50}; do
               if xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q "window id"; then
-                npm run test:product
+                eval "$POLYTRAY_TEST_COMMAND"
                 exit
               fi
               if ! kill -0 "$wm_pid" 2>/dev/null; then
@@ -43,5 +55,5 @@ runs:
             exit 1
           '
         else
-          npm run test:product
+          eval "$POLYTRAY_TEST_COMMAND"
         fi
