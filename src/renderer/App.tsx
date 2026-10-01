@@ -16,6 +16,12 @@ import { EmptyState } from "./components/EmptyState";
 import { FileGrid } from "./components/FileGrid";
 import { ScanProgress } from "./components/ScanProgress";
 import { createRefreshDebouncer, type RefreshTargets } from "./lib/refreshDebouncer";
+import {
+  type LibraryScrollAnchor,
+  libraryScrollRestoreTarget,
+  reuseRestoredLibraryScrollAnchor,
+  shouldCaptureLibraryScrollAnchor,
+} from "./lib/libraryScrollAnchor";
 import { calculatePanelLayout } from "./lib/panelLayout";
 import {
   libraryQueryScopeKey,
@@ -125,13 +131,8 @@ export const App: React.FC = () => {
   const slicerContextLaunchFenceRef = useRef(new SlicerContextLaunchFence());
   const previewFocusReturnRef = useRef<HTMLElement | null>(null);
   const pendingPreviewScrollRestoreRef = useRef<number | null>(null);
-  const pendingLibraryScrollAnchorRef = useRef<{
-    itemKey: string;
-    itemIndex: number;
-    columns: number;
-    rowStep: number;
-    scrollTop: number;
-  } | null>(null);
+  const pendingLibraryScrollAnchorRef = useRef<LibraryScrollAnchor | null>(null);
+  const lastRestoredLibraryScrollAnchorRef = useRef<LibraryScrollAnchor | null>(null);
   const libraryScrollRestoreFrameRef = useRef<number | null>(null);
   useLayoutEffect(() => {
     if (previewTarget !== null || pendingPreviewScrollRestoreRef.current === null) return;
@@ -195,12 +196,10 @@ export const App: React.FC = () => {
       const scroller = document.querySelector<HTMLElement>("[data-virtuoso-scroller]");
       if (!scroller) return;
       const currentIndex = libraryPagesRef.current.items.findIndex((item) => item.key === anchor.itemKey);
-      if (currentIndex < 0 || anchor.itemIndex < 0) {
-        scroller.scrollTop = anchor.scrollTop;
-        return;
-      }
-      const rowDelta = Math.floor(currentIndex / anchor.columns) - Math.floor(anchor.itemIndex / anchor.columns);
-      scroller.scrollTop = Math.max(0, anchor.scrollTop + rowDelta * anchor.rowStep);
+      scroller.scrollTop = libraryScrollRestoreTarget(anchor, currentIndex);
+      lastRestoredLibraryScrollAnchorRef.current = currentIndex >= 0 && anchor.itemIndex >= 0
+        ? { ...anchor, itemIndex: currentIndex, scrollTop: scroller.scrollTop }
+        : null;
     });
     return () => {
       if (libraryScrollRestoreFrameRef.current !== null) {
@@ -568,7 +567,22 @@ export const App: React.FC = () => {
     const reads: Promise<unknown>[] = [];
     if (targets.pages) {
       const scroller = document.querySelector<HTMLElement>("[data-virtuoso-scroller]");
-      if (scroller) {
+      const mayCapture = shouldCaptureLibraryScrollAnchor({
+        hasPendingAnchor: pendingLibraryScrollAnchorRef.current !== null,
+        refreshing: libraryPagesRef.current.refreshing,
+        restoreFramePending: libraryScrollRestoreFrameRef.current !== null,
+      });
+      const lastRestored = lastRestoredLibraryScrollAnchorRef.current;
+      const reused = scroller && mayCapture
+        ? reuseRestoredLibraryScrollAnchor(
+            lastRestored,
+            scroller.scrollTop,
+            lastRestored ? libraryPagesRef.current.items.findIndex((item) => item.key === lastRestored.itemKey) : -1,
+          )
+        : null;
+      if (reused) {
+        pendingLibraryScrollAnchorRef.current = reused;
+      } else if (scroller && mayCapture) {
         const bounds = scroller.getBoundingClientRect();
         const cards = [...scroller.querySelectorAll<HTMLElement>("[data-item-key]")];
         const anchor = cards.find((candidate) => {

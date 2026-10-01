@@ -11,7 +11,7 @@ The red builds were not mainly one bad test. They came from how the quality gate
 - **Large batches validated late.** `ci/sandbox` was 375 commits ahead of `main` (about 18.5k lines in `src/`, 17.7k in tests), and Build only ran on `main` pushes and manual dispatch. When a large batch goes red, a failure cannot be traced to a change.
 - **Rotating failures.** Over the four runs before this work, Linux was green every time, and Windows and macOS failed a different set of tests each time. Two Windows failures repeated in every run and are app issues, not test noise (see Remaining).
 
-After the changes below, hosted Build run 36801465403 went from 7 failures (2 macOS, 5 Windows) to 3. All 3 are known app issues that the tests correctly catch.
+After the CI and test changes below, hosted Build run 36801465403 went from 7 failures (2 macOS, 5 Windows) to 3. All 3 were app issues the tests correctly caught. The macOS one (scroll position lost during a streaming scan) is now fixed; the two Windows issues remain.
 
 ## Fixed
 
@@ -26,7 +26,24 @@ After the changes below, hosted Build run 36801465403 went from 7 failures (2 ma
 - **One build before all E2E files.** Previously only `app.e2e.ts` and `viewer-idle.e2e.ts` ran `npm run build` in `beforeAll`, so other files used whatever `out/` existed, and running a single file could launch a stale or missing build. `tests/support/playwright/globalSetup.ts` now builds once before any file. Set `POLYTRAY_E2E_SKIP_BUILD=1` to reuse a fresh build.
 - **`watcher-races`.** `test_model_a.stl` and `test_model_b.stl` are byte-for-byte identical, so the "changed file" step only changed the modified time, which Windows can merge or miss. The test now writes a valid STL that is one triangle larger.
 - **`thumbnail-invalidation`.** The wait for the refreshed thumbnail could finish on the old (blue) path. It now waits for a path different from the original.
-- **`background-work`.** The exact-pixel scroll-anchor check now allows up to 12 px of drift, after a 5 px shift on Linux. It still fails if the anchor card is unmounted.
+- **`background-work`.** The exact-pixel check on one anchor card was replaced: at least half of the cards in view when the scan was cancelled must still be in view after the rescan. See the scroll-position fix below for why the single-card check could not be guaranteed.
+
+### App fix: scroll position lost while a scan streams in files (macOS failure)
+
+`refreshLibrary` in `App.tsx` records the first card in the top visible row before each library refresh. After the refresh it moves `scrollTop` by the number of rows that card shifted. During a streaming scan (the `background-work` rescan indexes 120 files one at a time, all sorting above the cards in view), refreshes arrive every ~150 ms. The anchor was chosen fresh each time:
+
+- Once inserted files shared the top row with the cards the user was reading, the next refresh anchored to an inserted card.
+- Later inserts landed after that card and pushed the original cards out of view.
+- Whether this happened depended on how the scan's batches split, so it failed intermittently, and more often on the macOS runners.
+
+It reproduced locally on Linux in 2 of 6 runs (the anchor card was unmounted and `scrollTop` stopped at 4,894 instead of 10,302).
+
+The fix lives in `src/renderer/lib/libraryScrollAnchor.ts`, with unit tests in `tests/product/unit/renderer/libraryScrollAnchor.test.ts`:
+
+- While the user has not scrolled since the last restore, the app reuses the card it restored last time instead of re-picking whatever card is now on top.
+- It does not record a new anchor while a refresh or its restore frame is still pending, because the DOM then still shows the uncorrected position.
+
+With the old app code the updated test failed 5 of 6 runs; with the fix it passed 10 of 10.
 
 ### The native-module rerun bug
 
@@ -61,11 +78,11 @@ Related rule now in `AGENTS.md`: never run two unit/E2E/Product commands at the 
 
 ## Remaining
 
-### App issues the tests correctly catch (not loosened)
+### Open failures
 
 | Platform | Test | Observation |
 |---|---|---|
-| macOS | `background-work`: retained scroll anchor | After a rescan the anchor card is unmounted (`null`), so the grid loses its scroll position. Failed in 3 of the last 5 macOS runs. |
+| Linux | `integrated-library`: click the tail card of a 600-item grid | Intermittent: failed on Linux in PR run 36807353965 and once on macOS (run 36782669694); the card did not become clickable within 2 s. Untouched by these changes; a candidate for the `E2E Stability` workflow. |
 | Windows | `responsive-layout` | A tiny STL preview stays on "Processing 3D data…" for 30 s after a page reload. Failed in every Windows run reviewed. |
 | Windows | `scan-streaming` | The main-process heartbeat gap exceeds 250 ms during a 5,000-file scan (329 ms, 351 ms, and 1,672 ms seen). Likely synchronous SQLite work on the main thread. Failed in every Windows run reviewed. |
 
