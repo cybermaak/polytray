@@ -24,6 +24,7 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Runs in a completely detached, invisible `BrowserWindow` with `backgroundThrottling: false` to prevent macOS App Nap from freezing the worker.
   - Heavy 3D file parsing is offloaded from the main UI thread. Files are streamed directly into the hidden canvas using a custom `polytray://local/` protocol and `fetch()`, entirely bypassing slow Node-to-Chromium IPC ArrayBuffer serialization overhead.
   - A shared thumbnail job scheduler now provides single-flight execution, path-level dedupe, priority, cancellation of pending work, and bounded retry across scan-triggered, watcher-triggered, and manual thumbnail requests.
+  - Scan-triggered thumbnail results now publish through the revision-checked repository and ready event as each item settles, even while later batch items remain pending; a failed publication does not detach progress before the batch reaches terminal state.
   - Thumbnail cache startup now reconciles a versioned cache metadata file, pruning orphaned PNGs and resetting the cache on version changes.
   - The visible renderer's path-keyed thumbnail image cache stores validated PNG data URLs in a bounded LRU (128 entries / 16 MiB encoded); this is separate from the PNG files on disk.
 - **IPC Validation Architecture:**
@@ -33,7 +34,8 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Interactive preview now uses one unified background-loading entrypoint for all formats.
   - Format-specific parse execution is selected through `src/renderer/lib/previewStrategies.ts` so the UI/viewer path stays unified while the heavy background step can vary by format.
   - `STL` and `OBJ` parse in a dedicated renderer `Worker` and rebuild meshes on the main viewer thread.
-  - `3MF` preview parsing uses a dedicated lazy hidden preview `BrowserWindow`, separate from the hidden thumbnail window, because `ThreeMFLoader` and local 3MF repair rely on DOM APIs such as `DOMParser` that are unavailable in a plain worker context. The owned preview runtime can be restarted to stop obsolete synchronous parsing without closing thumbnail generation.
+  - `3MF` preview parsing uses a dedicated, disposable hidden `BrowserWindow` separate from thumbnail generation because `ThreeMFLoader` and local 3MF repair rely on DOM APIs such as `DOMParser` that are unavailable in a plain worker context.
+  - On Linux, that preview renderer is accepted for parsing only after the main process has a live, exclusive ownership claim. Replacement or close rechecks its PID, Electron process type, `/proc` start identity, and exact renderer/profile command line before a single signal; missing or changed evidence skips signalling and still cleans up the window. The residual PID-reuse race between the final check and Node's signal call is documented in code. Disposable-Linux and hosted x86_64 cancellation and 20-cycle tests pass, while the full hosted Product matrix still has unrelated failures.
   - `3MF` preview loading now prefers a lightweight preview-only parser (`src/renderer/lib/fast3mfPreviewParser.ts`) that extracts only core mesh/component geometry and build transforms while ignoring materials and non-preview metadata; it falls back to `ThreeMFLoader` only for unsupported structures.
   - Large `3MF` preview payloads now travel through a preload-brokered `MessagePort` path so geometry buffers can be transferred renderer-to-renderer without bouncing the full mesh payload back through normal main-process IPC cloning.
   - Shared mesh preparation/serialization logic lives in `src/renderer/lib/meshPrep.ts` and `src/renderer/lib/meshSerialization.ts` to keep thumbnail and preview behavior aligned.
@@ -59,7 +61,11 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **Current Version:** `v1.1.0` is released and the GitHub Release pipeline is green across Ubuntu, macOS, and Windows.
 - **Release State:** Tag `v1.1.0` now points at the post-release CI hardening fixes, and the GitHub Release entry is populated directly via Actions.
 - **CI/CD State:**
-  - `.github/workflows/build.yml` is now a straightforward `Build` workflow that runs on every push to `main` plus manual dispatch.
+  - `.github/workflows/build.yml` is a `Build` workflow that runs on every push to `main`, on pull requests (superseded PR runs are cancelled), and on manual dispatch. Jobs have a 60-minute timeout.
+  - `.github/workflows/e2e-stability.yml` is a manual, non-gating `E2E Stability` workflow that repeats the E2E suite (or a `--grep` subset) per platform and summarizes per-test pass rates via `scripts/summarize-e2e-stability.mjs`.
+  - CI Node is pinned by `.nvmrc` (Node 22) with npm caching; Playwright browser downloads were dropped because E2E drives the npm Electron binary, and Linux installs only Chromium system libraries plus Xvfb/Openbox.
+  - E2E builds `out/` once in Playwright global setup instead of inside `app.e2e.ts`/`viewer-idle.e2e.ts`, so filtered/repeated runs use a fresh build.
+  - Findings, fixes, and open items from the 2026-10-01 CI stability review are in `docs/plans/2026-10-01-ci-stability-review.md`. Harness self-tests live in `tests/support/__tests__/` and run in the Node unit phase.
   - `.github/workflows/release.yml` remains tag-driven for `v*` releases and reuses the same setup/test and packaging logic.
   - Shared packaging logic lives in `.github/actions/package-app/action.yml`.
   - Artifact patterns were tightened to preserve Electron auto-update compatibility (`*.dmg`, `*-mac.zip`, `*.blockmap`, `latest*.yml`) while dropping unused `snap` artifacts.
@@ -76,6 +82,10 @@ If you are an AI assistant reading this file at the start of a session, use it t
   - Shared helpers/fixtures live under `tests/support/`.
   - One-off engineering helpers live under `tests/dev/`.
   - Node-side tests are now written in TypeScript and executed through `scripts/run-node-tests.mjs` with `tsx`.
+- **Virtualized grid keyboard focus:** `FileGrid` keeps the requested item key while `react-virtuoso` mounts a distant card. It retries a dropped scroll within a bounded animation-frame sequence and cancels that sequence if a different card or outside control receives focus, so a late mount cannot steal a newer focus choice.
+- **Library scroll anchoring during refreshes:** `refreshLibrary` keeps the user's place by row across library refreshes. While the user has not scrolled since the last restore it reuses the previously restored anchor card, and it never records a new anchor while a refresh or restore frame is pending (`src/renderer/lib/libraryScrollAnchor.ts`). Re-picking the top card on every refresh let a streaming scan drift the view onto newly inserted files.
+- **Hosted Product validation:** The local hardening candidate passes the complete Product gate (495 unit passes and 74 E2E passes, with one optional skip in each phase). [Sandbox run 36786572780](https://github.com/cybermaak/polytray/actions/runs/36786572780) passed full macOS and Linux Build jobs; Windows finished 72 E2E passes/2 failures because a completed 5,000-file scan exceeded the strict 250 ms main heartbeat gap and a tiny STL preview stayed loading for 30 seconds. Diagnostic work is ongoing; see `docs/performance/hosted-ci-36752768437.md` for exact evidence and limits.
+  - Windows offline-root E2E stops the watcher before renaming its private fixture root because the open directory may return `EPERM`. It verifies restart with the root missing and recovery after return; disappearance during uninterrupted live watching remains unverified on Windows. macOS and Linux retain the live-disappearance test path.
 - **Docs State:** `README.md` was refreshed into a landing-page style product overview, and the demo media under `docs/assets/` is now generated from the live app via `scripts/capture-readme-media.ts`.
 - **Agent Docs State:** Root `AGENTS.md` now captures repo-specific working agreements, architecture gotchas, and a verification matrix for future contributors/agents.
 - **Next Focus:** Remaining `v1.2` product work (`F7`-`F10`) plus the outstanding `v1.1.x` correctness and performance follow-ups.
@@ -449,6 +459,73 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **One-off Engineering Test Utilities:** `tests/dev/`
 - **Docs / Design Notes / Capture Scripts:** `docs/plans/`, `docs/mockups/`, `docs/assets/`, `scripts/capture-readme-media.ts`, `scripts/run-node-tests.mjs`
 
-## Current validation checkpoint (2026-09-29)
+## Historical validation checkpoint (2026-09-29)
 
 The current execution state is recorded in the authoritative [33-task tracker](docs/plans/2026-09-26-performance-ux/tracker.md): 31 tasks DONE, G02 REVIEW, and G03 IN_PROGRESS. This dated checkpoint supersedes older task-order snapshots. Application/test candidate `2ee8523` passed `npm run build` and `PYTHON=/usr/bin/python3 npm run test:product` (480 unit passes, 1 Windows-only skip; 70 E2E passes, 1 optional real-model skip) on macOS 25.6 arm64 / Apple M3 Ultra. G02 measured grouped 50k query latency, early startup visibility during scope backfill, per-stage scan queue bounds, one Polytray metadata utility process through 20 preview cycles, encoded thumbnail-cache residency, app-owned 3MF bridge/service settlement, and three dense WebGL timer-query samples. Windows/Linux/CI app evidence remains open. The 107 ms task was observed on multipart; C10's numeric 100 ms long-task row names dense preview, while V04's multipart-interactivity finding remains open. Do not claim cross-platform readiness or mark G02/G03 DONE. See [the final integration review](docs/performance/final-integration-review.md) for measured values, scope, and residuals.
+
+## Product-first restart checkpoint (2026-10-01)
+
+The scoped restart follows the [restart plan](docs/plans/2026-09-30-execution-reset-plan.md).
+The isolated candidate imports reviewed ci/sandbox `cdf7967`. Focused task checks
+precede the P04 broad gate; one independent review remains P05. Track current
+outcomes in the [restart tracker](docs/plans/2026-09-30-execution-reset-tracker.md).
+Primary marketing WIP is excluded. Automation, main push and publication remain paused.
+
+P00 reconciliation is complete and P01's small-window preview repair passes focused
+macOS and Windows checks. Windows synchronous transaction
+boundary stalls persist; WAL128 was rejected after a controlled comparison worsened
+scan time while still exceeding the unchanged heartbeat limit. No database tuning or
+transient probe ships in the candidate. See the restart tracker for exact measurements,
+commits and the deferred architecture brief. The user now accepts a temporary Windows
+scan heartbeat <=400ms (other platforms250ms), with the long-term250ms goal deferred
+to DB-WORKER-01. This is an acceptance disposition,
+not a performance fix. P03 passed four focused local cases with no additional repair demonstrated; P04-P06,
+automation, main push and publication remain paused.
+
+October 2: P04 is explicitly active for a frozen-candidate local Product and hosted
+Build matrix. P05/P06, automation and deferred architecture/stability work remain paused.
+See the single restart tracker for exact candidate/results and coverage limitations.
+
+October 2 P04 completion: exact candidate2b61aa1 passed local Node22 full Product
+(499 units/1 platform skip;72 E2Es/1 optional real-model skip) and hosted Build37011206604
+on macOS/Linux/Windows, including each CI packaging target. No repair/retry or budget
+change was needed. Windows scan heartbeat270.64ms passes the previously approved400ms
+exception; the desired250ms goal remains DB-WORKER-01. Screenshots/feature evidence and
+all coverage/signing limitations are in the restart tracker. Later completion changes
+are documentation only. P05/P06, automation, deferred work and publication remain paused.
+
+October 2 P05 review found one blocking restore/paused-scan admission deadlock. The
+user authorized simple exclusion and then P06. Scans/bulk scans/metadata retry remain
+counted through full settlement; restore rejects busy work before renderer locking,
+blocks admission races and handles busy renderer handshakes recoverably. UI disables
+Apply while scans are active/paused while keeping preview/scan controls available.
+The final changed-source gate is required before local integration; automation/deferred
+work and main push/publication stay paused. See the restart tracker for proof/results.
+
+Final P05-fix source4298174 passes local Product (507 units/1 platform skip,73 E2Es/1
+optional skip), and the new restore exclusion case passes all hosted OSes. Final matrix
+37038058657 remains red only on scan heartbeat: Linux253.727ms >250, Windows751.743ms
+>400. P06 integration is held for explicit disposition; primary user work is unchanged.
+No budget change or database-worker implementation is inferred from these results.
+
+October 2 explicit P06 answer: keep scan tests enabled with provisional Linux300ms,
+Windows850ms and macOS250ms budgets. Reference goal250ms and unrelated targets stay
+unchanged. DB-WORKER-01 includes worker-era scan test replacement/recalibration with
+controlled latency/throughput/durability proof. No performance fix is claimed; prior
+red matrix remains red. P06 now proceeds after the new exact-candidate hosted Build.
+
+October 2 clarified scan fallback: only Linux/Windows numeric scan heartbeat ceilings
+are report-only, keeping300/850 comparisons and full timing/slow-phase evidence plus
+explicit warnings. Both E2Es, functional/data-safety and measurement checks remain
+enabled; macOS250 and unrelated budgets stay blocking. Windows1495ms is not fixed.
+DB-WORKER-01 owns recalibration/restored strict checks. A separate exact-tail navigation
+failure remains blocking and is under narrow repair before P06 integration.
+
+October 2 P06 local handoff: normal merge integrates the accepted product-first tree,
+retaining primary historical reports and user work. Exact6fdb549 functional Build37047833281
+passes all3OS507 units/73 E2Es perOS with documented skips and packaging. Only numeric
+Linux/Windows scan ceilings are report-only (300/850 comparisons with full evidence);
+macOS250 and functional/unrelated checks stay blocking. The desired250ms reference goal,
+DB-WORKER-01, coverage/profile-isolation/security race limitations remain open/disclosed.
+G03 documentation/local handoff is complete; G02 remains REVIEW. Relevant source tree
+identity supports reuse of exact candidate evidence. No main push/publication/automation.

@@ -75,7 +75,7 @@ ZIP cards open an archive preview where you can select a contained model without
 
 ### Metadata backup and restore
 
-Export creates a metadata backup; it does not include source models or thumbnail files. Import first shows a preview. The default merge combines tags and collection membership, fills blank notes and default print status, and reports conflicting non-empty values for review. Paths that are not currently indexed remain pending so their annotations can be matched after the appropriate folder is scanned. Restoring folder settings does not start scanning or watching automatically. If recovery data cannot be applied, Polytray keeps the recovery state visible instead of treating the restore as complete.
+Export creates a metadata backup; it does not include source models or thumbnail files. Import first shows a preview. Before choosing Apply import, finish or cancel active scans, including paused scans. You can still review the preview. If a busy scan causes an import to be refused, finish or cancel it and choose the backup again to retry. The default merge combines tags and collection membership, fills blank notes and default print status, and reports conflicting non-empty values for review. Paths that are not currently indexed remain pending so their annotations can be matched after the appropriate folder is scanned. Restoring folder settings does not start scanning or watching automatically. If recovery data cannot be applied, Polytray keeps the recovery state visible instead of treating the restore as complete.
 
 ## Development
 

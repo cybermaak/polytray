@@ -17,6 +17,8 @@ function exists(relPath: string) {
 test('package scripts separate product tests from repo verification', () => {
   assert.ok(packageJson.scripts['test:product']);
   assert.ok(packageJson.scripts['test:product:unit']);
+  // Harness self-tests live beside the support code and run in the Node-ABI unit phase.
+  assert.match(packageJson.scripts['test:product:unit'], /tests\/support\/__tests__/);
   assert.ok(packageJson.scripts['test:product:e2e']);
   assert.ok(packageJson.scripts['test:repo']);
   assert.equal(packageJson.scripts['test:e2e'], 'npm run test:product:e2e');

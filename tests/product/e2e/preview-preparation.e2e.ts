@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import JSZip from 'jszip';
 import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
+import { installShutdownEvidence } from '../../support/helpers/shutdownEvidence';
+import { attachGridFailureEvidence } from '../../support/helpers/gridFailureEvidence';
 
 const APP_DIR = path.resolve(__dirname, '../../..');
 const SETTINGS = {
@@ -105,8 +107,10 @@ test('dense and transformed multipart previews report first-frame and render-sub
       await writeFallback3mf(path.join(library, 'fallback.3mf'));
     },
   });
+  let closeWithEvidence: Awaited<ReturnType<typeof installShutdownEvidence>> | null = null;
 
   try {
+    closeWithEvidence = await installShutdownEvidence(isolated.app, test.info().outputPath('shutdown-evidence.jsonl'), isolated.userDataDir);
     const page = await findMainWindow(isolated.app);
     await page.waitForLoadState('domcontentloaded');
     await page.locator('#search-input').waitFor();
@@ -490,7 +494,16 @@ test('dense and transformed multipart previews report first-frame and render-sub
 
         await page.evaluate(() => { (window as Window & { __V05_PROBE?: { inactive: boolean } }).__V05_PROBE!.inactive = false; });
         const reopenMultipart = page.locator('.file-card').filter({ has: page.locator('.card-name[title="multipart"]') }).first();
-        await reopenMultipart.click();
+        try {
+          await page.locator('#file-grid [data-item-key]').first().focus();
+          await page.keyboard.press('End');
+          await expect(reopenMultipart).toBeVisible({ timeout: 10_000 });
+          await reopenMultipart.click();
+        }
+        catch (error) {
+          await attachGridFailureEvidence(page, 'multipart-reopen', '.card-name[title="multipart"]');
+          throw error;
+        }
         await expect(page.locator('#viewer-loading')).toHaveClass(/hidden/, { timeout: 30000 });
         await expect.poll(() => page.evaluate(() => (window as Window & { __V05_PROBE?: { pendingBlobs: number } }).__V05_PROBE?.pendingBlobs ?? 0)).toBeGreaterThan(0);
         const closeBaseline = await page.evaluate(() => {
@@ -520,6 +533,7 @@ test('dense and transformed multipart previews report first-frame and render-sub
       expect(contextLoss.every(Boolean)).toBe(true);
     }
   } finally {
-    await isolated.close();
+    if (closeWithEvidence) await closeWithEvidence(() => isolated.close());
+    else await isolated.close();
   }
 });

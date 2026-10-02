@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import JSZip from 'jszip';
 import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
+import { attachGridFailureEvidence } from '../../support/helpers/gridFailureEvidence';
 
 const appDir = path.resolve(__dirname, '../../..');
 const runtime = {
@@ -116,17 +117,136 @@ test('integrated 600-record library keeps paging and annotations through archive
     await expect.poll(async () => Number(await page.locator('.file-card:not(.archive-summary)').first().getAttribute('data-file-id')))
       .toBe(before.items[0].file.id);
 
+    const orderedKeys = [...before.items, ...tail.items].map((item) => item.key);
     const tailCard = page.locator(`.file-card[data-file-id="${tail.items[0].file.id}"]`);
-    await page.locator('[data-virtuoso-scroller]').hover();
-    await expect.poll(async () => {
-      if (await tailCard.isVisible().catch(() => false)) return true;
-      await page.locator('[data-virtuoso-scroller]').evaluate(element => element.scrollTo({ top: element.scrollHeight, behavior: 'instant' }));
-      return false;
-    }, { timeout: 30_000, intervals: [100, 250, 500] }).toBe(true);
+    try {
+      const scroller = page.locator('[data-virtuoso-scroller]');
+      await scroller.hover();
+      const firstPageHeight = await scroller.evaluate((element) => element.scrollHeight);
+      await page.mouse.wheel(0, firstPageHeight);
+      const pageOneLastCard = page.locator(`[data-item-key="${before.items[499].key}"]`);
+      let navigationState = 'waiting';
+      await expect.poll(async () => {
+        if (await tailCard.count()) return navigationState = 'target';
+        if (await pageOneLastCard.count()) {
+          return navigationState = await page.locator('.library-page-footer').count() ? 'edge' : 'loaded';
+        }
+        const firstMountedKey = await page.locator('#file-grid [data-item-key]').first().getAttribute('data-item-key');
+        if (firstMountedKey && orderedKeys.indexOf(firstMountedKey) > 500) return navigationState = 'beyond';
+        return navigationState;
+      }, { timeout: 15_000 }).not.toBe('waiting');
+      if (navigationState === 'edge') {
+        await pageOneLastCard.focus();
+        await page.keyboard.press('ArrowDown');
+        await expect(tailCard).toBeVisible({ timeout: 15_000 });
+      } else if (navigationState === 'loaded') {
+        await page.mouse.wheel(0, 500);
+      } else if (navigationState === 'beyond') {
+        const delta = await page.evaluate((keys) => {
+          const grid = document.querySelector<HTMLElement>('#file-grid');
+          const first = grid?.querySelector<HTMLElement>('[data-item-key]');
+          if (!grid || !first) return 0;
+          const firstIndex = keys.indexOf(first.dataset.itemKey ?? '');
+          const columns = getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/).length;
+          const rowGap = Number.parseFloat(getComputedStyle(grid).rowGap) || 0;
+          return Math.ceil((firstIndex - 500) / columns) * (first.getBoundingClientRect().height + rowGap);
+        }, orderedKeys);
+        await page.mouse.wheel(0, -Math.max(500, delta));
+      }
+      await expect(tailCard).toBeVisible({ timeout: 30_000 });
+    } catch (error) {
+      await attachGridFailureEvidence(page, 'integrated-tail', `.file-card[data-file-id="${tail.items[0].file.id}"]`);
+      throw error;
+    }
     await expect(tailCard.locator('.card-name')).toBeVisible();
-    await tailCard.locator('.file-select-toggle').click();
+    const tailId = String(tail.items[0].file.id);
+    // Reproduce a late wheel/virtualizer update after visibility: the exact target
+    // can unmount before pointer selection, so navigation must recover that ID.
+    await page.locator('[data-virtuoso-scroller]').hover();
+    await page.mouse.wheel(0, 100_000);
+    await expect(tailCard).toHaveCount(0);
+
+    const tailTogglePoint = () => page.evaluate((fileId) => {
+      const button = document.querySelector<HTMLButtonElement>(`.file-card[data-file-id="${fileId}"] .file-select-toggle`);
+      const scroller = button?.closest<HTMLElement>('[data-virtuoso-scroller]');
+      if (!button || !scroller) return null;
+      const rect = button.getBoundingClientRect();
+      const viewport = scroller.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      return {
+        x, y,
+        scrollTop: scroller.scrollTop,
+        scrollerX: viewport.left + viewport.width / 2,
+        scrollerY: viewport.top + viewport.height / 2,
+        deltaY: y - (viewport.top + viewport.height / 2),
+        inViewport: x >= viewport.left && x <= viewport.right && y >= viewport.top && y <= viewport.bottom,
+        hit: button.contains(document.elementFromPoint(x, y)),
+      };
+    }, tailId);
+    const waitForReachableTail = async () => {
+      const deadline = Date.now() + 1_500;
+      let previousScrollTop: number | null = null;
+      while (Date.now() < deadline) {
+        const point = await tailTogglePoint();
+        if (point?.inViewport && point.hit && point.scrollTop === previousScrollTop) return point;
+        previousScrollTop = point?.scrollTop ?? null;
+        await page.waitForTimeout(50);
+      }
+      return null;
+    };
+    const clickMountedTailToggle = async () => {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        if (!await tailTogglePoint()) {
+          const recovery = await page.evaluate(({ keys, targetKey }) => {
+            const scroller = document.querySelector<HTMLElement>('[data-virtuoso-scroller]');
+            const grid = document.querySelector<HTMLElement>('#file-grid');
+            const first = grid?.querySelector<HTMLElement>('[data-item-key]');
+            if (!scroller || !grid || !first) return null;
+            const firstIndex = keys.indexOf(first.dataset.itemKey ?? '');
+            const targetIndex = keys.indexOf(targetKey);
+            if (firstIndex < 0 || targetIndex < 0) return null;
+            const columns = getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/).length;
+            const rowGap = Number.parseFloat(getComputedStyle(grid).rowGap) || 0;
+            const viewport = scroller.getBoundingClientRect();
+            const firstBounds = first.getBoundingClientRect();
+            const rows = Math.floor(targetIndex / columns) - Math.floor(firstIndex / columns);
+            return {
+              x: viewport.left + viewport.width / 2, y: viewport.top + viewport.height / 2,
+              delta: firstBounds.top - viewport.top + rows * (firstBounds.height + rowGap) - viewport.height / 2,
+            };
+          }, { keys: orderedKeys, targetKey: tail.items[0].key });
+          if (!recovery) throw new Error('Current grid geometry cannot locate the exact tail ID');
+          await page.mouse.move(recovery.x, recovery.y);
+          await page.mouse.wheel(0, Math.round(recovery.delta));
+        }
+        await expect.poll(async () => Boolean(await tailTogglePoint()), { timeout: 2_000 }).toBe(true);
+        const point = await tailTogglePoint();
+        if (!point) continue;
+        if (point.inViewport && point.hit) {
+          const stable = await waitForReachableTail();
+          if (stable) {
+            await page.mouse.click(stable.x, stable.y);
+            return;
+          }
+        }
+        const current = await tailTogglePoint();
+        if (!current) continue;
+        await page.mouse.move(current.scrollerX, current.scrollerY);
+        await page.mouse.wheel(0, Math.round(current.deltaY || 120));
+        const settled = await waitForReachableTail();
+        if (settled) {
+          await page.mouse.click(settled.x, settled.y);
+          return;
+        }
+      }
+      throw new Error('Exact tail toggle did not become pointer reachable inside the grid');
+    };
+    await clickMountedTailToggle();
     await expect(page.locator('#batch-selection-count')).toHaveText('1 selected');
-    await tailCard.locator('.file-select-toggle').click();
+    await expect(tailCard.locator('.file-select-toggle')).toHaveAttribute('aria-pressed', 'true');
+    await clickMountedTailToggle();
+    await expect(page.locator('#batch-actions')).toHaveCount(0);
 
     const visibleCards = page.locator('.file-card:not(.archive-summary)');
     await page.locator('[data-virtuoso-scroller]').evaluate(element => element.scrollTo({ top: 0, behavior: 'instant' }));

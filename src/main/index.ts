@@ -35,7 +35,7 @@ import { createElectronPreviewWindowManager } from "./previewWindow";
 import { registerPreviewParseHandler } from "./previewParseService";
 import { createMetadataRestoreService } from "./metadataRestoreService";
 import { createMetadataRestoreJournal } from "./metadataRestoreJournal";
-import { createMetadataRestoreLeaseReservation, createMetadataRestoreMutationGate } from "./metadataRestoreMutationGate";
+import { createMetadataRestoreLeaseReservation, createMetadataRestoreMutationGate, MetadataRestoreAdmissionError } from "./metadataRestoreMutationGate";
 import { registerMetadataBackupHandlers, registerMetadataRestoreHandlers } from "./ipc/metadataBackup";
 import { createMetadataRestoreWatcherResumeHandler } from "./watcher";
 
@@ -329,7 +329,7 @@ let startupComplete = false;
 let blockedStartupMutationLeaseRelease: (() => Promise<void>) | null = null;
 let blockedStartupLeaseReservationRelease: (() => void) | null = null;
 let blockedStartupRendererLocked = false;
-const rendererCommandAcks = new Map<string, { resolve: () => void; timer: NodeJS.Timeout }>();
+const rendererCommandAcks = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
 
 function updateRendererRestoreSnapshot(snapshot: MetadataBackupSnapshot & { preferences: Record<string, unknown> }) {
   rendererRestoreSnapshot = {
@@ -345,6 +345,11 @@ async function runMainMutation<T>(operation: () => T | Promise<T>): Promise<T> {
   return metadataRestoreMutationGate.run(operation);
 }
 
+async function runScanMutation<T>(operation: () => T | Promise<T>): Promise<T> {
+  await startupReady;
+  return metadataRestoreMutationGate.run(operation, { kind: "scan" });
+}
+
 function requestRendererCommand(channel: string, payload: Record<string, unknown>): Promise<void> {
   const target = mainWindow;
   if (!target || target.isDestroyed() || target.webContents.isDestroyed()) {
@@ -356,7 +361,8 @@ function requestRendererCommand(channel: string, payload: Record<string, unknown
       rendererCommandAcks.delete(requestId);
       reject(new Error("Timed out waiting for renderer metadata restore acknowledgment"));
     }, 30_000);
-    rendererCommandAcks.set(requestId, { resolve: () => { clearTimeout(timer); resolve(); }, timer });
+    rendererCommandAcks.set(requestId, { resolve: () => { clearTimeout(timer); resolve(); },
+      reject: error => { clearTimeout(timer); reject(error); }, timer });
     target.webContents.send(channel, { ...payload, requestId });
   });
 }
@@ -365,18 +371,20 @@ function applyRendererRestoreState(state: StagedMetadataRestore) {
   return requestRendererCommand(METADATA_RESTORE_IPC.applyEvent, { state });
 }
 
-function setRendererRestoreMutationLock(locked: boolean) {
-  return requestRendererCommand(METADATA_RESTORE_IPC.mutationLockEvent, { locked });
+function setRendererRestoreMutationLock(locked: boolean, requireIdle = false) {
+  return requestRendererCommand(METADATA_RESTORE_IPC.mutationLockEvent, { locked, requireIdle });
 }
 
-function acknowledgeRendererCommand(event: Electron.IpcMainInvokeEvent, requestId: unknown) {
+function acknowledgeRendererCommand(event: Electron.IpcMainInvokeEvent, requestId: unknown, reason?: "busy" | "failed") {
   if (!mainWindow || event.sender !== mainWindow.webContents || typeof requestId !== "string") {
     throw new Error("Invalid metadata restore renderer acknowledgment");
   }
   const pending = rendererCommandAcks.get(requestId);
   if (!pending) throw new Error("Metadata restore renderer acknowledgment is no longer pending");
   rendererCommandAcks.delete(requestId);
-  pending.resolve();
+  if (reason === "busy") pending.reject(new MetadataRestoreAdmissionError("Finish current library changes before applying this import."));
+  else if (reason === "failed") pending.reject(new MetadataRestoreAdmissionError("Could not prepare the renderer for this import; retry the preview."));
+  else pending.resolve();
 }
 
 function readMainWindowVisibility(target: BrowserWindow): MainWindowVisibilityData {
@@ -521,7 +529,7 @@ function registerIpcHandlers() {
   });
   registerLibraryHandlers(getMainWindow, { runMutation: runMainMutation });
   scanningHandlers = registerScanningHandlers(getMainWindow, undefined, {
-    runMutation: runMainMutation,
+    runMutation: runScanMutation,
     onThrottle: scanQueueMetrics?.observe,
     onQueueMetricsComplete: scanQueueMetrics?.write,
   });
@@ -569,7 +577,9 @@ function registerMetadataRestoreCommandAcks() {
   });
   ipcMain.handle(METADATA_RESTORE_IPC.mutationLockAck, (event, raw: unknown) => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid metadata restore lock acknowledgment");
-    acknowledgeRendererCommand(event, (raw as { requestId?: unknown }).requestId);
+    const payload = raw as { requestId?: unknown; reason?: unknown };
+    if (payload.reason !== undefined && payload.reason !== "busy" && payload.reason !== "failed") throw new Error("Invalid restore lock rejection");
+    acknowledgeRendererCommand(event, payload.requestId, payload.reason);
     return { status: "acknowledged" };
   });
 }
@@ -640,9 +650,12 @@ app.whenReady().then(() => {
       let rendererLocked = false;
       let resumeWatcher: ((restored: { folderPaths: string[]; settings: RuntimeSettingsData; watch: boolean; autoScan: boolean }) => Promise<void>) | null = null;
       try {
-        await setRendererRestoreMutationLock(true);
+        // Close scan admission atomically before a renderer handshake can wait on Add Folder.
+        const scanRevision = metadataRestoreMutationGate.getScanAttemptRevision();
+        releaseGate = await metadataRestoreMutationGate.acquire({ excludeScans: true });
         rendererLocked = true;
-        releaseGate = await metadataRestoreMutationGate.acquire();
+        await setRendererRestoreMutationLock(true, true);
+        metadataRestoreMutationGate.assertScanAdmissionUnchanged(scanRevision);
         const activeWindow = mainWindow;
         if (!activeWindow) throw new Error("Metadata restore renderer is unavailable");
         resumeWatcher = createMetadataRestoreWatcherResumeHandler(activeWindow, getDb(), runMainMutation);
@@ -666,8 +679,8 @@ app.whenReady().then(() => {
           }
         };
       } catch (error) {
-        if (releaseGate) await releaseGate().catch(() => undefined);
         if (rendererLocked) await setRendererRestoreMutationLock(false).catch(() => undefined);
+        if (releaseGate) await releaseGate().catch(() => undefined);
         releaseReservation();
         throw error;
       }

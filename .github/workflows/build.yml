@@ -4,11 +4,20 @@ on:
   push:
     branches:
       - main
+  pull_request:
   workflow_dispatch:
+
+# A newer push to the same PR supersedes its in-flight run; main and dispatch runs always finish.
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
+    # Windows Product currently takes ~20 minutes; a hang should fail fast, not burn the 6-hour default.
+    timeout-minutes: 60
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -18,6 +27,17 @@ jobs:
 
       - name: Setup and Test
         uses: ./.github/actions/setup-and-test
+
+      - name: Upload Test Failure Evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: polytray-${{ runner.os }}-test-failures
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Package App
         uses: ./.github/actions/package-app

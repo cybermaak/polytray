@@ -30,7 +30,8 @@ export function createRendererMutationGate() {
     });
   }
 
-  async function lock(): Promise<void> {
+  async function lock(options: { requireIdle?: boolean } = {}): Promise<void> {
+    if (options.requireIdle && (active > 0 || draining)) throw new Error('Finish current library changes before applying this import.');
     if (locked) return;
     locked = true;
     if (active > 0) await new Promise<void>(resolve => idleWaiters.push(resolve));

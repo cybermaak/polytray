@@ -12,7 +12,7 @@
  *  8. Sort order changes work
  *  9. Settings modal opens and closes
  *
- * Requires: npm run build (produces out/ directory)
+ * The Playwright global setup builds out/ once before any E2E file runs.
  * Run with: npx playwright test
  */
 
@@ -236,10 +236,6 @@ async function resetUiState() {
 }
 
 test.beforeAll(async () => {
-  // Build the app first
-  const { execSync } = require("child_process");
-  execSync("npm run build", { cwd: APP_DIR, stdio: "pipe" });
-
   // Create isolated userData
   tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), "polytray-test-"));
 

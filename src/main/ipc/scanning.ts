@@ -59,7 +59,9 @@ export function registerScanningHandlers(
     pause: async (jobId) => scanService.pause(jobId),
     resume: async (jobId) => scanService.resume(jobId),
     cancel: async (jobId) => scanService.cancel(jobId),
-    retryFailures: async (jobId) => scanService.retryFailures(jobId),
+    retryFailures: async (jobId) => options.runMutation
+      ? options.runMutation(() => scanService.retryFailures(jobId))
+      : scanService.retryFailures(jobId),
   });
 
   const stopThumbnailJobEvents = onThumbnailBackgroundJobChanged((job) => {
@@ -137,10 +139,14 @@ export function registerScanningHandlers(
       folders: string[] = getSetting<string[]>("library_folders", []),
       settings?: RuntimeSettingsData,
     ) => {
-    for (const folder of folders.map((entry) => parseFolderPath(entry))) {
-      await performScan(folder, settings ? parseRuntimeSettings(settings) : undefined);
-    }
-    return folders;
+    const scanAll = async () => {
+      for (const folder of folders.map((entry) => parseFolderPath(entry))) {
+        await performScan(folder, settings ? parseRuntimeSettings(settings) : undefined);
+      }
+      return folders;
+    };
+    // Keep admission excluded between roots as well as during each individual scan.
+    return options.runMutation ? options.runMutation(scanAll) : scanAll();
   });
 
   ipcMain.handle(IPC.CLEAR_THUMBNAILS, async (event, settings?: RuntimeSettingsData) => {

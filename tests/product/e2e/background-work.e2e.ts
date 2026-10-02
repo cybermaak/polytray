@@ -2,7 +2,8 @@ import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import JSZip from 'jszip';
-import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
+import { launchIsolatedApp, renameIsolatedFixtureRoot } from '../../support/helpers/isolatedApp';
+import { attachGridFailureEvidence } from '../../support/helpers/gridFailureEvidence';
 import { createThumbnailIdentity, thumbnailCacheFilename } from '../../../src/main/thumbnailIdentity';
 
 const modelFixture = path.join(process.cwd(), 'tests/support/fixtures/test_model_a.stl');
@@ -93,25 +94,28 @@ test('background job controls retain browse state and watch follows only watch s
     await expect(jobCard).not.toContainText('thumbnails generated');
     await expect(page.locator('.file-card[aria-label="first-batch.stl"]')).toBeVisible();
     const browseScroller = page.locator('[data-virtuoso-scroller]');
-    await browseScroller.evaluate((element) => { element.scrollTop = 500; });
+    // The first 31 files may still be arriving; retry until the grid is tall enough to scroll, or
+    // the browser clamps to 0 and the test silently checks the top of the list instead.
+    await expect.poll(() => browseScroller.evaluate((element) => {
+      element.scrollTop = 500;
+      return element.scrollTop;
+    })).toBe(500);
     await jobCard.getByRole('button', { name: 'Pause' }).click();
     fs.writeFileSync(releasePath, 'release bounded discovery unit for pause acknowledgement');
     await expect(jobCard).toHaveAttribute('data-job-state', 'paused');
     await jobCard.getByRole('button', { name: 'Cancel' }).click();
     await expect(jobCard).toHaveAttribute('data-job-state', 'cancelled');
-    const retainedAnchor = await page.evaluate(() => {
+    // Cards in view when the scan was cancelled; the rescan below inserts 120 files above them.
+    const visibleKeysInScroller = () => page!.evaluate(() => {
       const scroller = document.querySelector<HTMLElement>('[data-virtuoso-scroller]');
-      if (!scroller) return null;
+      if (!scroller) return [];
       const bounds = scroller.getBoundingClientRect();
-      const card = [...document.querySelectorAll<HTMLElement>('.file-card')].find((candidate) => {
-        const rect = candidate.getBoundingClientRect();
+      return [...scroller.querySelectorAll<HTMLElement>('.file-card')].filter((card) => {
+        const rect = card.getBoundingClientRect();
         return rect.bottom > bounds.top && rect.top < bounds.bottom;
-      });
-      return card?.dataset.itemKey ? {
-        itemKey: card.dataset.itemKey,
-        topOffset: Math.round(card.getBoundingClientRect().top - bounds.top),
-      } : null;
+      }).map((card) => card.dataset.itemKey ?? '').filter(Boolean);
     });
+    const retainedVisibleKeys = await visibleKeysInScroller();
 
     // A rescan while watch is disabled must not start a watcher on completion.
     await page.evaluate(async (folder) => {
@@ -119,14 +123,20 @@ test('background job controls retain browse state and watch follows only watch s
     }, root);
     await expect.poll(() => page!.evaluate(async () => (await window.polytray.getBackgroundJobs()).some((job) => job.kind === 'scan' && ['completed', 'partial'].includes(job.state)))).toBe(true);
     await expect.poll(() => page!.evaluate(() => (window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0)).toBe(0);
-    expect(retainedAnchor).toBeTruthy();
-    await expect.poll(() => page!.evaluate((itemKey) => {
-      const scroller = document.querySelector<HTMLElement>('[data-virtuoso-scroller]');
-      if (!scroller || !itemKey) return null;
-      const bounds = scroller.getBoundingClientRect();
-      const card = [...scroller.querySelectorAll<HTMLElement>('.file-card')].find((candidate) => candidate.dataset.itemKey === itemKey);
-      return card ? Math.round(card.getBoundingClientRect().top - bounds.top) : null;
-    }, retainedAnchor?.itemKey)).toBe(retainedAnchor?.topOffset ?? null);
+    expect(retainedVisibleKeys.length).toBeGreaterThan(0);
+    // The grid keeps the user's place by row, so cards that shared a row with inserted files may
+    // shift by one row; most of the cards that were in view must still be in view. Losing the
+    // scroll position instead leaves only newly inserted cards on screen.
+    try {
+      await expect.poll(async () => {
+        const visible = new Set(await visibleKeysInScroller());
+        return retainedVisibleKeys.filter((key) => visible.has(key)).length;
+      }, { message: `at least half of ${JSON.stringify(retainedVisibleKeys)} stay in view after the rescan` })
+        .toBeGreaterThanOrEqual(Math.ceil(retainedVisibleKeys.length / 2));
+    } catch (error) {
+      await attachGridFailureEvidence(page, 'background-anchor');
+      throw error;
+    }
     const rescanTerminalId = await page.evaluate(async (folder) => (await window.polytray.getBackgroundJobs()).find((job) => job.rootPath === folder && job.state === 'completed')?.jobId, root);
     if (rescanTerminalId) await page.locator(`[data-job-id="${rescanTerminalId}"]`).getByRole('button', { name: 'Dismiss' }).click();
 
@@ -183,6 +193,9 @@ test('background job controls retain browse state and watch follows only watch s
       return jobs.find((job) => job.rootPath === folder && job.state === 'partial')?.jobId ?? null;
     }, retryRoot)).not.toBeNull();
     await page.locator('.background-work-details').evaluate((element) => { (element as HTMLDetailsElement).open = true; });
+    const healthyBeforeRetry = await page.evaluate(async folder =>
+      (await window.polytray.getFiles({ folder, limit: 50, offset: 0 })).files.find(file => file.name === 'healthy'), retryRoot);
+    expect(healthyBeforeRetry).toBeTruthy();
     const retryJobId = await page.evaluate(async (folder) => (await window.polytray.getBackgroundJobs()).find((job) => job.rootPath === folder && job.state === 'partial')!.jobId, retryRoot);
     const retryCard = page.locator(`[data-job-id="${retryJobId}"]`);
     await expect(retryCard).toContainText('metadata failures');
@@ -192,8 +205,16 @@ test('background job controls retain browse state and watch follows only watch s
     fs.writeFileSync(badArchive, await archive.generateAsync({ type: 'nodebuffer' }));
     await retryCard.getByRole('button', { name: 'Retry failed items' }).click();
     await expect(retryCard).toHaveAttribute('data-job-state', 'completed', { timeout: 20_000 });
-    await browseScroller.evaluate((element) => { element.scrollTop = 0; });
+    const healthyAfterRetry = await page.evaluate(async folder =>
+      (await window.polytray.getFiles({ folder, limit: 50, offset: 0 })).files.find(file => file.name === 'healthy'), retryRoot);
+    expect(healthyAfterRetry?.id).toBe(healthyBeforeRetry!.id);
+    expect(healthyAfterRetry?.content_revision).toBe(healthyBeforeRetry!.content_revision);
+    // Retained virtual-grid anchors can settle after the job's terminal event.
+    // Navigate to the exact healthy record through the normal search UI.
+    await page.locator('#search-input').fill('healthy');
     await expect(page.locator('.file-card[aria-label="healthy.stl"]')).toBeVisible();
+    await expect(page.locator('.file-card[aria-label="healthy.stl"]')).toHaveAttribute('data-file-id', String(healthyBeforeRetry!.id));
+    await page.locator('#search-clear').click();
 
     // Enable the real utility watcher, then prove irrelevant settings do not reconfigure it.
     await page.getByRole('button', { name: 'Settings' }).click();
@@ -244,7 +265,14 @@ test('background job controls retain browse state and watch follows only watch s
     const scanCompleteBeforeOffline = await page.evaluate(() => (window as Window & { __scanCompleteCount?: number }).__scanCompleteCount ?? 0);
     const unavailableBefore = await page.evaluate(() => (window as Window & { __rootUnavailableCount?: number }).__rootUnavailableCount ?? 0);
     const offlineRoot = `${root}-offline`;
-    fs.renameSync(root, offlineRoot);
+    const stoppedRuntime = { thumbnail_timeout: 30_000, scanning_batch_size: 50, watcher_stability: 160, page_size: 120, thumbnailColor: '#336699', thumbQuality: '512' as const };
+    // A live Windows watcher may lock its root against rename; restart it on the missing path.
+    if (process.platform === 'win32') await page.evaluate(() => window.polytray.stopWatching());
+    await renameIsolatedFixtureRoot(root, offlineRoot);
+    if (process.platform === 'win32') {
+      await page.evaluate(({ folder, runtime }) => window.polytray.startWatching([folder], runtime),
+        { folder: root, runtime: stoppedRuntime });
+    }
     await expect.poll(() => page!.evaluate((before) => ((window as Window & { __rootUnavailableCount?: number }).__rootUnavailableCount ?? 0) > before, unavailableBefore), { timeout: 15_000 }).toBe(true);
     const offlineStatus = page.locator('.offline-root-status');
     await expect(offlineStatus).toBeVisible();
@@ -255,13 +283,12 @@ test('background job controls retain browse state and watch follows only watch s
     await page.getByRole('button', { name: 'Settings' }).click();
     await page.locator('label.toggle-switch:has(#setting-watch)').click();
     await expect(page.locator('#setting-watch')).not.toBeChecked();
-    const stoppedRuntime = { thumbnail_timeout: 30_000, scanning_batch_size: 50, watcher_stability: 160, page_size: 120, thumbnailColor: '#336699', thumbQuality: '512' as const };
     await expect.poll(() => page!.evaluate((runtime) => window.polytray.updateWatcherSettings(runtime), stoppedRuntime)).toBe(false);
     await page.locator('#settings-close').click();
     fs.rmSync(path.join(offlineRoot, 'offline-target.stl'));
     fs.rmSync(releasePath, { force: true });
     fs.rmSync(reachedPath, { force: true });
-    fs.renameSync(offlineRoot, root);
+    await renameIsolatedFixtureRoot(offlineRoot, root);
     await expect.poll(() => page!.evaluate(() => (window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0)).toBe(2);
     await expect(offlineStatus).toBeVisible();
     await expect(offlineCard).toBeVisible();
@@ -313,7 +340,12 @@ test('background job controls retain browse state and watch follows only watch s
     await page.locator('#settings-close').click();
     const unavailableBeforePartial = await page.evaluate(() => (window as Window & { __rootUnavailableCount?: number }).__rootUnavailableCount ?? 0);
     const partiallyOfflineRoot = `${root}-partial-offline`;
-    fs.renameSync(root, partiallyOfflineRoot);
+    if (process.platform === 'win32') await page.evaluate(() => window.polytray.stopWatching());
+    await renameIsolatedFixtureRoot(root, partiallyOfflineRoot);
+    if (process.platform === 'win32') {
+      await page.evaluate(({ folder, runtime }) => window.polytray.startWatching([folder], runtime),
+        { folder: root, runtime: rapidRuntime });
+    }
     await expect.poll(() => page!.evaluate((before) => ((window as Window & { __rootUnavailableCount?: number }).__rootUnavailableCount ?? 0) > before, unavailableBeforePartial), { timeout: 15_000 }).toBe(true);
     const partialOfflineStatus = page.locator('.offline-root-status');
     await expect(partialOfflineStatus).toBeVisible();
@@ -321,7 +353,12 @@ test('background job controls retain browse state and watch follows only watch s
     fs.rmSync(releasePath, { force: true });
     fs.rmSync(reachedPath, { force: true });
     const availableBeforePartial = await page.evaluate(() => (window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0);
-    fs.renameSync(partiallyOfflineRoot, root);
+    if (process.platform === 'win32') await page.evaluate(() => window.polytray.stopWatching());
+    await renameIsolatedFixtureRoot(partiallyOfflineRoot, root);
+    if (process.platform === 'win32') {
+      await page.evaluate(({ folder, runtime }) => window.polytray.startWatching([folder], runtime),
+        { folder: root, runtime: rapidRuntime });
+    }
     await expect.poll(() => page!.evaluate((before) => ((window as Window & { __rootAvailability?: string[] }).__rootAvailability?.length ?? 0) > before, availableBeforePartial), { timeout: 15_000 }).toBe(true);
     await expect(partialOfflineStatus).toHaveCount(0);
     await expect.poll(() => fs.existsSync(reachedPath), { timeout: 15_000 }).toBe(true);

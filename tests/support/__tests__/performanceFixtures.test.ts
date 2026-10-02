@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { createPerformanceDatabase } from '../../../support/fixtures/performanceFixtures';
+import { createPerformanceDatabase } from '../fixtures/performanceFixtures';
 
 test('performance database creates deterministic rows, folders, sort ties, and collection seed', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-performance-fixture-test-'));

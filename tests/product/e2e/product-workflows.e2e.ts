@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import JSZip from 'jszip';
 import { buildElectronLaunchArgs, buildElectronLaunchEnv } from '../../support/helpers/electronLaunch';
+import { findMainWindow } from '../../support/helpers/isolatedApp';
+import { attachGridFailureEvidence } from '../../support/helpers/gridFailureEvidence';
 
 const appRoot = path.resolve(__dirname, '../../..');
 const runtimeSettings = { thumbnail_timeout: 20000, scanning_batch_size: 2, watcher_stability: 1000, page_size: 100, thumbnailColor: '#8888aa', thumbQuality: '128' as const };
@@ -76,9 +78,7 @@ test.beforeAll(async () => {
   fs.writeFileSync(path.join(library, 'models.zip'), await zip.generateAsync({ type: 'nodebuffer' }));
 
   app = await launchWorkflowApp();
-  page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
-  await page.locator('#search-input').waitFor();
+  page = await findMainWindow(app);
   await page.addInitScript((rootPath) => localStorage.setItem('polytray-library-state', JSON.stringify({ libraryFolders: [rootPath], lastFolder: rootPath })), library);
   await page.reload();
   await page.locator('#search-input').waitFor();
@@ -90,6 +90,47 @@ test.afterAll(async () => {
   if (app) await app.close();
   if (scratch) fs.rmSync(scratch, { recursive: true, force: true });
 });
+
+function prepareHeldSlicerLaunch() {
+  fs.rmSync(launchReachedPath, { force: true });
+  fs.rmSync(launchReleasePath, { force: true });
+  fs.writeFileSync(launchHoldPath, 'hold');
+}
+
+function launchCount() {
+  return fs.existsSync(launchLog) ? fs.readFileSync(launchLog, 'utf8').trim().split('\n').filter(Boolean).length : 0;
+}
+
+async function prepareConflictBackup(filename: string, pendingModelName: string) {
+  const regular = await page.evaluate(async () => (await window.polytray.getFiles({ limit: 100, offset: 0 })).files.find(file => file.name === 'regular'));
+  expect(regular).toBeTruthy();
+  await page.evaluate(async file => window.polytray.updateFileMetadata({ id: file.id, tags: ['existing'], notes: 'keep my note' }), regular!);
+
+  await ensureSettingsOpen();
+  const exportPath = path.join(scratch, 'metadata-backup.json');
+  fs.rmSync(exportPath, { force: true });
+  await page.locator('#export-metadata-backup').click();
+  await expect.poll(() => fs.existsSync(exportPath)).toBe(true);
+  const rawExport = fs.readFileSync(exportPath, 'utf8');
+  expect(rawExport).not.toContain('facet normal');
+  const exported = JSON.parse(rawExport) as {
+    annotations: Array<{ path: string; tags: string[]; notes: string | null }>;
+    pendingAnnotations: Array<{ path: string; tags: string[]; notes: string | null }>;
+    libraryRoots: string[];
+    preferences: Record<string, unknown>;
+  };
+  const indexed = exported.annotations.find(annotation => annotation.path === regular!.path);
+  expect(indexed).toBeTruthy();
+  indexed!.tags.push('from-backup');
+  indexed!.notes = 'different imported note';
+  const pendingModelPath = path.join(library, pendingModelName);
+  exported.pendingAnnotations = [{ path: pendingModelPath, tags: ['later'], notes: 'pending note' }];
+  exported.libraryRoots = [path.join(scratch, 'replacement-root')];
+  exported.preferences.autoScan = false;
+  const backupPath = path.join(scratch, filename);
+  fs.writeFileSync(backupPath, JSON.stringify(exported));
+  return { regular: regular!, pendingModelPath, backupPath };
+}
 
 test('explicitly hands off an indexed model and only a chosen archive member', async () => {
   await page.locator('#btn-settings').click();
@@ -131,7 +172,8 @@ test('does not carry completed or in-flight slicer state to a different archive 
   await page.locator('#btn-settings').click();
   await page.locator('#pick-slicer-application').click();
   await page.locator('#settings-close').click();
-  fs.writeFileSync(launchHoldPath, 'hold');
+  const launchesBefore = launchCount();
+  prepareHeldSlicerLaunch();
   try {
     const regularCard = page.locator('.file-card').filter({ has: page.locator('.card-name[title="regular"]') });
     await regularCard.click();
@@ -141,7 +183,16 @@ test('does not carry completed or in-flight slicer state to a different archive 
     await expect.poll(() => fs.existsSync(launchReachedPath)).toBe(true);
 
     const archiveCard = page.locator('.file-card.archive-summary').filter({ has: page.locator('.card-name[title="models.zip"]') });
-    await archiveCard.click();
+    try {
+      await page.locator('#file-grid [data-item-key]').first().focus();
+      await page.keyboard.press('Home');
+      await expect(archiveCard).toBeVisible({ timeout: 10_000 });
+      await archiveCard.click();
+    }
+    catch (error) {
+      await attachGridFailureEvidence(page, 'archive-switch', '.file-card.archive-summary .card-name[title="models.zip"]');
+      throw error;
+    }
     const member = page.locator('#archive-preview-models button[title="archive-model.stl"]');
     await expect(member).toBeVisible();
     await member.click();
@@ -150,7 +201,9 @@ test('does not carry completed or in-flight slicer state to a different archive 
     await expect(page.getByRole('status').filter({ hasText: 'Model opened in the selected application.' })).toHaveCount(0);
 
     fs.writeFileSync(launchReleasePath, 'release');
-    await expect.poll(() => fs.readFileSync(launchLog, 'utf8').trim().split('\n').length).toBe(3);
+    await expect.poll(launchCount).toBe(launchesBefore + 1);
+    const lastLaunch = JSON.parse(fs.readFileSync(launchLog, 'utf8').trim().split('\n').at(-1)!) as { modelPath: string };
+    expect(lastLaunch.modelPath).toBe(path.join(library, 'regular.stl'));
     await expect(page.getByRole('status').filter({ hasText: 'Preparing slicer handoff…' })).toHaveCount(0);
     await expect(page.getByRole('status').filter({ hasText: 'Model opened in the selected application.' })).toHaveCount(0);
   } finally {
@@ -162,7 +215,10 @@ test('does not carry completed or in-flight slicer state to a different archive 
 });
 
 test('announces slicer preparation while the isolated mock launch is held', async () => {
-  fs.writeFileSync(launchHoldPath, 'hold');
+  await page.locator('#btn-settings').click();
+  await page.locator('#pick-slicer-application').click();
+  await page.locator('#settings-close').click();
+  prepareHeldSlicerLaunch();
   try {
     const regularCard = page.locator('.file-card').filter({ has: page.locator('.card-name[title="regular"]') });
     await regularCard.click();
@@ -199,29 +255,9 @@ test('shows honest measurement labels and compare uses the same file-size termin
 });
 
 test('previews, cancels, and applies portable metadata restore with conflicts and unmatched pending paths', async () => {
-  const regular = await page.evaluate(async () => (await window.polytray.getFiles({ limit: 100, offset: 0 })).files.find(file => file.name === 'regular'));
-  expect(regular).toBeTruthy();
-  await page.evaluate(async file => window.polytray.updateFileMetadata({ id: file.id, tags: ['existing'], notes: 'keep my note' }), regular!);
-
-  await page.locator('#btn-settings').click();
-  await page.locator('#export-metadata-backup').click();
-  await expect.poll(() => fs.existsSync(path.join(scratch, 'metadata-backup.json'))).toBe(true);
-  const exported = JSON.parse(fs.readFileSync(path.join(scratch, 'metadata-backup.json'), 'utf8')) as {
-    annotations: Array<{ path: string; tags: string[]; notes: string | null }>;
-    pendingAnnotations: Array<{ path: string; tags: string[]; notes: string | null }>;
-    libraryRoots: string[];
-    preferences: Record<string, unknown>;
-  };
-  expect(fs.readFileSync(path.join(scratch, 'metadata-backup.json'), 'utf8')).not.toContain('facet normal');
-  const indexed = exported.annotations.find(annotation => annotation.path === regular!.path)!;
-  indexed.tags.push('from-backup');
-  indexed.notes = 'different imported note';
-  const laterModelPath = path.join(library, 'later-model.stl');
-  exported.pendingAnnotations.push({ path: laterModelPath, tags: ['later'], notes: 'pending note' });
-  exported.libraryRoots = [path.join(scratch, 'replacement-root')];
-  exported.preferences.autoScan = false;
-  const validBackup = path.join(scratch, 'conflict-backup.json');
-  fs.writeFileSync(validBackup, JSON.stringify(exported));
+  test.setTimeout(120_000);
+  const { regular, pendingModelPath: laterModelPath, backupPath: validBackup } =
+    await prepareConflictBackup('conflict-backup.json', 'later-model.stl');
   const malformed = path.join(scratch, 'malformed-backup.json');
   fs.writeFileSync(malformed, '{ malformed');
 
@@ -251,6 +287,8 @@ test('previews, cancels, and applies portable metadata restore with conflicts an
   await expect(page.locator('#metadata-backup-title').locator('..')).toContainText('1 annotations waiting for matching files');
   await expect(page.locator('#metadata-backup-title').locator('..')).toContainText('Recovery backup:');
   await expect(page.locator('#settings-overlay')).not.toContainText('Import committed. Waiting');
+  await expect(page.locator('#metadata-backup-title').locator('..'))
+    .toContainText('Metadata import applied. The library and local settings are in sync.', { timeout: 30_000 });
   await page.reload();
   await expect(page.locator('#search-input')).toBeVisible();
   const recovered = await page.evaluate(async id => window.polytray.getFileById(id), regular!.id);
@@ -264,8 +302,42 @@ test('previews, cancels, and applies portable metadata restore with conflicts an
   expect(localState.settings.autoScan).toBe(true);
 
   await page.locator('#btn-settings').click();
-  await page.locator('#retry-pending-annotations').click();
-  await expect(page.locator('#metadata-backup-title').locator('..')).toContainText('Matched 0 pending annotations');
+  try {
+    await page.locator('#retry-pending-annotations').click();
+    await expect(page.locator('#metadata-backup-title').locator('..')).toContainText('Matched 0 pending annotations', { timeout: 30_000 });
+  } catch (error) {
+    let probeTimer: NodeJS.Timeout | undefined;
+    let attachTimer: NodeJS.Timeout | undefined;
+    try {
+      const diagnostic = await Promise.race([
+        page.evaluate(async () => {
+          const bounded = async <T,>(request: Promise<T>) => Promise.race([
+            request.then(value => ({ state: 'completed' as const, value }), cause => ({ state: 'failed' as const, error: String(cause) })),
+            new Promise<{ state: 'pending' }>(resolve => setTimeout(() => resolve({ state: 'pending' }), 2000)),
+          ]);
+          return {
+            retryDisabled: (document.querySelector('#retry-pending-annotations') as HTMLButtonElement | null)?.disabled ?? null,
+            panelText: document.querySelector('#metadata-backup-title')?.parentElement?.textContent ?? null,
+            restoreStatus: await bounded(window.polytray.getMetadataRestoreStatus()),
+            backgroundJobs: await bounded(window.polytray.getBackgroundJobs()),
+          };
+        }).catch(cause => ({ probeError: String(cause) })),
+        new Promise<{ probeTimedOut: true }>(resolve => { probeTimer = setTimeout(() => resolve({ probeTimedOut: true }), 5000); }),
+      ]);
+      await Promise.race([
+        test.info().attach('pending-retry-state.json', {
+          body: Buffer.from(JSON.stringify(diagnostic, null, 2)),
+          contentType: 'application/json',
+        }),
+        new Promise<void>(resolve => { attachTimer = setTimeout(resolve, 2000); }),
+      ]);
+    } catch { /* Diagnostic failure must not replace the original assertion. */ }
+    finally {
+      if (probeTimer) clearTimeout(probeTimer);
+      if (attachTimer) clearTimeout(attachTimer);
+    }
+    throw error;
+  }
   writeStl(laterModelPath, 'later');
   await page.evaluate(({ rootPath, settings }) => window.polytray.scanFolder(rootPath, settings), { rootPath: library, settings: runtimeSettings });
   await expect.poll(async () => page.evaluate(async filePath => (await window.polytray.getFiles({ limit: 100, offset: 0 })).files.find(file => file.path === filePath)?.notes, laterModelPath)).toBe('pending note');
@@ -346,7 +418,8 @@ test('closing Settings during a pre-marker commit clears its failed preview with
 });
 
 test('startup rolls a committed restore forward when the renderer has not applied it yet', async () => {
-  const backup = JSON.parse(fs.readFileSync(path.join(scratch, 'conflict-backup.json'), 'utf8')) as { preferences: Record<string, unknown> };
+  const prepared = await prepareConflictBackup('roll-forward-backup.json', 'roll-forward-later.stl');
+  const backup = JSON.parse(fs.readFileSync(prepared.backupPath, 'utf8')) as { preferences: Record<string, unknown> };
   backup.preferences.autoScan = false;
   const transactionId = await page.evaluate(async backupData => {
     const libraryState = JSON.parse(localStorage.getItem('polytray-library-state') ?? '{}') as { libraryFolders: string[] };
@@ -373,25 +446,25 @@ test('startup rolls a committed restore forward when the renderer has not applie
 
   await app.close();
   app = await launchWorkflowApp();
-  page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
+  page = await findMainWindow(app);
   await expect(page.locator('#search-input')).toBeVisible({ timeout: 30000 });
+  // The shell is visible before the committed restore has rolled renderer state forward.
+  await expect.poll(async () => page.evaluate(async () => (await window.polytray.getMetadataRestoreStatus()).unresolved), { timeout: 30000 }).toBe(false);
   const recoveredState = await page.evaluate(() => ({
     library: JSON.parse(localStorage.getItem('polytray-library-state') ?? '{}') as { libraryFolders: string[] },
     settings: JSON.parse(localStorage.getItem('polytray-settings') ?? '{}') as { autoScan: boolean },
   }));
   expect(recoveredState.library.libraryFolders).toEqual([library]);
   expect(recoveredState.settings.autoScan).toBe(false);
-  await expect.poll(async () => page.evaluate(async () => (await window.polytray.getMetadataRestoreStatus()).unresolved), { timeout: 30000 }).toBe(false);
   const status = await page.evaluate(() => window.polytray.getMetadataRestoreStatus());
   expect(status.error).toBeNull();
 });
 
 test('shows retained recovery after an acknowledgment failure and recovers on restart', async () => {
-  await ensureSettingsOpen();
+  const prepared = await prepareConflictBackup('ack-recovery-backup.json', 'ack-recovery-later.stl');
   fs.writeFileSync(path.join(scratch, 'metadata-restore-ack-failure'), 'fail next acknowledgement');
   await page.locator('#choose-metadata-backup').click();
-  await page.locator('#metadata-backup-file').setInputFiles(path.join(scratch, 'conflict-backup.json'));
+  await page.locator('#metadata-backup-file').setInputFiles(prepared.backupPath);
   await expect(page.locator('#apply-metadata-import')).toBeEnabled();
   await page.locator('#apply-metadata-import').click();
   const recoveryNotice = page.getByRole('status').filter({ hasText: 'Metadata restore recovery needs attention' });
@@ -406,8 +479,7 @@ test('shows retained recovery after an acknowledgment failure and recovers on re
 
   await app.close();
   app = await launchWorkflowApp();
-  page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
+  page = await findMainWindow(app);
   await expect(page.locator('#search-input')).toBeVisible({ timeout: 30000 });
   await expect.poll(async () => page.evaluate(async () => (await window.polytray.getMetadataRestoreStatus()).unresolved), { timeout: 30000 }).toBe(false);
 });

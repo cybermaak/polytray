@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
+import { launchIsolatedApp, renameIsolatedFixtureRoot } from '../../support/helpers/isolatedApp';
 
 const settings = {
   thumbnail_timeout: 20_000,
@@ -40,6 +40,17 @@ async function readRow(page: import('@playwright/test').Page, folder: string, fi
 function copyModel(source: string, target: string) {
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.copyFileSync(source, target);
+}
+
+/** Overwrite with a valid binary STL one triangle larger, so size and bytes change as well as mtime. */
+function writeGrownModel(source: string, target: string) {
+  const original = fs.readFileSync(source);
+  const triangleCount = original.readUInt32LE(80);
+  const lastTriangle = original.subarray(84 + (triangleCount - 1) * 50, 84 + triangleCount * 50);
+  const grown = Buffer.concat([original.subarray(0, 84 + triangleCount * 50), lastTriangle]);
+  grown.writeUInt32LE(triangleCount + 1, 80);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, grown);
 }
 
 test('utility watcher indexes before enrichment, fences scan churn, and recovers an unavailable root', async () => {
@@ -130,7 +141,9 @@ test('utility watcher indexes before enrichment, fences scan churn, and recovers
       catch { return 0; }
     }, outsidePath)).toBe(403);
 
-    copyModel(path.join(process.cwd(), 'tests/support/fixtures/test_model_b.stl'), watchedPath);
+    // test_model_a/b are byte-identical; an identical overwrite only changes mtime, which coarse
+    // Windows timestamps and event coalescing can miss.
+    writeGrownModel(path.join(process.cwd(), 'tests/support/fixtures/test_model_a.stl'), watchedPath);
     await expect.poll(async () => (await readRow(page, beforeScan, watchedPath))?.content_revision ?? 0, { timeout: 15_000 })
       .toBeGreaterThan(firstRevision!.content_revision);
     await expect.poll(async () => {
@@ -165,7 +178,14 @@ test('utility watcher indexes before enrichment, fences scan churn, and recovers
       (window as Window & { __watchNotices?: WatchNotice[] }).__watchNotices?.slice(after).some(
         (notice) => notice.type === 'root-available' && notice.filePath === folder,
       ) ?? false, { folder: root, after: noticeCountBeforeReconnect }), { timeout: 15_000 }).toBe(true);
-    fs.renameSync(root, offlineRoot);
+    // Windows can lock a watched directory against rename. Restart on the missing path
+    // to exercise root-unavailable and reconnect handling without renaming a live watcher root.
+    if (process.platform === 'win32') await page.evaluate(() => window.polytray.stopWatching());
+    await renameIsolatedFixtureRoot(root, offlineRoot);
+    if (process.platform === 'win32') {
+      await page.evaluate(({ folder, runtime }) => window.polytray.startWatching([folder], runtime),
+        { folder: root, runtime: settings });
+    }
     await expect.poll(() => page.evaluate(() =>
       (window as Window & { __watchNotices?: WatchNotice[] }).__watchNotices?.some((notice) => notice.type === 'root-unavailable') ?? false),
     { timeout: 15_000 }).toBe(true);
@@ -185,7 +205,7 @@ test('utility watcher indexes before enrichment, fences scan churn, and recovers
     await page.evaluate(({ folder, runtime }) => window.polytray.startWatching([folder], runtime), { folder: root, runtime: settings });
     await expect.poll(() => fs.existsSync(rootStatusReachedPath), { timeout: 15_000 }).toBe(true);
     fs.rmSync(rootStatusReachedPath, { force: true });
-    fs.renameSync(offlineRoot, root);
+    await renameIsolatedFixtureRoot(offlineRoot, root);
     fs.writeFileSync(rootStatusReleasePath, 'release');
     await expect.poll(() => page.evaluate(({ folder, after }) =>
       (window as Window & { __watchNotices?: WatchNotice[] }).__watchNotices?.slice(after).some(
@@ -239,12 +259,14 @@ test('utility watcher indexes before enrichment, fences scan churn, and recovers
     copyModel(path.join(process.cwd(), 'tests/support/fixtures/test_model_a.stl'), restartedAgainPath);
     await expect.poll(async () => (await readRow(page, beforeScan, restartedAgainPath))?.thumbnail ?? null, { timeout: 20_000 }).toBeTruthy();
   } finally {
-    if (offlineRoot && fs.existsSync(offlineRoot) && root && !fs.existsSync(root)) fs.renameSync(offlineRoot, root);
-    if (isolated && rootStatusReleasePath && !fs.existsSync(rootStatusReleasePath)) fs.writeFileSync(rootStatusReleasePath, 'release');
-    if (isolated && releasePath && !fs.existsSync(releasePath)) fs.writeFileSync(releasePath, 'release');
-    if (mainPage) await mainPage.evaluate(() => window.polytray.stopWatching()).catch(() => undefined);
-    if (isolated && rootStatusReachedPath) fs.rmSync(rootStatusReachedPath, { force: true });
-    if (isolated && rootStatusReleasePath) fs.rmSync(rootStatusReleasePath, { force: true });
-    await isolated?.close();
+    try {
+      if (isolated && rootStatusReleasePath && !fs.existsSync(rootStatusReleasePath)) fs.writeFileSync(rootStatusReleasePath, 'release');
+      if (isolated && releasePath && !fs.existsSync(releasePath)) fs.writeFileSync(releasePath, 'release');
+      if (mainPage) await mainPage.evaluate(() => window.polytray.stopWatching()).catch(() => undefined);
+      if (isolated && rootStatusReachedPath) fs.rmSync(rootStatusReachedPath, { force: true });
+      if (isolated && rootStatusReleasePath) fs.rmSync(rootStatusReleasePath, { force: true });
+    } finally {
+      await isolated?.close();
+    }
   }
 });

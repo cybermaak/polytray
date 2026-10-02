@@ -123,7 +123,7 @@ These numeric values are initial acceptance targets to test on recorded hardware
 | Warm folder query, 10k / 50k models, 500-item page | Median <=50 / <=150 ms; 50k p95 <=250 ms on the recorded reference machine, with count and archive grouping included |
 | Same query while heartbeat runs in main | No multi-second main-process stall; max heartbeat gap <=250 ms in the bounded reference test |
 | Cold synthetic 5k-file scan on local storage | First committed visible batch <=1 second, and always before a deliberately delayed second subtree finishes enumeration |
-| Scan steady state | Main heartbeat max gap <=250 ms; queue depth stays within documented bounds; progress publication <=4 Hz plus boundary events |
+| Scan steady state | Main heartbeat max gap <=250 ms (Linux <=300 ms / Windows <=850 ms report-only comparisons; macOS <=250 ms gated; see October 2 exception below); queue depth stays within documented bounds; progress publication <=4 Hz plus boundary events |
 | Settled visible preview | Zero renderer frames during a one-second quiet interval after controls settle; test frame scheduling directly as well as sampled draw calls |
 | Dense synthetic preview | No orientation/normal loop on the visible renderer; cooperative build slices target <=8 ms, with CPU long-task max <=100 ms on reference hardware; separately record GPU upload/driver limits |
 | Preview replacement/cancel | Old request immediately loses publication rights; ports/timers settle; obsolete owned parser stops within 500 ms in the cancellation fixture |
@@ -131,3 +131,58 @@ These numeric values are initial acceptance targets to test on recorded hardware
 | 900 x 600 / 1280 x 800 / 1920 x 1080 | Browsing remains nonzero and usable; docked browse width >=400px; overlay controls reachable at minimum size |
 
 Use five warmups and at least 20 measured query samples, median/p95, fixture shape, runtime versions, and machine/OS information. CI gates deterministic correctness/resource invariants on all supported platforms. Numeric reference performance runs must be recorded separately from less stable shared-runner timing; establish CI timing thresholds from repeated runner measurements in G02, without changing reference targets. Real `base.3mf` remains an optional supplementary run; portable dense and multipart fixtures are mandatory.
+
+### October 1, 2026: temporary Windows scan exception
+
+The user explicitly accepts a **<=400ms maximum main-heartbeat gap during Windows
+scans** while DB-WORKER-01 is deferred. macOS/Linux remain <=250ms. This applies to
+the 5k streaming scan and large-OBJ metadata scan heartbeat assertions, including
+failure diagnostics. The same-query heartbeat row, query p95 <=250ms, first-visible
+batch <=1s, preview cancellation <=500ms, queue bounds and all other targets are
+unchanged. The long-term scan goal remains <=250ms on recorded reference hardware.
+
+The Windows baseline in [run 36959173713](https://github.com/cybermaak/polytray/actions/runs/36959173713)
+measured 372.16ms maximum heartbeat and 17,468ms scan time after release, with exactly
+5,000 persisted rows. It fits the new temporary criterion; the 357.45ms transaction
+boundary is a different metric. This is an acceptance-policy decision, not a database
+performance fix or a retroactive CI pass. The 952.68ms (approximately 953ms) outlier
+in [36878833124](https://github.com/cybermaak/polytray/actions/runs/36878833124) and
+1,672ms in [36786572780](https://github.com/cybermaak/polytray/actions/runs/36786572780)
+remain recorded and exceed even the temporary limit. All historical red runs stay red.
+Default SQLite/checkpoint behavior is retained; WAL128 remains rejected.
+
+Architecture follow-up: [DB-WORKER-01 brief](../2026-10-01-db-worker-01-brief.md).
+Current disposition and evidence: [restart tracker](../2026-09-30-execution-reset-tracker.md).
+
+### October 2, 2026: explicit provisional scan policy, tests remain enabled
+
+The user directs P06 to proceed with Linux scan heartbeat <=300ms and Windows <=850ms;
+macOS remains <=250ms. This supersedes the October 1 Windows400ms exception for future
+runs only. Both streaming5k and metadata-worker scan tests stay enabled with the same
+platform policy for assertions, failure diagnostics and reported metrics. No E2E is
+disabled, no allow-failure/continue-on-error is added, and functional/data-safety checks,
+early-visible1s, exact5,000 rows, queue/progress, query latency/heartbeat and preview
+cancellation500ms limits remain unchanged. The purpose is an honest enabled CI gate,
+not accepting recurring red runs or claiming a performance improvement.
+
+Run37038058657 remains RED under its original Linux250/Windows400 criteria, with
+253.727ms/751.743ms measured; earlier953/1,672ms outliers also remain failed history.
+The desired recorded-reference scan responsiveness stays <=250ms. DB-WORKER-01 must
+revisit these provisional tests after dedicated SQLite worker ownership and ordered
+messaging: controlled same-host/fixture before/after latency and total throughput,
+durability/data-safety proof, and restoration of justified stricter budgets. Exceptions
+must not become permanent through omission. See the worker brief and restart tracker.
+
+### October 2 enabled functional gate with explicit scan timing reports
+
+Using the user's already-authorized disable fallback after Windows1495.502ms >850,
+only the numeric SCAN heartbeat ceiling assertions are report-only on Linux/Windows.
+Both complete E2Es remain enabled; all functional/data-safety, measurement-validity,
+bounded completion, queue/progress, early-visible1s and unrelated query/preview targets
+stay blocking. macOS<=250ms stays blocking. Linux300/Windows850 remain comparison
+thresholds; every sample/slow phase is retained in CI logs, targetMet is reported and
+misses emit explicit warnings. A green functional gate does not mean scan performance
+passed. Prior run37041710616 remains red (also a real tail-selection failure).
+DB-WORKER-01 must address/recalibrate these timing assertions after worker ownership/
+messaging with controlled latency, throughput and durability evidence and stricter
+justified budgets. No whole test skips or blanket continue-on-error are authorized.

@@ -1,7 +1,11 @@
 const { test, expect } = require('@playwright/test');
 const path = require('node:path');
 const fs = require('node:fs');
-const { launchIsolatedApp } = require('../../support/helpers/isolatedApp');
+const { spawnSync } = require('node:child_process');
+const {
+  launchIsolatedApp, closeIsolatedAppWithFallback, cleanupPreservingPrimaryFailure,
+} = require('../../support/helpers/isolatedApp');
+const { attachJsonFailureEvidence } = require('../../support/helpers/failureEvidence');
 const JSZip = require('jszip');
 
 const APP_DIR = path.resolve(__dirname, '../../..');
@@ -71,24 +75,8 @@ function pidIsAlive(pid) {
   catch (error) { return error.code === 'EPERM'; }
 }
 
-async function closeIsolatedApp(isolated) {
-  let timeout;
-  const closed = await Promise.race([
-    isolated.close().then(() => true),
-    new Promise((resolve) => { timeout = setTimeout(() => resolve(false), 5000); }),
-  ]);
-  if (timeout) clearTimeout(timeout);
-  if (closed) return;
-
-  // A deliberately busy test renderer must not leave this isolated Electron app behind on failure.
-  const appProcess = isolated.app.process();
-  appProcess.kill('SIGTERM');
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  if (appProcess.exitCode === null) appProcess.kill('SIGKILL');
-  fs.rmSync(path.dirname(isolated.userDataDir), { recursive: true, force: true });
-}
-
 test('held 3MF parsing is cancelled by latest request without stopping main or thumbnail work', async () => {
+  const testStartedAt = Date.now();
   const isolated = await launchIsolatedApp({
     mainEntry: path.join(APP_DIR, 'out/main/index.js'),
     env: { POLYTRAY_PREVIEW_TEST_HOLD_MS: '8000' },
@@ -101,6 +89,7 @@ test('held 3MF parsing is cancelled by latest request without stopping main or t
   });
 
   let mainWindow;
+  let primaryFailed = false;
   try {
     const appProcess = isolated.app.process();
     let mainOutput = '';
@@ -199,10 +188,91 @@ test('held 3MF parsing is cancelled by latest request without stopping main or t
       (error) => { replacementDispatchFinished = true; replacementDispatchError = error; },
     );
 
-    await expect.poll(() => pidIsAlive(heldPid), { timeout: 1500, intervals: [20, 50, 100] }).toBe(false);
-    const stoppedInMs = Date.now() - replacementStartedAt;
-    console.log('[preview-e2e] old renderer stopped', stoppedInMs);
-    expect(stoppedInMs, 'obsolete renderer is stopped within the C10 replacement budget').toBeLessThanOrEqual(500);
+    let stoppedInMs = 0;
+    try {
+      await expect.poll(() => pidIsAlive(heldPid), { timeout: 1500, intervals: [20, 50, 100] }).toBe(false);
+      stoppedInMs = Date.now() - replacementStartedAt;
+      console.log('[preview-e2e] old renderer stopped', stoppedInMs);
+      expect(stoppedInMs, 'obsolete renderer is stopped within the C10 replacement budget').toBeLessThanOrEqual(500);
+    } catch (error) {
+      await attachJsonFailureEvidence('preview-old-pid-state', async () => {
+        const procStatPath = `/proc/${heldPid}/stat`;
+        let procStat = null;
+        if (process.platform === 'linux') {
+          try { procStat = fs.readFileSync(procStatPath, 'utf8'); }
+          catch { /* The PID may have exited during the diagnostic. */ }
+        }
+        const command = process.platform === 'win32' ? null
+          : spawnSync('ps', ['-o', 'pid,ppid,stat,command', '-p', String(heldPid)], {
+            encoding: 'utf8', timeout: 1000, maxBuffer: 64 * 1024,
+          }).stdout;
+        return {
+          heldPid, mainPid, thumbnailPid,
+          aliveBySignalZero: pidIsAlive(heldPid),
+          linuxProcessState: procStat?.slice(procStat.lastIndexOf(')') + 2).split(' ')[0] ?? null,
+          processListing: command,
+          replacementElapsedMs: Date.now() - replacementStartedAt,
+          replacementDispatchFinished,
+          replacementDispatchError: replacementDispatchError ? String(replacementDispatchError) : null,
+          heldWindow: await heldNative.evaluate((win) => ({
+            destroyed: win.isDestroyed(),
+            webContentsDestroyed: win.webContents.isDestroyed(),
+            rendererPid: win.webContents.isDestroyed() ? null : win.webContents.getOSProcessId(),
+          })).catch((cause) => ({ error: String(cause) })),
+          windows: await Promise.all(isolated.app.windows().map(async candidate => {
+            const url = candidate.url();
+            try {
+              const owner = await isolated.app.browserWindow(candidate);
+              return { url, pid: await owner.evaluate(win => win.webContents.getOSProcessId()) };
+            } catch (cause) { return { url, error: String(cause) }; }
+          })),
+          electronProcesses: await isolated.app.evaluate((electron) => ({
+            metrics: electron.app.getAppMetrics().map((entry) => ({
+              pid: entry.pid, type: entry.type, serviceName: entry.serviceName,
+            })),
+            webContents: electron.webContents.getAllWebContents().map((entry) => ({
+              id: entry.id,
+              destroyed: entry.isDestroyed(),
+              url: entry.isDestroyed() ? null : entry.getURL(),
+              pid: entry.isDestroyed() ? null : entry.getOSProcessId(),
+            })),
+          })).catch((cause) => ({ error: String(cause) })),
+          bridge: await mainWindow.evaluate(() => window.polytray.__previewParsePendingCounts?.()),
+        };
+      });
+      const remainingHoldMs = Math.max(0, 8_500 - (Date.now() - replacementStartedAt));
+      const remainingTestMs = test.info().timeout === 0
+        ? Number.POSITIVE_INFINITY
+        : test.info().timeout - (Date.now() - testStartedAt);
+      // Reserve the full close timeout, exact-process termination, Windows file-lock retries,
+      // and bounded cleanup diagnostics so Playwright cannot replace the C10 assertion.
+      if (remainingTestMs >= remainingHoldMs + 30_000) {
+        if (remainingHoldMs > 0) await new Promise((resolve) => setTimeout(resolve, remainingHoldMs));
+        await attachJsonFailureEvidence('preview-old-pid-late', async () => {
+          let procStat = null;
+          if (process.platform === 'linux') {
+            try { procStat = fs.readFileSync(`/proc/${heldPid}/stat`, 'utf8'); }
+            catch { /* The PID may have exited before the late sample. */ }
+          }
+          return {
+            heldPid,
+            elapsedSinceReplacementMs: Date.now() - replacementStartedAt,
+            aliveBySignalZero: pidIsAlive(heldPid),
+            linuxProcessState: procStat?.slice(procStat.lastIndexOf(')') + 2).split(' ')[0] ?? null,
+            processListing: process.platform === 'win32' ? null : spawnSync('ps', ['-o', 'pid,ppid,stat,etime,command', '-p', String(heldPid)], {
+              encoding: 'utf8', timeout: 1000, maxBuffer: 64 * 1024,
+            }).stdout,
+            electronProcesses: await isolated.app.evaluate((electron) => ({
+              metrics: electron.app.getAppMetrics().map((entry) => ({ pid: entry.pid, type: entry.type })),
+              webContents: electron.webContents.getAllWebContents().map((entry) => ({
+                id: entry.id, pid: entry.isDestroyed() ? null : entry.getOSProcessId(),
+              })),
+            })).catch((cause) => ({ error: String(cause) })),
+          };
+        });
+      }
+      throw error;
+    }
     await expect.poll(() => replacementDispatchFinished, { timeout: 5000 }).toBe(true);
     expect(replacementDispatchError).toBeUndefined();
     await replacementDispatch;
@@ -240,7 +310,13 @@ test('held 3MF parsing is cancelled by latest request without stopping main or t
       'the successful replacement leaves a current preview runtime').toBe(true);
     expect(pidIsAlive(mainPid)).toBe(true);
     expect(pidIsAlive(thumbnailPid)).toBe(true);
+  } catch (error) {
+    primaryFailed = true;
+    throw error;
   } finally {
-    await closeIsolatedApp(isolated);
+    await cleanupPreservingPrimaryFailure(primaryFailed, () => closeIsolatedAppWithFallback(isolated), async (error) => {
+      console.error('[preview-e2e] isolated cleanup also failed:', error);
+      await attachJsonFailureEvidence('preview-isolated-cleanup', async () => ({ error: String(error) }));
+    });
   }
 });

@@ -8,7 +8,7 @@
 
 **Stage 1 gate (2026-09-27):** S02/V03 are verified on integrated source `bf6cdfe` (the then-current HEAD `e4c0829` was docs-only) plus the coalesced-mutation E2E correction. `npm run build` passed. Full `PYTHON=/usr/bin/python3 npm run test:product` passed: 257 unit passes, 1 Windows-only skip; 40 E2E passes, 1 optional real-model skip. The scanner hold needed scoped filesystem watcher access; the default sandbox run's only failure was its recorded EMFILE watcher limit. E2E confirmed 5.1 ms first query, 35.21 ms maximum main heartbeat gap, and 73 ms obsolete preview-renderer stop. The E2E allows coalesced `rowsChanged` flags while direct annotation-only flags remain asserted in the repository unit test.
 
-**Execution scope:** F01, F02, D01-D03, S01-S06, T01-T04, V01-V05, P01-P04, U01-U06, and G01 are reviewed and integrated. G02 and G03 remain.
+**Execution scope:** F01, F02, D01-D03, S01-S06, T01-T04, V01-V05, P01-P04, U01-U06, and G01 are reviewed and integrated. G03 documentation/local handoff is complete under the product-first restart; G02 performance/resource evidence remains REVIEW.
 
 **Stage 2 gate (2026-09-27):** Integrated S03/T02 candidate passed `npm run build` and full `PYTHON=/usr/bin/python3 npm run test:product`: 296 unit passes, 1 Windows-only skip; 42 E2E passes, 1 optional real-model skip. The metadata-worker E2E passed a large OBJ scan with a <=250 ms main heartbeat and clean app shutdown. The thumbnail invalidation E2E passed color refresh, folder isolation, clear/regeneration, missing-reference reconciliation, and cache-version reset. S02 recorded 5.6 ms to first query and 35.17 ms maximum main heartbeat gap; V03 stopped the obsolete renderer in 72 ms. The generated `test_bundle.zip` was restored to baseline SHA256 `6ca9f75c11d9330221860ade9fdb641cac6728a9f0a4cc1883989506a39fc109`.
 
@@ -88,7 +88,7 @@ Warm grouped 50k `GET_LIBRARY_PAGE` measured 100.4/105.8 ms in the worker captur
 | P04 | [Recoverable restore transaction](product.md#p04---apply-restores-with-crash-recovery-across-both-stores) | P2 | P03, S02 | DONE | sequential candidate | [P04](handoffs/P04.md); spec/quality PASS; main/preload/startup/mutation gating integrated; Build and full Product PASS on `96a2128` |
 | G01 | [Integrated correctness and recovery](validation.md#g01---prove-integrated-correctness-and-recovery) | Gate | U05, U06, V05 | DONE | coordinator + `/root/g01_integrated_validation`, Luna/medium | [G01](handoffs/G01.md); integrated `b6074bd`; serial reviews, Build, full Product PASS (477 units/1 Windows skip; 68 E2Es/1 optional skip); fixture restored |
 | G02 | [Performance and resource evidence](validation.md#g02---verify-performance-and-resource-budgets) | Gate | G01 | REVIEW | coordinator + `/root/g02_performance_evidence` | [G02](handoffs/G02.md) and [Sol review](../../performance/sol-independent-review.md); local Build/Product passed on the access-repaired code (489 units/1 skip, 70 E2Es/1 optional skip); hosted units passed on all three runners, but hosted E2E failed/cancelled; 107 ms multipart observation and platform calibration remain open |
-| G03 | [Documentation and readiness](validation.md#g03---reconcile-documentation-and-hand-back-execution-results) | Gate | G02 | IN_PROGRESS | [Final integration packet](../../performance/final-integration-review.md) and [independent review/UAT captures](../../performance/sol-independent-review.md) record the current candidate, exact CI attempts, access residual, and deferred remote validation; supported-platform Product and Windows/Linux human UAT are not verified |
+| G03 | [Documentation and readiness](validation.md#g03---reconcile-documentation-and-hand-back-execution-results) | Gate | G02 | DONE | Sol / product-first P06 | Local integration/handoff complete with functional CI proof; G02 remains REVIEW with explicit performance/resource exceptions |
 
 ## Active assignments
 
@@ -186,3 +186,32 @@ Execution is active. The default Python native-rebuild issue is resolved by sele
 - [ ] Build + Product pass on the integrated result; supported-platform coverage is recorded.
 - [ ] Documentation describes the implemented behavior and remaining limits accurately.
 - [ ] User receives the final evidence and chooses any next publication step.
+
+## October 2 product-first local integration/handoff
+
+The historical31/33 ledger now has32 tasks DONE and G02 REVIEW. G03 closes the scoped
+local documentation/integration handoff; it does not declare all original performance,
+resource, harness-stability, manual-UAT or release requirements complete. Authoritative
+current proof is the [restart tracker](../2026-09-30-execution-reset-tracker.md).
+Astra's P05 read-only review found one blocking paused-scan/import deadlock. Sol's approved
+scan exclusion fixes it with running/paused/retry/direct-IPC/admission-race regressions,
+62 focused unit and13 affected E2E passes, plus hosted three-platform proof.
+
+Application source4298174 passed local full Product (507 units/1 platform skip,
+73 E2Es/1 optional skip). Final functional/test-policy candidate6fdb549 passed
+[Build37047833281](https://github.com/cybermaak/polytray/actions/runs/37047833281)
+on macOS/Linux/Windows with507 unit and73 E2E passes perOS and CI packaging. Only
+Linux/Windows numeric scan ceilings are report-only under explicit user authorization;
+comparison thresholds300/850ms and full sample/slow-phase evidence remain, macOS250
+and all functional/sample-validity/unrelated targets remain blocking. DB-WORKER-01
+owns worker-era recalibration/stricter budgets and actual synchronous database stalls.
+Earlier failed/cancelled runs stay historical failures; no speedup is claimed.
+
+Normal local main integration preserves main's historical reports/workflows and the
+current restart plan, with relevant product/test/config tree compared to6fdb549.
+User AGENTS/DEV_CONTEXT/capture hunks and untracked marketing/superpowers remain
+uncommitted. No origin/main push or publication. Manual cross-platform UAT,
+Windows uninterrupted live disappearance, optional real base.3mf, unsupported GPU
+elapsed timing, signing/notarization, reference/performance/stability repeats and raw
+resource coverage remain disclosed. The earlier host-profile isolation incident and
+PID-reuse/parent-directory race residuals remain historical evidence, not erased.

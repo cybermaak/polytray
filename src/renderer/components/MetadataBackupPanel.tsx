@@ -1,4 +1,5 @@
 import React from "react";
+import { SCAN_BLOCKS_METADATA_IMPORT_MESSAGE } from "../../shared/metadataRestoreScanAdmission";
 import type { MetadataBackupSnapshot, MetadataImportCancelResult, MetadataImportPlan, MetadataRestoreStatus, StagedMetadataRestore } from "../../shared/backupContracts";
 import type { MetadataRestoreAcknowledgeResult } from "../../shared/backupContracts";
 import { subscribeToRestoreStatusRefresh } from "../lib/restoreStatusSubscription";
@@ -7,11 +8,12 @@ import { formatMetadataImportCancelFailure, formatMetadataRestoreAcknowledgmentF
 interface Props {
   getSnapshot: () => MetadataBackupSnapshot & { preferences: Record<string, unknown> };
   disabled?: boolean;
+  scanWorkActive?: boolean;
   onRecoveryError: (message: string | null) => void;
   onImportNotice: (message: string | null) => void;
 }
 
-export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = false, onRecoveryError, onImportNotice }) => {
+export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = false, scanWorkActive = false, onRecoveryError, onImportNotice }) => {
   const [plan, setPlan] = React.useState<MetadataImportPlan | null>(null);
   const [replaceSettings, setReplaceSettings] = React.useState(false);
   const [replaceRoots, setReplaceRoots] = React.useState(false);
@@ -146,6 +148,7 @@ export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = f
 
   const applyImport = async () => {
     if (!plan) return;
+    if (scanWorkActive) { setMessage(SCAN_BLOCKS_METADATA_IMPORT_MESSAGE); return; }
     onImportNotice(null);
     commitInProgressRef.current = true;
     setBusy(true); setMessage("Applying metadata and local settings…");
@@ -265,8 +268,9 @@ export const MetadataBackupPanel: React.FC<Props> = ({ getSnapshot, disabled = f
         <div><dt>Library root replacement</dt><dd>{plan.replaceRoots ? "Included" : "Not selected"}</dd></div>
       </dl>
       {plan.unmatchedPaths.length > 0 && <details><summary>Unmatched paths</summary><ul>{plan.unmatchedPaths.map(path => <li key={path}>{path}</li>)}</ul></details>}
+      {scanWorkActive && <p role="status">{SCAN_BLOCKS_METADATA_IMPORT_MESSAGE}</p>}
       <div className="settings-row">
-        <button type="button" id="apply-metadata-import" disabled={disabled || busy} onClick={() => void applyImport()}>Apply import</button>
+        <button type="button" id="apply-metadata-import" disabled={disabled || busy || scanWorkActive} onClick={() => void applyImport()}>Apply import</button>
         <button type="button" id="cancel-metadata-import" disabled={busy} onClick={() => void cancelPreview()}>Cancel</button>
       </div>
     </div>}

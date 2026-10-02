@@ -416,7 +416,8 @@ export async function generateThumbnailsInBackground(
     if (win && !win.isDestroyed()) win.webContents.send(IPC.THUMBNAIL_PROGRESS, createThumbnailProgressEvent(job, total));
   });
   try {
-    await Promise.all((await batch.results).map(async ({ request, thumbnailPath, error }) => {
+    const publications = batch.resultPromises.map(async (resultPromise) => {
+      const { request, thumbnailPath, error } = await resultPromise;
       const target = targets.find((candidate) => candidate.request.dedupeKey === request.dedupeKey);
       if (!target || getThumbnailCacheEpoch(target.identity.path) !== target.expectedCacheEpoch) return;
       if (thumbnailPath) {
@@ -430,8 +431,11 @@ export async function generateThumbnailsInBackground(
         repository.updateThumbnailState({ fileId: target.identity.id, expectedContentRevision: target.identity.contentRevision, thumbnailPath: null, thumbnailFailed: 1 });
         if (error) console.warn(`[Thumbnails] Failed ${target.file.path}:`, error.message);
       }
-    }));
+    });
+    const outcomes = await Promise.allSettled(publications);
     await batch.done;
+    const failed = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
+    if (failed) throw failed.reason;
   } finally {
     stopProgress();
   }

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import JSZip from 'jszip';
 import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
+import { installShutdownEvidence } from '../../support/helpers/shutdownEvidence';
 import {
   THUMBNAIL_IMAGE_CACHE_DIAGNOSTICS_SESSION_KEY,
   type ThumbnailImageCacheStats,
@@ -67,8 +68,10 @@ test('performance resource observations stay stable across twenty viewer replace
       fs.writeFileSync(path.join(library, 'multipart.obj'), 'o A\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\no B\nv 2 0 0\nv 3 0 0\nv 2 1 0\nf 4 5 6\n');
     },
   });
+  let closeWithEvidence: Awaited<ReturnType<typeof installShutdownEvidence>> | null = null;
 
   try {
+    closeWithEvidence = await installShutdownEvidence(isolated.app, test.info().outputPath('shutdown-evidence.jsonl'), isolated.userDataDir);
     const page = await mainWindow(isolated.app);
     await page.evaluate((key) => sessionStorage.setItem(key, 'enabled'), THUMBNAIL_IMAGE_CACHE_DIAGNOSTICS_SESSION_KEY);
     await page.reload();
@@ -301,7 +304,8 @@ test('performance resource observations stay stable across twenty viewer replace
     expect(initialWindows).not.toBeNull();
     expect(isolated.app.windows()).toHaveLength(initialWindows!);
   } finally {
-    await isolated.close();
+    if (closeWithEvidence) await closeWithEvidence(() => isolated.close());
+    else await isolated.close();
   }
   const stillRunningUtilityPids = utilityPidsAtCycleEnd.filter((pid) => {
     try { process.kill(pid, 0); return true; }

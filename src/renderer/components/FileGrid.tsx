@@ -312,6 +312,7 @@ export const FileGrid: React.FC<Props> = ({
   const gridRef = useRef<VirtuosoGridHandle>(null);
   const previousKeysRef = useRef<string[]>([]);
   const pendingPageFocusRef = useRef<number | null>(null);
+  const pendingFocusKeyRef = useRef<string | null>(null);
   const gridHadFocusRef = useRef(false);
   const focusSequenceRef = useRef(0);
   const [rovingKey, setRovingKey] = useState<string | null>(null);
@@ -319,6 +320,10 @@ export const FileGrid: React.FC<Props> = ({
   rovingKeyRef.current = rovingKey;
   const keys = useMemo(() => files.map(displayItemKey), [files]);
   const markFocusedKey = useCallback((key: string) => {
+    if (pendingFocusKeyRef.current && pendingFocusKeyRef.current !== key) {
+      focusSequenceRef.current += 1;
+      pendingFocusKeyRef.current = null;
+    }
     gridHadFocusRef.current = true;
     setRovingKey(key);
   }, []);
@@ -326,17 +331,25 @@ export const FileGrid: React.FC<Props> = ({
     if (index < 0 || index >= files.length) return;
     const sequence = ++focusSequenceRef.current;
     const key = keys[index];
+    pendingFocusKeyRef.current = key;
     gridHadFocusRef.current = true;
     setRovingKey(key);
     gridRef.current?.scrollToIndex({ index, align: "center" });
     let attempts = 0;
     const focusRenderedItem = () => {
-      if (focusSequenceRef.current !== sequence || attempts++ > 60) return;
+      if (focusSequenceRef.current !== sequence) return;
+      if (attempts++ > 60) {
+        pendingFocusKeyRef.current = null;
+        return;
+      }
       const target = Array.from(document.querySelectorAll<HTMLElement>("#file-grid [data-item-key]"))
         .find((element) => element.dataset.itemKey === key);
       if (target && target.getClientRects().length > 0) {
+        pendingFocusKeyRef.current = null;
         target.focus({ preventScroll: true });
       } else {
+        // A virtualizer can ignore a scroll issued before its next measurement settles.
+        if (attempts % 8 === 1) gridRef.current?.scrollToIndex({ index, align: "center" });
         requestAnimationFrame(focusRenderedItem);
       }
     };
@@ -354,6 +367,7 @@ export const FileGrid: React.FC<Props> = ({
         && target !== document.documentElement
       ) {
         focusSequenceRef.current += 1;
+        pendingFocusKeyRef.current = null;
       }
     };
     document.addEventListener("focusin", onFocusIn);

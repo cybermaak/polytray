@@ -27,3 +27,15 @@ test('renderer state mutations drain before lock and replay in order after unloc
   assert.deepEqual(order, ['active-start', 'active-end', 'queued']);
   assert.equal(gate.isLocked(), false);
 });
+
+function held() { const signal = deferred(); return { promise: signal.promise, release: signal.resolve }; }
+const pendingAfterTurn = () => new Promise<string>(resolve => setImmediate(() => resolve('pending')));
+test('renderer admission rejects an initial-add operation without locking controls', async () => {
+  const gate = createRendererMutationGate();
+  const selectAndScan = held();
+  const add = gate.run(() => selectAndScan.promise);
+  const lock = gate.lock({ requireIdle: true });
+  const result = await Promise.race([lock.then(() => 'locked', () => 'rejected'), pendingAfterTurn()]);
+  try { assert.equal(result, 'rejected'); assert.equal(gate.isLocked(), false); }
+  finally { selectAndScan.release(); await add; await lock.catch(() => undefined); await gate.unlock(); }
+});

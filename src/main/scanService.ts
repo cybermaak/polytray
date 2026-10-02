@@ -157,7 +157,9 @@ function normalizeBatchSize(value: number | undefined) {
 
 function createJobId() { return `scan-${randomUUID()}`; }
 
-function startIsolatedScanHeartbeatProbe(): () => void {
+interface SlowScanPhase { phase: string; elapsedMs: number; durationMs: number; discovered: number; indexed: number }
+
+function startIsolatedScanHeartbeatProbe(slowPhases: SlowScanPhase[]): () => void {
   const outputPath = process.env.POLYTRAY_SCAN_TEST_HEARTBEAT_PATH;
   const scratchDir = process.env.POLYTRAY_PERF_SCRATCH;
   if (process.env.POLYTRAY_ISOLATED_TEST !== '1' || !outputPath || !path.isAbsolute(outputPath)
@@ -181,6 +183,7 @@ function startIsolatedScanHeartbeatProbe(): () => void {
       samples: gapsMs.length,
       maxGapMs: gapsMs.length ? Math.max(...gapsMs) : null,
       gapsMs,
+      slowPhases,
     };
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     fs.writeFileSync(outputPath, JSON.stringify(result));
@@ -503,6 +506,22 @@ export class ScanService {
     const snapshot = captureScanPruneSnapshot(this.options.db, rootPath);
     const snapshotByPath = new Map(snapshot.map((row) => [row.path, row]));
     let queuedMetadataDepth = 0;
+    const slowPhases: SlowScanPhase[] = [];
+    const phaseStart = performance.now();
+    const measureSync = <T>(phase: string, operation: () => T): T => {
+      if (process.env.POLYTRAY_ISOLATED_TEST !== '1' || !process.env.POLYTRAY_SCAN_TEST_HEARTBEAT_PATH) return operation();
+      const start = performance.now();
+      try { return operation(); }
+      finally {
+        const durationMs = performance.now() - start;
+        if (durationMs >= 100) {
+          slowPhases.push({ phase, elapsedMs: start - phaseStart, durationMs,
+            discovered: job.counts.discovered, indexed: job.counts.indexed });
+          slowPhases.sort((a, b) => b.durationMs - a.durationMs);
+          if (slowPhases.length > 30) slowPhases.pop();
+        }
+      }
+    };
     const onDiscoveryQueueSize = this.options.onThrottle
       ? (size: number) => this.options.onThrottle?.(size, queuedMetadataDepth)
       : undefined;
@@ -525,11 +544,11 @@ export class ScanService {
         if (job.controller.signal.aborted) return;
         ownedWrite = true;
         try {
-          const result = this.repository.applyMetadataResult({
+          const result = measureSync('metadata-apply', () => this.repository.applyMetadataResult({
             fileId: identity.id, path: identity.path, expectedContentRevision: identity.contentRevision,
             vertexCount: metadata.vertexCount, faceCount: metadata.faceCount,
             dimensions: metadata.dimensions ? JSON.stringify(metadata.dimensions) : null,
-          });
+          }));
           if (result.status === 'updated') { job.counts.metadataCompleted++; this.bump(job); }
         } finally { ownedWrite = false; }
       } catch (error: unknown) {
@@ -566,7 +585,7 @@ export class ScanService {
         discoveryQueue.close(job.controller.signal.aborted);
       }
     })();
-    stopHeartbeatProbe = startIsolatedScanHeartbeatProbe();
+    stopHeartbeatProbe = startIsolatedScanHeartbeatProbe(slowPhases);
 
     let pending: DiscoveredRecord[] = [];
     let pendingSince = 0;
@@ -613,7 +632,7 @@ export class ScanService {
         browseRevision: this.repository.getBrowseRevision(), committed: [] };
       if (records.length) {
         ownedWrite = true;
-        try { result = this.repository.applyIndexBatch({ scanGeneration: job.generation, records }); }
+        try { result = measureSync('index-batch', () => this.repository.applyIndexBatch({ scanGeneration: job.generation, records })); }
         finally { ownedWrite = false; }
       }
       const committedByPath = new Map(result.committed.map((identity) => [identity.path, identity]));
@@ -706,7 +725,7 @@ export class ScanService {
           ? scopes.some((scope) => scope.status === 'complete') ? 'partial' : 'failed'
           : 'completed';
       const pruneResult = discoveryCancelled ? { deletedCount: 0, retainedCount: snapshot.length }
-        : pruneScanSnapshotPaths(this.options.db, rootPath, { scopes, state }, discoveredPaths, snapshot);
+        : measureSync('scan-prune', () => pruneScanSnapshotPaths(this.options.db, rootPath, { scopes, state }, discoveredPaths, snapshot));
       const affectedScopes = scopes.filter((scope) => scope.status !== 'complete').map((scope) => scope.scopePath);
       job.state = state;
       this.bump(job, true);

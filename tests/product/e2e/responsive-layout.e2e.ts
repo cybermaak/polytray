@@ -2,6 +2,7 @@ const { test, expect } = require("@playwright/test");
 const path = require("node:path");
 const fs = require("node:fs");
 const { launchIsolatedApp } = require("../../support/helpers/isolatedApp");
+const { attachJsonFailureEvidence } = require("../../support/helpers/failureEvidence");
 
 const APP_DIR = path.resolve(__dirname, "../../..");
 const SIZE_CASES = [
@@ -70,6 +71,16 @@ test("responsive panels preserve browsing space across supported window sizes", 
 
   try {
     mainWindow = await findMainWindow(isolated.app);
+    const rendererErrors = [];
+    const observePage = (candidate) => {
+      const note = (message) => {
+        if (rendererErrors.length < 30) rendererErrors.push({ url: candidate.url(), message: String(message).slice(0, 500) });
+      };
+      candidate.on('console', entry => { if (entry.type() === 'error') note(entry.text()); });
+      candidate.on('pageerror', error => note(error));
+    };
+    isolated.app.windows().forEach(observePage);
+    isolated.app.on('window', observePage);
     const nativeWindow = await isolated.app.browserWindow(mainWindow);
     const measurementsByCase = [];
     const libraryRoot = path.join(isolated.scratchDir, "library");
@@ -83,11 +94,38 @@ test("responsive panels preserve browsing space across supported window sizes", 
     await expect.poll(() => mainWindow.evaluate(async () =>
       (await window.polytray.getFiles({ limit: 500, offset: 0 })).total,
     ), { timeout: 30000 }).toBeGreaterThanOrEqual(40);
+    try {
+      // Hosted software rendering settles about 20 of 40 serial thumbnails per minute.
+      await expect.poll(() => mainWindow.evaluate(async () => {
+        const result = await window.polytray.getFiles({ limit: 500, offset: 0 });
+        return result.files.filter((file) => file.thumbnail || file.thumbnail_failed).length;
+      }), { timeout: 150000 }).toBeGreaterThanOrEqual(40);
+    } catch (error) {
+      await attachJsonFailureEvidence('thumbnail-settlement-state', async () => {
+        const cacheDir = path.join(isolated.userDataDir, 'thumbnails');
+        return {
+          windowUrls: isolated.app.windows().map(candidate => candidate.url()),
+          rendererErrors,
+          cacheFiles: fs.existsSync(cacheDir) ? fs.readdirSync(cacheDir).slice(0, 60) : [],
+          renderer: await mainWindow.evaluate(async () => {
+            const [files, jobs] = await Promise.all([
+              window.polytray.getFiles({ limit: 500, offset: 0 }),
+              window.polytray.getBackgroundJobs(),
+            ]);
+            return {
+              total: files.total,
+              thumbnailRows: files.files.map(file => ({
+                id: file.id, path: file.path, contentRevision: file.content_revision,
+                thumbnail: file.thumbnail, thumbnailFailed: file.thumbnail_failed,
+              })),
+              jobs,
+            };
+          }),
+        };
+      });
+      throw error;
+    }
     await dismissTerminalBackgroundJobs(mainWindow);
-    await expect.poll(() => mainWindow.evaluate(async () => {
-      const result = await window.polytray.getFiles({ limit: 500, offset: 0 });
-      return result.files.filter((file) => file.thumbnail || file.thumbnail_failed).length;
-    }), { timeout: 60000 }).toBeGreaterThanOrEqual(40);
     await mainWindow.evaluate((folder) => {
       localStorage.setItem("polytray-library-state", JSON.stringify({
         libraryFolders: [folder],
@@ -119,9 +157,84 @@ test("responsive panels preserve browsing space across supported window sizes", 
             has: mainWindow.locator(".card-name[title^='A deliberately long model filename']"),
           }).first();
           await expect(longNameCard).toBeVisible();
+          const selectedPath = await longNameCard.getAttribute('title');
           await longNameCard.locator(".card-name").click();
           await expect(mainWindow.locator("#preview-panel")).not.toHaveClass(/hidden/);
-          await expect(mainWindow.locator("#viewer-loading")).toHaveClass(/hidden/, { timeout: 30000 });
+          await expect.poll(() => mainWindow.locator('#viewer-container').evaluate(element =>
+            Math.round(element.getBoundingClientRect().height),
+          ), { timeout: 5_000 }).toBeGreaterThanOrEqual(160);
+          try {
+            await expect(mainWindow.locator("#viewer-loading")).toHaveClass(/hidden/, { timeout: 30000 });
+          } catch (error) {
+            await attachJsonFailureEvidence('responsive-preview-state', async () => ({
+              sizeCase, windowCase, lightMode, rendererErrors,
+              windowUrls: isolated.app.windows().map(candidate => candidate.url()),
+              workerUrls: mainWindow.workers().map(worker => worker.url()),
+              selectedPath,
+              renderer: await mainWindow.evaluate(async (filePath) => {
+                const container = document.querySelector<HTMLElement>('#viewer-container')?.getBoundingClientRect();
+                let fetchProbe: unknown = null;
+                if (filePath) {
+                  const controller = new AbortController();
+                  const timer = setTimeout(() => controller.abort(), 2_000);
+                  try {
+                    const response = await fetch(`polytray://local/${encodeURIComponent(filePath)}`, { signal: controller.signal });
+                    fetchProbe = { status: response.status, bytes: (await response.arrayBuffer()).byteLength };
+                  } catch (cause) { fetchProbe = { error: String(cause) }; }
+                  finally { clearTimeout(timer); }
+                }
+                return {
+                  loadingClass: document.querySelector('#viewer-loading')?.className ?? null,
+                  loadingText: document.querySelector('#viewer-loading')?.textContent ?? null,
+                  container: container ? { width: container.width, height: container.height } : null,
+                  pending: window.polytray.__previewParsePendingCounts?.() ?? null,
+                  jobs: await window.polytray.getBackgroundJobs(),
+                  fetchProbe,
+                };
+              }, selectedPath),
+            }));
+            throw error;
+          }
+          if (sizeCase.name === 'default' && windowCase.width === 900) {
+            const crowdedPreview = await mainWindow.evaluate(() => {
+              const panel = document.querySelector<HTMLElement>('#preview-panel')!;
+              const footer = panel.querySelector<HTMLElement>('.viewer-footer')!;
+              const archiveStrip = panel.querySelector<HTMLElement>('#archive-preview-models')!;
+              const partsStrip = panel.querySelector<HTMLElement>('#viewer-multi-model')!;
+              const fillers = [archiveStrip, partsStrip].map((strip) => {
+                const button = document.createElement('button');
+                button.className = 'multi-model-thumb';
+                button.setAttribute('aria-hidden', 'true');
+                strip.appendChild(button);
+                strip.classList.remove('hidden');
+                return button;
+              });
+              try {
+                footer.scrollTop = footer.scrollHeight;
+                const footerBounds = footer.getBoundingClientRect();
+                const panelBounds = panel.getBoundingClientRect();
+                const lastControl = panel.querySelector<HTMLElement>('#create-and-add-collection')!;
+                const controlBounds = lastControl.getBoundingClientRect();
+                const x = controlBounds.left + controlBounds.width / 2;
+                const y = controlBounds.top + controlBounds.height / 2;
+                return {
+                  viewerHeight: panel.querySelector<HTMLElement>('#viewer-container')!.getBoundingClientRect().height,
+                  footerBottom: footerBounds.bottom,
+                  panelBottom: panelBounds.bottom,
+                  lastControlReachable: y >= footerBounds.top && y <= Math.min(footerBounds.bottom, panelBounds.bottom)
+                    && lastControl.contains(document.elementFromPoint(x, y)),
+                };
+              } finally {
+                for (const button of fillers) button.remove();
+                archiveStrip.classList.add('hidden');
+                partsStrip.classList.add('hidden');
+                footer.scrollTop = 0;
+              }
+            });
+            expect(crowdedPreview.viewerHeight).toBeGreaterThanOrEqual(160);
+            expect(crowdedPreview.footerBottom).toBeLessThanOrEqual(crowdedPreview.panelBottom + 1);
+            expect(crowdedPreview.lastControlReachable).toBe(true);
+          }
           await mainWindow.waitForFunction((preferredSidebarWidth) => {
             const layout = document.querySelector("#main-layout");
             const sidebar = document.querySelector("#sidebar");
@@ -151,6 +264,8 @@ test("responsive panels preserve browsing space across supported window sizes", 
               browseWidth: content.getBoundingClientRect().width,
               previewWidth: previewBounds.width,
               previewMode: isOverlay ? "overlay" : "docked",
+              viewerHeight: preview.querySelector("#viewer-container").getBoundingClientRect().height,
+              footerHeight: preview.querySelector(".viewer-footer").getBoundingClientRect().height,
               previewWithinContent: previewBounds.left >= contentBounds.left - 1
                 && previewBounds.right <= (isOverlay ? contentBounds.right : layoutBounds.right) + 1,
             };
@@ -179,6 +294,8 @@ test("responsive panels preserve browsing space across supported window sizes", 
               preview: measurements.previewWidth,
             },
             previewMode: measurements.previewMode,
+            viewerHeight: measurements.viewerHeight,
+            footerHeight: measurements.footerHeight,
             persistedPreferences,
           });
 

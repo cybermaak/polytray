@@ -4,8 +4,9 @@ Updated October 1, 2026 after the user's clarification and the external CI work.
 
 ## Authority and current state
 
-**Implementation, test execution, CI dispatch and hourly supervision remain PAUSED.**
-This update changes the plan only. Resume requires an explicit user instruction.
+**P00-P02 are complete with the temporary P02 disposition below; P03 is explicitly resumed.**
+The fresh owner completed acceptance/backlog updates and P03 with focused checks.
+P04 onward and hourly automation remain paused.
 
 The objective is to finish the product and fix demonstrated product problems with
 minimal necessary verification overhead, obtain an honest green product-quality
@@ -64,8 +65,9 @@ historical; use the [revised tracker](2026-09-30-execution-reset-tracker.md) for
 1. Import/reconcile the reviewed external changes and preserve unresolved WIP.
 2. Finish the small-window preview repair: the reported zero-height viewer is a
    real product defect. Keep controls reachable and browsing usable.
-3. Diagnose/fix the demonstrated Windows synchronous scan stall. Investigate the
-   measured write path; do not tune SQLite merely to chase a CI number.
+3. Record the Windows synchronous scan finding and the explicit temporary <=400ms
+   scan-heartbeat disposition. Defer the architectural repair to DB-WORKER-01;
+   do not micro-tune checkpoint/synchronization settings.
 4. Make only the small fixture or cleanup corrections required to verify those
    product changes and critical user journeys. No general harness rewrite.
 
@@ -242,3 +244,56 @@ live disappearance is not. Remote manual Windows/Linux UAT is deferred. The hist
 107ms multipart observation, parent-directory race, PID-reuse TOCTOU and accidental
 host-profile probe remain documented. No claim of all original G02/G03 requirements
 being met is made solely from the new product-quality milestone.
+
+## October 1 user disposition: P02 allowance and database-worker backlog
+
+The user accepts a temporary Windows **scan main-heartbeat maximum <=400ms**, with
+macOS/Linux remaining <=250ms and the long-term reference goal <=250ms unchanged.
+The controlled Windows baseline of 372.16ms meets this policy; the separate 357.45ms
+transaction-boundary duration is not the heartbeat metric. Historical 953/1,672ms
+outliers and failed CI runs remain failures. No broader suite/platform green result
+is inferred. C10's dated exception records the exact scope; query p95, query heartbeat,
+preview-cancellation 500ms and early-visible 1s limits are unchanged.
+
+P02 is **user-accepted temporarily; architectural optimization deferred**, not a
+fixed database stall. Keep the default database and checkpoint behavior; WAL128 was
+rejected after 38.9s versus 17.5s scan time and residual heartbeat failure. DB-WORKER-01
+moves database operations into a dedicated Node worker_thread owning SQLite, using
+bounded transaction-level messaging. It includes blocking reads/index work where
+relevant. The [focused brief](2026-10-01-db-worker-01-brief.md) defines safety and
+measurement requirements; design/implementation needs its own bounded iteration.
+P03 now handles only demonstrated blockers to functional verification. P04 remains
+unrun and is a separate authorization/milestone; P05 remains the independent review.
+
+## October 2: P04 explicit resume
+
+The user authorizes P04's frozen-candidate full local Product gate and one hosted Build
+matrix, current runtime/build and representative automated synthetic UAT evidence.
+This supersedes the earlier P04 pause only. P05/P06, deferred DB-WORKER/H/M/C work,
+automation, main push and publication remain paused. Retain the approved Windows scan
+heartbeat <=400ms and all other budgets; do not label historical failures green.
+
+P04 completed on exact candidate2b61aa1: local full Product and hosted
+[Build37011206604](https://github.com/cybermaak/polytray/actions/runs/37011206604)
+passed across macOS/Linux/Windows, including CI packaging. No corrections/retries or
+assertion changes were needed. See the tracker for exact counts, screenshots, performance
+and skipped/unperformed coverage. This closes P04 only; P05/P06 are not started.
+
+## October 2 final P06 disposition
+
+The user directs proceeding with P06 and provisional enabled scan tests: Linux300ms,
+Windows850ms, macOS250ms. All other functional/performance assertions stay unchanged.
+Document/test this explicit policy, get an honest exact-candidate hosted Build result,
+and integrate locally with user changes preserved. Reuse unchanged application-logic
+local Product proof; no507-unit rerun solely for constants/docs. DB-WORKER-01 must
+revisit/recalibrate the provisional tests after worker ownership/messaging with
+controlled throughput/durability/latency evidence and justified stricter budgets.
+Historical red runs stay red; no main push/publication or deferred implementation.
+
+October 2 clarified fallback: Windows exceeded850ms in37041710616. The original human
+instruction already allowed disabling specific tests; apply only numeric SCAN ceilings
+as report-only on Linux/Windows with300/850 comparison thresholds, full timing evidence
+and explicit warnings. Complete E2Es and functional/data-safety/measurement checks stay
+enabled/blocking; macOS250 and unrelated budgets remain gated. Tail selection remains
+blocking and requires a narrow real-input fix. No further permission request is needed
+for this clarified scope. Final green claim is for the disclosed functional gate only.

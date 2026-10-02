@@ -7,6 +7,7 @@ import { EventEmitter } from 'node:events';
 import Database from 'better-sqlite3';
 import JSZip from 'jszip';
 import { createDbAtVersion } from '../../../support/helpers/databaseFixtures';
+import { createMetadataRestoreMutationGate } from '../../../../src/main/metadataRestoreMutationGate';
 import { createBarrier } from '../../../support/helpers/performanceProbe';
 import { createFileIndexRepository, subscribeToFileIndexMutations } from '../../../../src/main/fileIndexing';
 import { createScanService } from '../../../../src/main/scanService';
@@ -666,7 +667,7 @@ test('prunes only a starting row after a complete empty root stream', async () =
   }
 });
 
-test('an unavailable root retains its starting rows', async () => {
+test('an unavailable root retains its starting rows and their annotations', async () => {
   const fixture = createTestDb();
   const rootPath = path.join(os.tmpdir(), `polytray-scan-unavailable-${process.pid}-${Date.now()}`);
   const oldPath = path.join(rootPath, 'kept.stl');
@@ -675,12 +676,17 @@ test('an unavailable root retains its starting rows', async () => {
     path: oldPath, name: 'kept', extension: 'stl', directory: rootPath,
     sizeBytes: 10, modifiedAt: 20, scanGeneration: 1,
   }] });
+  fixture.db.prepare('UPDATE files SET tags = ?, notes = ? WHERE path = ?').run('["kept-tag"]', 'kept note', oldPath);
   const service = createScanService({ db: fixture.db });
   try {
     const result = await service.scan(rootPath);
     assert.equal(result.state, 'failed');
     assert.equal(result.deletedCount, 0);
     assert.equal(repository.getFileIdentityByPath(oldPath) !== null, true);
+    assert.deepEqual(
+      fixture.db.prepare('SELECT tags, notes FROM files WHERE path = ?').get(oldPath),
+      { tags: '["kept-tag"]', notes: 'kept note' },
+    );
   } finally {
     await service.dispose();
     fixture.cleanup();
@@ -1138,4 +1144,38 @@ test('cancelling a retry coalesced with an independent scope scan settles withou
     fixture.cleanup();
     fs.rmSync(rootPath, { recursive: true, force: true });
   }
+});
+
+test('active metadata retry and cancelling retry exclude restore until the real retry settles', async () => {
+  const fixture = createTestDb();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-retry-restore-exclusion-'));
+  const started = createBarrier<void>(), release = createBarrier<void>();
+  const gate = createMetadataRestoreMutationGate();
+  let calls = 0;
+  const service = createScanService({
+    db: fixture.db,
+    discover: async function* (_root, _signal, generation) {
+      yield discovered(root, path.join(root, 'model.stl'));
+      yield { type: 'scope-complete', rootPath: root, scopePath: root, generation, kind: 'directory' };
+      yield { type: 'discovery-complete', rootPath: root, cancelled: false };
+    },
+    extractMetadata: async () => {
+      if (calls++ === 0) throw new Error('retryable metadata failure');
+      started.release(); await release.wait();
+      return { vertexCount: 1, faceCount: 1, dimensions: null };
+    },
+  });
+  try {
+    assert.equal((await gate.run(() => service.scan(root), { kind: 'scan' })).state, 'partial');
+    const job = service.getBackgroundJobs().find(job => job.rootPath === root)!;
+    const retry = gate.run(() => service.retryFailures(job.jobId), { kind: 'scan' });
+    await started.wait();
+    assert.equal(service.getBackgroundJobs().find(item => item.jobId === job.jobId)?.state, 'running');
+    await assert.rejects(gate.acquire({ excludeScans: true }), /Finish or cancel active scans/);
+    assert.equal(service.cancel(job.jobId), true);
+    await assert.rejects(gate.acquire({ excludeScans: true }), /Finish or cancel active scans/);
+    release.release(); await retry;
+    assert.equal(service.getBackgroundJobs().find(item => item.jobId === job.jobId)?.state, 'cancelled');
+    const unlock = await gate.acquire({ excludeScans: true }); await unlock();
+  } finally { release.release(); await service.dispose(); fixture.cleanup(); fs.rmSync(root, { recursive: true, force: true }); }
 });

@@ -34,8 +34,6 @@ async function findMainWindow(electronApp) {
 }
 
 test.beforeAll(async () => {
-  const { execSync } = require("child_process");
-  execSync("npm run build", { cwd: APP_DIR, stdio: "pipe" });
   tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), "polytray-viewer-idle-"));
   const args = buildElectronLaunchArgs(path.join(APP_DIR, "out/main/index.js"), tempUserData);
   if (process.platform === "linux") args.push("--no-sandbox", "--disable-gpu");
