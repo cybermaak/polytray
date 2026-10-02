@@ -1,7 +1,7 @@
 # Product-first restart tracker
 
 Updated October 2, 2026. Authority: [execution plan](2026-09-30-execution-reset-plan.md).
-**P00/P01 complete; P02 temporarily accepted by user at <=400ms Windows scan heartbeat. P03 DONE scoped; P04 COMPLETE: required Product/Build gates green on 2b61aa1. P05 review found one restore/paused-scan blocker; its approved fix and P06 are ACTIVE. Automation/deferred work remain paused.**
+**P00/P01 complete; P02 temporarily accepted by user at <=400ms Windows scan heartbeat. P03 DONE scoped; P04 COMPLETE: required Product/Build gates green on 2b61aa1. P05 interaction fix is verified; P06 is HELD pending disposition of final CI timing failures. Automation/deferred work remain paused.**
 
 One Sol/high owner performs implementation, self-review and focused verification.
 One independent reviewer is reserved for P05, after the coherent product candidate.
@@ -40,8 +40,8 @@ harness-first ordering.
 | P02 | Record Windows scan responsiveness disposition | P00 | USER-ACCEPTED TEMPORARILY <=400ms; DB-WORKER-01 deferred |
 | P03 | Fix only blockers to functional verification | P01, P02 | DONE scoped; no additional repair demonstrated |
 | P04 | Frozen product-quality milestone and affected performance measurement | P03 | DONE: local Product and hosted Build matrix green on 2b61aa1 |
-| P05 | One independent final code/feature/UAT review | P04 | Astra read-only review complete; one blocking admission fix ACTIVE |
-| P06 | Local integration and truthful product handoff | P05 | AUTHORIZED after fixed-candidate gate |
+| P05 | One independent final code/feature/UAT review | P04 | Astra read-only review complete; one blocking admission fix resolved on4298174; performance disposition pending |
+| P06 | Local integration and truthful product handoff | P05 | HELD for explicit disposition of final CI timing failures |
 
 Execute serially in this order. P01 and P02 need not wait for general harness work.
 A blocked P02 investigation does not prevent preparing P03/P04 evidence for completed
@@ -388,3 +388,32 @@ no product behavior/threshold changed. Exact focused keyboard case passes1/1 (2.
 The superseded CI37036970692 is cancelled after this concrete local diagnosis; a
 corrected exact candidate gets the final Product/matrix gate. Original local failure,
 trace and raw logs remain in `.agent-tmp/p05-fix/final-test-results` and `final-product.log`.
+
+### Corrected final candidate4298174: fix verified; P06 disposition pending
+
+Exact [Build37038058657](https://github.com/cybermaak/polytray/actions/runs/37038058657)
+is **RED**, not a green final acceptance result. Local full Product passes507 units
+plus1 platform skip,73 E2Es plus1 optional skip. Every hosted unit phase passes507
+plus1 platform skip. macOS passes73 E2Es/1 optional skip and packaging. Linux/Windows
+each pass72 E2Es/1 optional skip and fail only scan-streaming's heartbeat assertion;
+packaging is skipped on those platforms. The new actual restore/paused-scan/direct-IPC/
+admission-race E2E passes on all three OSes (macOS5.8s, Linux7.6s, Windows12.1s).
+
+Linux heartbeat253.727ms exceeds unchanged250ms. Its metadata-apply244.613ms aligns
+with the largest gap near indexed451. Windows heartbeat751.743ms exceeds the approved
+400ms temporary limit; index-batch732.280ms near indexed4551 and metadata-apply620.028ms
+near indexed2201 show retained synchronous database stalls. Both scans completed exactly
+5,000 rows and passed early-visibility, queue, progress and cleanup assertions before
+this numeric failure. No thresholds were changed, assertions rescheduled or lucky reruns
+performed. Deferred DB-WORKER-01 remains outside this assignment.
+
+The sole P05 interaction finding is fixed and self-reviewed with62 focused unit and13
+affected E2E passes, plus the new case's three-platform proof. The unrelated keyboard
+readiness correction passes focused and final local Product. This does not turn the
+final matrix green. P06 local merge is held pending the user's explicit choice to
+integrate with these timing failures retained as open findings, or require green CI.
+No primary hunk was stashed/changed or integration begun. Raw matrix logs, diagnostics,
+traces and responsive captures remain `.agent-tmp/p05-fix/{linux,windows}-failure/`,
+`accepted-{linux,macos,windows}.log`, `accepted-ci-final.json` and `accepted-test-results/`.
+The user decision was requested asynchronously; all main-push/publication/automation
+restrictions and previous coverage/profile-isolation limitations remain in force.

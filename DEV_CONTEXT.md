@@ -494,3 +494,9 @@ blocks admission races and handles busy renderer handshakes recoverably. UI disa
 Apply while scans are active/paused while keeping preview/scan controls available.
 The final changed-source gate is required before local integration; automation/deferred
 work and main push/publication stay paused. See the restart tracker for proof/results.
+
+Final P05-fix source4298174 passes local Product (507 units/1 platform skip,73 E2Es/1
+optional skip), and the new restore exclusion case passes all hosted OSes. Final matrix
+37038058657 remains red only on scan heartbeat: Linux253.727ms >250, Windows751.743ms
+>400. P06 integration is held for explicit disposition; primary user work is unchanged.
+No budget change or database-worker implementation is inferred from these results.
