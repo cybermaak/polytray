@@ -63,7 +63,6 @@ when running the full gate. Main push and publication remain unauthorized.
 Non-main CI dispatch/results retrieval is authorized with bounded monitoring;
 the old ten-minute manual-report and three-attempt rules do not govern this restart.
 
-
 Choose the smallest verification set that proves the change, but include all affected layers.
 
 ## Pre-Push Requirement

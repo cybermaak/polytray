@@ -463,3 +463,10 @@ The isolated candidate imports reviewed ci/sandbox `cdf7967`. Focused task check
 precede the P04 broad gate; one independent review remains P05. Track current
 outcomes in the [restart tracker](docs/plans/2026-09-30-execution-reset-tracker.md).
 Primary marketing WIP is excluded. Automation, main push and publication remain paused.
+
+P00 reconciliation is complete and P01's small-window preview repair passes focused
+macOS and Windows checks. P02 remains unresolved: Windows synchronous transaction
+boundary stalls persist; WAL128 was rejected after a controlled comparison worsened
+scan time while still exceeding the unchanged heartbeat limit. No database tuning or
+transient probe ships in the candidate. See the restart tracker for exact measurements,
+commits and next design decision. P03-P06, automation, main push and publication remain paused.

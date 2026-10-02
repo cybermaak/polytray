@@ -40,7 +40,7 @@ test('build and release jobs have bounded timeouts', () => {
 
 test('build matrix retains independent platform results and failed E2E context', () => {
   expectMatch(buildWorkflow, /strategy:\n\s+fail-fast: false\n\s+matrix:/);
-  expectMatch(buildWorkflow, /name: Upload Test Failure Evidence\n\s+if: failure\(\)(?: \|\| github\.event\.inputs\.restart_repairs == 'true')?\n\s+uses: actions\/upload-artifact@v7/);
+  expectMatch(buildWorkflow, /name: Upload Test Failure Evidence\n\s+if: failure\(\)\n\s+uses: actions\/upload-artifact@v7/);
   expectMatch(buildWorkflow, /name: polytray-\$\{\{ runner\.os \}\}-test-failures/);
   expectMatch(buildWorkflow, /test-results\//);
 });
@@ -180,12 +180,4 @@ test('E2E stability summary lists every requested platform, including ones with 
   // Placeholders are passed unconditionally; the script reports absent files as missing.
   expectNoMatch(stabilityWorkflow, /if \[ -d "reports\/e2e-stability-/);
   expectMatch(stabilityWorkflow, /name: Download stability reports\n\s+#[^\n]*\n\s+continue-on-error: true/);
-});
-
-// Temporary restart dispatch stays bounded to the two affected Windows cases.
-test('restart repair dispatch selects Windows only and avoids packaging', () => {
-  expectMatch(buildWorkflow, /restart_repairs:\n\s+description:/);
-  expectMatch(buildWorkflow, /restart_repairs == 'true' && fromJSON\('\["windows-latest"\]'\)/);
-  expectMatch(buildWorkflow, /test-command:.*restart_repairs.*tests\/dev\/restart-windows-probe.mjs/);
-  expectMatch(buildWorkflow, /name: Package App\n\s+if:.*restart_repairs != 'true'/);
 });

@@ -24,15 +24,18 @@ harness-first ordering.
   5,000 result, queue bounds and eventual completion; numeric first-query/card <1s,
   heartbeat <=250ms and progress rate <=4/s. Responsive loading/layout/focus are
   functional checks. No assertions moved; any minimal split belongs to P04.
-- External Windows preview and heartbeat failures remain open; full gate is P04.
+- P01 now passes focused local macOS and hosted Windows checks. P02 remains a
+  demonstrated Windows product blocker; WAL128 was measured and rejected. P04 is unrun.
+- Final candidate contains no scan/database changes or transient diagnostic tooling.
+  Original WAL128 remains only in saved scratch. P03 onward and automation are paused.
 
 ## Stage A/B: product completion and minimum honest quality gate
 
 | ID | Work | Depends on | State |
 | --- | --- | --- | --- |
 | P00 | Reconcile incoming work and adopt staged gate policy | Explicit resume | DONE |
-| P01 | Finish small-window preview fix | P00 | LOCAL PASS; Windows proof pending |
-| P02 | Resolve demonstrated Windows scan responsiveness defect | P00 | PLANNED |
+| P01 | Finish small-window preview fix | P00 | DONE (focused macOS + Windows) |
+| P02 | Resolve demonstrated Windows scan responsiveness defect | P00 | UNRESOLVED; WAL128 rejected |
 | P03 | Fix only blockers to functional verification | P01, P02 | PLANNED |
 | P04 | Frozen product-quality milestone and affected performance measurement | P03 | PLANNED |
 | P05 | One independent final code/feature/UAT review | P04 | PLANNED |
@@ -183,4 +186,45 @@ whole-codebase refactor. Targeted regressions and a final batch check only.
 | --- | --- | --- | --- | --- |
 | P00 | cdf7967 imported; six patches preserved/reconciled; staged rules adopted | Remote delta/review, patch comparison and diff check | P04 pending | DONE; P01 next |
 
-| P01 local | Preserved CSS: min 160px stage, scrollable footer capped 45%; reachability in both themes | Fresh global build/typecheck; responsive E2E 1 pass/18 combinations (27s); final both-theme check 1 pass (25s) reused build; screenshots inspected | P04 broad gate pending | 900x600 viewer 256px in both themes; 1280/1920 loading, widths and focus contracts pass. Hosted proof remains pending. Evidence `.agent-tmp/restart-p01/local-evidence` |
+| P01 local | Preserved CSS: min 160px stage, scrollable footer capped 45%; reachability in both themes | Fresh global build/typecheck; responsive E2E 1 pass/18 combinations (27s); final both-theme check 1 pass (25s) reused build; screenshots inspected | P04 broad gate pending | 900x600 viewer 256px in both themes; 1280/1920 loading, widths and focus contracts pass. Local checkpoint; hosted result is recorded below. Evidence `.agent-tmp/restart-p01/local-evidence` |
+
+| P01 hosted | Application repair c497457; diagnostic host SHA f3bc82e | Windows Node 22.23.3 / Electron 34.5.8; responsive E2E passed all 18 combinations, both-theme footer reachability, browse-width/focus; screenshots inspected | [Focused Build 36959173713](https://github.com/cybermaak/polytray/actions/runs/36959173713) | DONE scoped; 900x600 viewer 220px both themes (local macOS 256px). Hosted whole run is RED due to P02. No full Product/platform acceptance claimed |
+| P02 | Default versus WAL128, serial private apps on the same Windows runner | Exact 5,000 persisted rows both; baseline max heartbeat 372.16ms / scan after held-subtree release 17,468ms; WAL128 303.24ms / 38,902ms | Unchanged heartbeat <=250ms target FAILS both | UNRESOLVED; reject WAL128: ~2.23x scan time and residual stall. No production DB change |
+
+### P02 causal assessment and next decision
+
+The same-run baseline isolates synchronous transaction-boundary work, rather than
+large SQL bodies or notifications: the longest index transaction was 360.83ms,
+with 3.35ms inside its callback and 357.45ms outside (BEGIN/COMMIT wrapper). A
+295.59ms metadata transaction spent 0.17ms inside (lookup 0.09ms, row/index update
+0.03ms, revision 0.06ms) and 295.40ms at the boundary. No notification observation
+exceeded the 20ms recording threshold. The default WAL was ~4.1-4.3MB at these
+stalls; WAL128 was ~0.9MB and still had a 287.65ms index transaction with a 3.84ms
+body and 283.79ms boundary. The WAL128 sample retains the last 100 slow SQL phases,
+so phase counts are bounded diagnostics, not exhaustive totals.
+
+This supports commit/checkpoint I/O as the dominant cause and excludes SQL/index
+body work and notification as the dominant measured phases. Automatic checkpointing
+is a strong inference, consistent with SQLite's documented committing-thread behavior
+and WAL thresholds; this probe does not distinguish individual filesystem sync calls,
+BEGIN versus COMMIT, or directly time a checkpoint. See
+[SQLite WAL performance/automatic checkpoints](https://www.sqlite.org/wal.html).
+No durability settings, annotations/pruning fences or timing targets were relaxed.
+
+Reassessment after ~15 minutes of active P02 investigation: one setup-only hosted
+failure (CRLF probe insertion; no app launched) and one informative controlled
+baseline/change run. Do not pursue more speculative thresholds. The next decision is
+a separately bounded design for checkpoint ownership versus moving synchronous DB
+writes off the main thread, retaining durability, bounded WAL growth, cancellation
+and shutdown behavior. P02 cannot be accepted before that repair and focused safety
+regressions/Windows measurement. No P03/P04 work was started.
+
+Raw evidence remains in `.agent-tmp/restart-p00/windows-run2.log`,
+`baseline-measurement.json`, `wal128-measurement.json` and `windows-run2/` artifacts;
+local screenshots/18-case measurements are `.agent-tmp/restart-p01/local-evidence/`.
+First setup failure: [36959010951](https://github.com/cybermaak/polytray/actions/runs/36959010951).
+Temporary probe and dispatch changes are retained only as scratch
+`hosted-probe.patch` / `retained-windows-probe.mjs`; removed from final candidate.
+Local runtime was Node 25.9.0; hosted runtime was the incoming Node 22 pin. Focused
+workflow contract checks: 21/21 passed, and both LF/CRLF instrumented source typechecks
+passed. Broad functional gate remains P04; independent review remains P05.
