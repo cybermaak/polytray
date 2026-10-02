@@ -1,7 +1,7 @@
 # Product-first restart tracker
 
 Updated October 1, 2026. Authority: [execution plan](2026-09-30-execution-reset-plan.md).
-**P00-P02 resumed explicitly in the fresh sole-owner chat. P03 onward and automation remain paused.**
+**P00/P01 complete; P02 temporarily accepted by user at <=400ms Windows scan heartbeat. P03 DONE scoped; P04 onward and automation remain paused.**
 
 One Sol/high owner performs implementation, self-review and focused verification.
 One independent reviewer is reserved for P05, after the coherent product candidate.
@@ -10,24 +10,26 @@ harness-first ordering.
 
 ## Checkpoint
 
-- Candidate: codex/independent-access-review fast-forwarded e601afc -> cdf7967;
-  fetched remote has no later delta. Reviewed CI stability report read once.
+- P00 baseline: codex/independent-access-review fast-forwarded e601afc -> cdf7967;
+  that fetch had no later incoming delta. Reviewed CI stability report read once.
 - Six original dirty patches saved in `.agent-tmp/restart-p00/all-six.patch`;
   separate preview, superseded-candidate and WAL128 patches retained there.
 - Incoming thumbnail wait and streaming-anchor fix replace the old three test/helper
   patches; those are preserved in scratch, not stacked. Preview CSS/regression WIP
-  is carried forward. WAL128 is excluded from candidate until justified.
+  is incorporated by P01. WAL128 is measured/rejected and excluded from candidate.
 - Authoritative restart documents copied from primary; candidate AGENTS/DEV_CONTEXT
   adopt staged policy without primary marketing/user hunks.
 - Graph MCP unavailable: Verify-tier source fallback; no graph coverage claimed.
 - Mixed scan-streaming assertions: functional first-subtree-before-release, exact
   5,000 result, queue bounds and eventual completion; numeric first-query/card <1s,
-  heartbeat <=250ms and progress rate <=4/s. Responsive loading/layout/focus are
+  heartbeat <=250ms (temporary Windows <=400ms) and progress rate <=4/s. Responsive loading/layout/focus are
   functional checks. No assertions moved; any minimal split belongs to P04.
-- P01 now passes focused local macOS and hosted Windows checks. P02 remains a
-  demonstrated Windows product blocker; WAL128 was measured and rejected. P04 is unrun.
-- Final candidate contains no scan/database changes or transient diagnostic tooling.
-  Original WAL128 remains only in saved scratch. P03 onward and automation are paused.
+- P01 passes focused local macOS/Windows checks. P02 is temporarily user-accepted
+  at <=400ms Windows scan heartbeat; the database stall is not fixed. DB-WORKER-01
+  owns the deferred architectural repair. WAL128 remains rejected. P04 is unrun.
+- Application scan/database source remains unchanged; the two scan tests now apply
+  only the explicit Windows budget exception. No transient diagnostic tooling remains.
+  WAL128 stays in saved scratch. P03 is DONE scoped; P04 onward/automation are paused.
 
 ## Stage A/B: product completion and minimum honest quality gate
 
@@ -35,8 +37,8 @@ harness-first ordering.
 | --- | --- | --- | --- |
 | P00 | Reconcile incoming work and adopt staged gate policy | Explicit resume | DONE |
 | P01 | Finish small-window preview fix | P00 | DONE (focused macOS + Windows) |
-| P02 | Resolve demonstrated Windows scan responsiveness defect | P00 | UNRESOLVED; WAL128 rejected |
-| P03 | Fix only blockers to functional verification | P01, P02 | PLANNED |
+| P02 | Record Windows scan responsiveness disposition | P00 | USER-ACCEPTED TEMPORARILY <=400ms; DB-WORKER-01 deferred |
+| P03 | Fix only blockers to functional verification | P01, P02 | DONE scoped; no additional repair demonstrated |
 | P04 | Frozen product-quality milestone and affected performance measurement | P03 | PLANNED |
 | P05 | One independent final code/feature/UAT review | P04 | PLANNED |
 | P06 | Local integration and truthful product handoff | P05 | PLANNED |
@@ -147,6 +149,7 @@ to a demonstrated blocking product defect. Keep analyses bounded and fixes small
 | M01 | Define performance stage policy and per-environment calibration from existing evidence | Product milestone measurements available | DEFERRED |
 | M02 | Dedicated common-performance iteration and scheduled benchmark evidence | M01; specific prioritized bottleneck | DEFERRED |
 | C01 | Investigate cached scroll-anchor layout/query invalidation | Product complete, unless targeted repro proves blocker sooner | DEFERRED |
+| DB-WORKER-01 | [Dedicated SQLite worker and ordered messaging](2026-10-01-db-worker-01-brief.md) | Separate bounded architecture iteration; P02 temporary allowance | DEFERRED |
 | C02 | Bounded code/test-hook simplification with risk map and behavior preservation | Product complete; measurable maintenance benefit | DEFERRED |
 
 **H01 acceptance:** a report with Playwright teardown/global errors cannot claim a 100%
@@ -191,7 +194,7 @@ whole-codebase refactor. Targeted regressions and a final batch check only.
 | P01 hosted | Application repair c497457; diagnostic host SHA f3bc82e | Windows Node 22.23.3 / Electron 34.5.8; responsive E2E passed all 18 combinations, both-theme footer reachability, browse-width/focus; screenshots inspected | [Focused Build 36959173713](https://github.com/cybermaak/polytray/actions/runs/36959173713) | DONE scoped; 900x600 viewer 220px both themes (local macOS 256px). Hosted whole run is RED due to P02. No full Product/platform acceptance claimed |
 | P02 | Default versus WAL128, serial private apps on the same Windows runner | Exact 5,000 persisted rows both; baseline max heartbeat 372.16ms / scan after held-subtree release 17,468ms; WAL128 303.24ms / 38,902ms | Unchanged heartbeat <=250ms target FAILS both | UNRESOLVED; reject WAL128: ~2.23x scan time and residual stall. No production DB change |
 
-### P02 causal assessment and next decision
+### P02 causal assessment before user disposition
 
 The same-run baseline isolates synchronous transaction-boundary work, rather than
 large SQL bodies or notifications: the longest index transaction was 360.83ms,
@@ -216,8 +219,8 @@ failure (CRLF probe insertion; no app launched) and one informative controlled
 baseline/change run. Do not pursue more speculative thresholds. The next decision is
 a separately bounded design for checkpoint ownership versus moving synchronous DB
 writes off the main thread, retaining durability, bounded WAL growth, cancellation
-and shutdown behavior. P02 cannot be accepted before that repair and focused safety
-regressions/Windows measurement. No P03/P04 work was started.
+and shutdown behavior. At that checkpoint P02 was unresolved pending repair/decision. The later explicit user
+disposition below supersedes its acceptance status; no P03/P04 work had been started.
 
 Raw evidence remains in `.agent-tmp/restart-p00/windows-run2.log`,
 `baseline-measurement.json`, `wal128-measurement.json` and `windows-run2/` artifacts;
@@ -228,3 +231,39 @@ Temporary probe and dispatch changes are retained only as scratch
 Local runtime was Node 25.9.0; hosted runtime was the incoming Node 22 pin. Focused
 workflow contract checks: 21/21 passed, and both LF/CRLF instrumented source typechecks
 passed. Broad functional gate remains P04; independent review remains P05.
+
+### October 1 user-approved acceptance and deferred architecture
+
+The user explicitly accepts Windows scan heartbeat <=400ms temporarily and directs
+moving database operations to a worker_thread later. P02 is accepted by policy with
+architectural optimization deferred; no performance fix is claimed. Both scan E2Es
+(streaming 5k and large-OBJ metadata) use this Windows budget; macOS/Linux remain250ms.
+Assertion and streaming failure-diagnostic trigger share the same named budget.
+C10's [dated exception](2026-09-26-performance-ux/contracts.md#october-1-2026-temporary-windows-scan-exception)
+retains unrelated budgets. DB-WORKER-01's [brief](2026-10-01-db-worker-01-brief.md)
+records connection ownership, transaction-level messaging, ordering/backpressure,
+revision/recovery fences and <=250ms long-term evidence goals. No worker is implemented.
+
+Reused measurement: Windows baseline372.16ms heartbeat fits400ms; transaction
+boundary357.45ms is distinct. Historical953/1,672ms outliers still exceed400ms, and
+runs36878833124/36786572780/36959173713 retain their original failed conclusions.
+P03 selection: latest reviewed full run36878833124 has only preview and scan failures;
+current focused Windows run36959173713 confirms preview passes. No additional blocker
+was demonstrated by that evidence. Check current isolated preview-cancellation/cleanup,
+integrated600-row paging/restore, streaming scan and metadata scan locally, one invocation;
+repair only an actual observed failure. No full suite/matrix or H/C backlog work.
+
+| Acceptance/backlog | Windows scan budget400ms only; C10 dated exception and both scan tests; DB-WORKER-01 brief | Platform budget/boundary smoke: Windows400, macOS/Linux250; 372.16/400 accepted, >400 and historical953/1,672 rejected; assertion/diagnostic use same budget; local links/diff check pass | Historical Windows baseline reused, no new Windows run claimed | P02 USER-ACCEPTED TEMPORARILY; architecture DEFERRED, not a performance fix |
+| P03 | Current failure evidence reviewed; no additional fixture/cleanup/product repair demonstrated | One fresh build/typecheck; `npm run test:product:e2e -- tests/product/e2e/scan-streaming.e2e.ts tests/product/e2e/metadata-worker.e2e.ts tests/product/e2e/preview-cancellation.e2e.ts tests/product/e2e/integrated-library.e2e.ts`: 4/4 PASS (19.9s including build); private profiles/SQLite/synthetic libraries | P04 broad gate unrun | DONE scoped; STOP before P04. No stable-harness or cross-platform pass claim |
+
+P03 local evidence is `.agent-tmp/restart-p03/focused-functional.log` (macOS arm64,
+Node25.9.0/Electron34.5.8). Streaming scan first card215.7ms before release, max
+heartbeat30.39ms under unchanged250ms budget, exact5,000 result, discovery/metadata
+high water50/100 and regular progress4/s. Integrated600-row paging/annotations/archive
+preview/backup-restore and obsolete-parser cancellation plus exact-owned cleanup passed.
+No unit/native rebuild or full matrix was needed for the policy/docs-only application
+scope. Existing Electron ABI was retained, global setup built once, and generated fixture
+ZIP was restored to its known SHA256. Historical Windows cleanup/tail-card flakes remain
+harness residuals without a current failing reproduction; Windows live-disappearance,
+manual cross-platform UAT and previous evidence limitations remain disclosed. P04/P05
+are untouched. Primary user changes remain untouched; automation stays paused.

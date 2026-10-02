@@ -3,6 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
 
+// October 1 user-approved temporary Windows scan allowance; DB-WORKER-01 retains the 250ms goal.
+const SCAN_HEARTBEAT_BUDGET_MS = process.platform === 'win32' ? 400 : 250;
+
 async function findMainWindow(app: Awaited<ReturnType<typeof launchIsolatedApp>>['app']) {
   await app.firstWindow();
   await expect.poll(async () => {
@@ -87,7 +90,7 @@ test('large OBJ metadata uses the utility worker and the app quits cleanly after
     expect(heartbeat.intervalMs).toBe(25);
     expect(heartbeat.samples).toBeGreaterThan(0);
     expect(heartbeat.maxGapMs).not.toBeNull();
-    expect(heartbeat.maxGapMs!).toBeLessThanOrEqual(250);
+    expect(heartbeat.maxGapMs!).toBeLessThanOrEqual(SCAN_HEARTBEAT_BUDGET_MS);
     const sortedQueries = [...concurrentQuerySamples].sort((a, b) => a - b);
     console.info('[G02 metadata query metrics]', JSON.stringify({
       concurrentSamples: concurrentQuerySamples.length,
@@ -96,6 +99,7 @@ test('large OBJ metadata uses the utility worker and the app quits cleanly after
       mainHeartbeatIntervalMs: heartbeat.intervalMs,
       mainHeartbeatSamples: heartbeat.samples,
       mainHeartbeatMaxGapMs: heartbeat.maxGapMs,
+      mainHeartbeatBudgetMs: SCAN_HEARTBEAT_BUDGET_MS,
     }));
   } finally {
     // Closing the isolated Electron app exercises metadata-worker shutdown on quit.

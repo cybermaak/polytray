@@ -147,3 +147,16 @@ node -e 'const {spawnSync}=require("node:child_process");const r=spawnSync(requi
 The initial direct-host-Node fixture test failed because the reusable worktree's `better-sqlite3` binary was built for Electron ABI 132 while host Node requires ABI 141. The prescribed Electron Node fixture test then passed (3/3 after adding ready-index coverage). The latest baseline command completed successfully and emitted the scope-readiness samples above. `npm run build` and full `PYTHON=/usr/bin/python3 npm run test:product` passed on integrated candidate `cf4e7f1`: 480 unit passes/1 Windows-only skip and 70 E2E passes/1 optional real-model skip. The final 20-cycle E2E measured 4 in-memory cache entries, 0 in-flight reads, and 9,048 encoded data-URL bytes both before and after cycles; disk PNG bytes stayed at 6,712. The test uses the synchronous toolbar search-clear action and awaited archive-card readiness after an intermittent failure reproduced in one of three focused repeats; its focused post-fix repeat passed 3/3.
 
 The same Product gate exercised 20 actual 3MF→STL replacement→close cycles. At 40 checkpoints (after each 3MF parse and each completed replacement/close cycle), hidden bridge counts were explicitly 0 parses, 0 archive reads, 0 ports, and 1 listener. Main bridge request/read/port counts, preview-service jobs/reply ports/job timers/archive reads/tombstones/tombstone timers, and preview-window settlements/timers were zero. One requester owner remained active with its three lifecycle callbacks, the hidden parse-listener set remained at one, and the owned preview BrowserWindow stayed open and stable. The longest cycle in the Product log was 3,585 ms. These diagnostics read Polytray-owned maps; raw `MessageChannelMain` create/close totals and a complete Chromium/Electron listener census remain unmeasured. The utility-process inventory still recorded one Polytray metadata process through the cycles and its exit on app shutdown. The fixture was restored to baseline SHA256 `6ca9f75c11d9330221860ade9fdb641cac6728a9f0a4cc1883989506a39fc109`. G02 remains REVIEW for GPU upload timing, decoded image/GPU memory, platform coverage, and residual pipeline backlog scope.
+
+## October 1, 2026: temporary Windows scan disposition
+
+The user explicitly accepts <=400ms Windows scan main-heartbeat gaps temporarily;
+macOS/Linux stay250ms and all unrelated query/preview/early-visibility targets retain
+their original values. Long-term scan responsiveness remains <=250ms. The controlled
+372.16ms baseline in run36959173713 meets the new policy; 357.45ms is transaction-boundary
+work, a distinct metric. Historical953/1,672ms gaps exceed400ms; failed historical runs
+remain red and this decision does not prove a performance fix or a green full gate.
+Default SQLite/checkpoint settings remain unchanged and WAL128 remains rejected.
+See the [C10 dated exception](../plans/2026-09-26-performance-ux/contracts.md#october-1-2026-temporary-windows-scan-exception),
+[restart tracker](../plans/2026-09-30-execution-reset-tracker.md), and deferred
+[DB-WORKER-01 brief](../plans/2026-10-01-db-worker-01-brief.md).

@@ -4,8 +4,9 @@ Updated October 1, 2026 after the user's clarification and the external CI work.
 
 ## Authority and current state
 
-**P00-P02 implementation, focused tests and necessary non-main CI are explicitly resumed.**
-The fresh owner is limited to these tasks. P03 onward and hourly automation remain paused.
+**P00-P02 are complete with the temporary P02 disposition below; P03 is explicitly resumed.**
+The fresh owner completed acceptance/backlog updates and P03 with focused checks.
+P04 onward and hourly automation remain paused.
 
 The objective is to finish the product and fix demonstrated product problems with
 minimal necessary verification overhead, obtain an honest green product-quality
@@ -64,8 +65,9 @@ historical; use the [revised tracker](2026-09-30-execution-reset-tracker.md) for
 1. Import/reconcile the reviewed external changes and preserve unresolved WIP.
 2. Finish the small-window preview repair: the reported zero-height viewer is a
    real product defect. Keep controls reachable and browsing usable.
-3. Diagnose/fix the demonstrated Windows synchronous scan stall. Investigate the
-   measured write path; do not tune SQLite merely to chase a CI number.
+3. Record the Windows synchronous scan finding and the explicit temporary <=400ms
+   scan-heartbeat disposition. Defer the architectural repair to DB-WORKER-01;
+   do not micro-tune checkpoint/synchronization settings.
 4. Make only the small fixture or cleanup corrections required to verify those
    product changes and critical user journeys. No general harness rewrite.
 
@@ -242,3 +244,23 @@ live disappearance is not. Remote manual Windows/Linux UAT is deferred. The hist
 107ms multipart observation, parent-directory race, PID-reuse TOCTOU and accidental
 host-profile probe remain documented. No claim of all original G02/G03 requirements
 being met is made solely from the new product-quality milestone.
+
+## October 1 user disposition: P02 allowance and database-worker backlog
+
+The user accepts a temporary Windows **scan main-heartbeat maximum <=400ms**, with
+macOS/Linux remaining <=250ms and the long-term reference goal <=250ms unchanged.
+The controlled Windows baseline of 372.16ms meets this policy; the separate 357.45ms
+transaction-boundary duration is not the heartbeat metric. Historical 953/1,672ms
+outliers and failed CI runs remain failures. No broader suite/platform green result
+is inferred. C10's dated exception records the exact scope; query p95, query heartbeat,
+preview-cancellation 500ms and early-visible 1s limits are unchanged.
+
+P02 is **user-accepted temporarily; architectural optimization deferred**, not a
+fixed database stall. Keep the default database and checkpoint behavior; WAL128 was
+rejected after 38.9s versus 17.5s scan time and residual heartbeat failure. DB-WORKER-01
+moves database operations into a dedicated Node worker_thread owning SQLite, using
+bounded transaction-level messaging. It includes blocking reads/index work where
+relevant. The [focused brief](2026-10-01-db-worker-01-brief.md) defines safety and
+measurement requirements; design/implementation needs its own bounded iteration.
+P03 now handles only demonstrated blockers to functional verification. P04 remains
+unrun and is a separate authorization/milestone; P05 remains the independent review.

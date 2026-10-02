@@ -6,6 +6,9 @@ import { attachJsonFailureEvidence } from '../../support/helpers/failureEvidence
 import { LIBRARY_STATE_STORAGE_KEY } from '../../../src/shared/libraryState';
 import { SETTINGS_STORAGE_KEY } from '../../../src/shared/settings';
 
+// October 1 user-approved temporary Windows scan allowance; DB-WORKER-01 retains the 250ms goal.
+const SCAN_HEARTBEAT_BUDGET_MS = process.platform === 'win32' ? 400 : 250;
+
 async function findVisibleMainWindow(app: Awaited<ReturnType<typeof launchIsolatedApp>>['app']) {
   await app.firstWindow();
   await expect.poll(async () => {
@@ -190,16 +193,17 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
     expect(heartbeat.intervalMs).toBe(25);
     expect(heartbeat.samples).toBeGreaterThan(0);
     expect(heartbeat.maxGapMs).not.toBeNull();
-    if (heartbeat.maxGapMs! > 250) {
+    if (heartbeat.maxGapMs! > SCAN_HEARTBEAT_BUDGET_MS) {
       let elapsedMs = 0;
       await attachJsonFailureEvidence('scan-heartbeat-gap', async () => ({
         maxGapMs: heartbeat.maxGapMs,
+        budgetMs: SCAN_HEARTBEAT_BUDGET_MS,
         topGaps: heartbeat.gapsMs.map((gapMs, index) => ({ index, gapMs, elapsedMs: elapsedMs += gapMs }))
           .sort((a, b) => b.gapMs - a.gapMs).slice(0, 10),
         slowPhases: heartbeat.slowPhases,
       }));
     }
-    expect(heartbeat.maxGapMs!).toBeLessThanOrEqual(250);
+    expect(heartbeat.maxGapMs!).toBeLessThanOrEqual(SCAN_HEARTBEAT_BUDGET_MS);
     console.info('[S02 scan metrics]', JSON.stringify({
       firstQueryableBatchMs: proof.elapsedMs,
       indexedAtFirstQuery: proof.indexed,
@@ -210,6 +214,7 @@ test('a 5k scan exposes the first indexed subtree before discovery completes', a
       maximumRegularEventsInRollingSecond: maxRegularPerSecond,
       queueHighWater: queueMetrics,
       mainHeartbeatMaxGapMs: heartbeat.maxGapMs,
+      mainHeartbeatBudgetMs: SCAN_HEARTBEAT_BUDGET_MS,
       mainHeartbeatSamples: heartbeat.samples,
     }));
   } finally {

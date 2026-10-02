@@ -62,6 +62,9 @@ below. Keep the Node -> marker cleanup -> units -> Electron -> E2E sequence
 when running the full gate. Main push and publication remain unauthorized.
 Non-main CI dispatch/results retrieval is authorized with bounded monitoring;
 the old ten-minute manual-report and three-attempt rules do not govern this restart.
+The October 1 user-approved C10 exception allows Windows scan heartbeat <=400ms
+temporarily; macOS/Linux remain <=250ms and unrelated query/preview budgets stay
+unchanged. DB-WORKER-01 owns the deferred architecture; no performance fix is claimed.
 
 Choose the smallest verification set that proves the change, but include all affected layers.
 

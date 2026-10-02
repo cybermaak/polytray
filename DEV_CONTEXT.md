@@ -458,15 +458,19 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 ## Product-first restart checkpoint (2026-10-01)
 
-P00-P02 are explicitly resumed under the [restart plan](docs/plans/2026-09-30-execution-reset-plan.md).
+The scoped restart follows the [restart plan](docs/plans/2026-09-30-execution-reset-plan.md).
 The isolated candidate imports reviewed ci/sandbox `cdf7967`. Focused task checks
 precede the P04 broad gate; one independent review remains P05. Track current
 outcomes in the [restart tracker](docs/plans/2026-09-30-execution-reset-tracker.md).
 Primary marketing WIP is excluded. Automation, main push and publication remain paused.
 
 P00 reconciliation is complete and P01's small-window preview repair passes focused
-macOS and Windows checks. P02 remains unresolved: Windows synchronous transaction
+macOS and Windows checks. Windows synchronous transaction
 boundary stalls persist; WAL128 was rejected after a controlled comparison worsened
 scan time while still exceeding the unchanged heartbeat limit. No database tuning or
 transient probe ships in the candidate. See the restart tracker for exact measurements,
-commits and next design decision. P03-P06, automation, main push and publication remain paused.
+commits and the deferred architecture brief. The user now accepts a temporary Windows
+scan heartbeat <=400ms (other platforms250ms), with the long-term250ms goal deferred
+to DB-WORKER-01. This is an acceptance disposition,
+not a performance fix. P03 passed four focused local cases with no additional repair demonstrated; P04-P06,
+automation, main push and publication remain paused.
