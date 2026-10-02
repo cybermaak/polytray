@@ -220,7 +220,10 @@ test('integrated 600-record library keeps paging and annotations through archive
           await page.mouse.move(recovery.x, recovery.y);
           await page.mouse.wheel(0, Math.round(recovery.delta));
         }
-        await expect.poll(async () => Boolean(await tailTogglePoint()), { timeout: 2_000 }).toBe(true);
+        // A scroll that does not mount the card yet must fall through to the next attempt, which
+        // re-measures the grid; a throwing wait here ended the loop after its first miss.
+        const mountDeadline = Date.now() + 2_000;
+        while (!await tailTogglePoint() && Date.now() < mountDeadline) await page.waitForTimeout(50);
         const point = await tailTogglePoint();
         if (!point) continue;
         if (point.inViewport && point.hit) {
