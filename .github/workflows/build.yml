@@ -6,6 +6,11 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+    inputs:
+      restart_repairs:
+        description: 'Run only the P01 preview and P02 scan comparison on Windows'
+        type: boolean
+        default: false
 
 # A newer push to the same PR supersedes its in-flight run; main and dispatch runs always finish.
 concurrency:
@@ -19,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: ${{ github.event.inputs.restart_repairs == 'true' && fromJSON('["windows-latest"]') || fromJSON('["ubuntu-latest","macos-latest","windows-latest"]') }}
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -27,9 +32,11 @@ jobs:
 
       - name: Setup and Test
         uses: ./.github/actions/setup-and-test
+        with:
+          test-command: ${{ github.event.inputs.restart_repairs == 'true' && 'npx electron-builder install-app-deps && node tests/dev/restart-windows-probe.mjs' || 'npm run test:product' }}
 
       - name: Upload Test Failure Evidence
-        if: failure()
+        if: failure() || github.event.inputs.restart_repairs == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: polytray-${{ runner.os }}-test-failures
@@ -40,9 +47,11 @@ jobs:
           retention-days: 7
 
       - name: Package App
+        if: github.event.inputs.restart_repairs != 'true'
         uses: ./.github/actions/package-app
 
       - name: Upload Artifacts
+        if: github.event.inputs.restart_repairs != 'true'
         uses: actions/upload-artifact@v7
         with:
           name: polytray-${{ runner.os }}-artifacts
