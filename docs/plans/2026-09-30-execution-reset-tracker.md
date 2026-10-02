@@ -378,3 +378,13 @@ may be regenerated. Focused units34/34 and affected isolated E2Es13/13 passed; e
 units62/62 include real metadata retry/cancellation state. Previous P04 remains valid
 for unaffected code but does not validate this changed restore/scan source. Final exact
 Product/hosted candidate gate follows; primary user hunks remain untouched until safe P06.
+
+Final-fix candidatee1bc384 local Product:507 unit passes/1 platform skip;72 E2E passes,
+1 optional skip and one keyboard fixture failure at folder-path read after Settings
+close. The trace/source shows deferred focus return via requestAnimationFrame; the
+test waited for hidden overlay but not returned focus before another Tab journey.
+A narrow added Settings-button focus assertion establishes that existing contract;
+no product behavior/threshold changed. Exact focused keyboard case passes1/1 (2.9s).
+The superseded CI37036970692 is cancelled after this concrete local diagnosis; a
+corrected exact candidate gets the final Product/matrix gate. Original local failure,
+trace and raw logs remain in `.agent-tmp/p05-fix/final-test-results` and `final-product.log`.

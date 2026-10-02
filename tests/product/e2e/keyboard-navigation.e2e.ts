@@ -212,6 +212,9 @@ test("keyboard-only browsing preserves virtual focus and closes only the top ove
     await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
     await pressWithDeadline(page, "Escape", "close settings without closing docked preview");
     await expect(page.locator("#settings-overlay")).toBeHidden();
+    // Overlay cleanup returns focus on the next frame. Settle that contract before
+    // starting another Tab journey, or its late return can steal the folder focus.
+    await expect(page.locator("#btn-settings")).toBeFocused();
     await expect(page.locator("#preview-panel")).toBeVisible();
     await tabTo(page, "#btn-close-viewer");
     await pressWithDeadline(page, "Enter", "close docked preview");
