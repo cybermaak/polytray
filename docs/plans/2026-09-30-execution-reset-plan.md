@@ -278,3 +278,14 @@ P04 completed on exact candidate2b61aa1: local full Product and hosted
 passed across macOS/Linux/Windows, including CI packaging. No corrections/retries or
 assertion changes were needed. See the tracker for exact counts, screenshots, performance
 and skipped/unperformed coverage. This closes P04 only; P05/P06 are not started.
+
+## October 2 final P06 disposition
+
+The user directs proceeding with P06 and provisional enabled scan tests: Linux300ms,
+Windows850ms, macOS250ms. All other functional/performance assertions stay unchanged.
+Document/test this explicit policy, get an honest exact-candidate hosted Build result,
+and integrate locally with user changes preserved. Reuse unchanged application-logic
+local Product proof; no507-unit rerun solely for constants/docs. DB-WORKER-01 must
+revisit/recalibrate the provisional tests after worker ownership/messaging with
+controlled throughput/durability/latency evidence and justified stricter budgets.
+Historical red runs stay red; no main push/publication or deferred implementation.

@@ -123,7 +123,7 @@ These numeric values are initial acceptance targets to test on recorded hardware
 | Warm folder query, 10k / 50k models, 500-item page | Median <=50 / <=150 ms; 50k p95 <=250 ms on the recorded reference machine, with count and archive grouping included |
 | Same query while heartbeat runs in main | No multi-second main-process stall; max heartbeat gap <=250 ms in the bounded reference test |
 | Cold synthetic 5k-file scan on local storage | First committed visible batch <=1 second, and always before a deliberately delayed second subtree finishes enumeration |
-| Scan steady state | Main heartbeat max gap <=250 ms (temporary Windows acceptance <=400 ms; see dated exception below); queue depth stays within documented bounds; progress publication <=4 Hz plus boundary events |
+| Scan steady state | Main heartbeat max gap <=250 ms (provisional Linux acceptance <=300 ms / Windows <=850 ms; see October 2 exception below); queue depth stays within documented bounds; progress publication <=4 Hz plus boundary events |
 | Settled visible preview | Zero renderer frames during a one-second quiet interval after controls settle; test frame scheduling directly as well as sampled draw calls |
 | Dense synthetic preview | No orientation/normal loop on the visible renderer; cooperative build slices target <=8 ms, with CPU long-task max <=100 ms on reference hardware; separately record GPU upload/driver limits |
 | Preview replacement/cancel | Old request immediately loses publication rights; ports/timers settle; obsolete owned parser stops within 500 ms in the cancellation fixture |
@@ -153,3 +153,22 @@ Default SQLite/checkpoint behavior is retained; WAL128 remains rejected.
 
 Architecture follow-up: [DB-WORKER-01 brief](../2026-10-01-db-worker-01-brief.md).
 Current disposition and evidence: [restart tracker](../2026-09-30-execution-reset-tracker.md).
+
+### October 2, 2026: explicit provisional scan policy, tests remain enabled
+
+The user directs P06 to proceed with Linux scan heartbeat <=300ms and Windows <=850ms;
+macOS remains <=250ms. This supersedes the October 1 Windows400ms exception for future
+runs only. Both streaming5k and metadata-worker scan tests stay enabled with the same
+platform policy for assertions, failure diagnostics and reported metrics. No E2E is
+disabled, no allow-failure/continue-on-error is added, and functional/data-safety checks,
+early-visible1s, exact5,000 rows, queue/progress, query latency/heartbeat and preview
+cancellation500ms limits remain unchanged. The purpose is an honest enabled CI gate,
+not accepting recurring red runs or claiming a performance improvement.
+
+Run37038058657 remains RED under its original Linux250/Windows400 criteria, with
+253.727ms/751.743ms measured; earlier953/1,672ms outliers also remain failed history.
+The desired recorded-reference scan responsiveness stays <=250ms. DB-WORKER-01 must
+revisit these provisional tests after dedicated SQLite worker ownership and ordered
+messaging: controlled same-host/fixture before/after latency and total throughput,
+durability/data-safety proof, and restoration of justified stricter budgets. Exceptions
+must not become permanent through omission. See the worker brief and restart tracker.

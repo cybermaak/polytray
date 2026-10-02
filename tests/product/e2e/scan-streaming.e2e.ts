@@ -6,8 +6,8 @@ import { attachJsonFailureEvidence } from '../../support/helpers/failureEvidence
 import { LIBRARY_STATE_STORAGE_KEY } from '../../../src/shared/libraryState';
 import { SETTINGS_STORAGE_KEY } from '../../../src/shared/settings';
 
-// October 1 user-approved temporary Windows scan allowance; DB-WORKER-01 retains the 250ms goal.
-const SCAN_HEARTBEAT_BUDGET_MS = process.platform === 'win32' ? 400 : 250;
+// October 2 user-approved provisional scan budgets; DB-WORKER-01 retains the 250ms reference goal.
+const SCAN_HEARTBEAT_BUDGET_MS = process.platform === 'win32' ? 850 : process.platform === 'linux' ? 300 : 250;
 
 async function findVisibleMainWindow(app: Awaited<ReturnType<typeof launchIsolatedApp>>['app']) {
   await app.firstWindow();

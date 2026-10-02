@@ -160,3 +160,9 @@ Default SQLite/checkpoint settings remain unchanged and WAL128 remains rejected.
 See the [C10 dated exception](../plans/2026-09-26-performance-ux/contracts.md#october-1-2026-temporary-windows-scan-exception),
 [restart tracker](../plans/2026-09-30-execution-reset-tracker.md), and deferred
 [DB-WORKER-01 brief](../plans/2026-10-01-db-worker-01-brief.md).
+
+October 2 policy supersession: the user explicitly keeps scan tests enabled with
+provisional Linux<=300ms, Windows<=850ms, macOS<=250ms; unrelated budgets unchanged.
+Historical failures remain red under their original criteria. DB-WORKER-01 owns
+controlled worker-era recalibration and restoration of stricter justified budgets.
+See the C10 October 2 exception and current restart tracker for final CI evidence.

@@ -1,7 +1,7 @@
 # Product-first restart tracker
 
 Updated October 2, 2026. Authority: [execution plan](2026-09-30-execution-reset-plan.md).
-**P00/P01 complete; P02 temporarily accepted by user at <=400ms Windows scan heartbeat. P03 DONE scoped; P04 COMPLETE: required Product/Build gates green on 2b61aa1. P05 interaction fix is verified; P06 is HELD pending disposition of final CI timing failures. Automation/deferred work remain paused.**
+**P00/P01 complete; P02 temporarily accepted by user at <=400ms Windows scan heartbeat. P03 DONE scoped; P04 COMPLETE: required Product/Build gates green on 2b61aa1. P05 interaction fix is verified; P06 is ACTIVE with explicit Linux300ms/Windows850ms provisional scan policy; tests remain enabled. Automation/deferred work remain paused.**
 
 One Sol/high owner performs implementation, self-review and focused verification.
 One independent reviewer is reserved for P05, after the coherent product candidate.
@@ -41,7 +41,7 @@ harness-first ordering.
 | P03 | Fix only blockers to functional verification | P01, P02 | DONE scoped; no additional repair demonstrated |
 | P04 | Frozen product-quality milestone and affected performance measurement | P03 | DONE: local Product and hosted Build matrix green on 2b61aa1 |
 | P05 | One independent final code/feature/UAT review | P04 | Astra read-only review complete; one blocking admission fix resolved on4298174; performance disposition pending |
-| P06 | Local integration and truthful product handoff | P05 | HELD for explicit disposition of final CI timing failures |
+| P06 | Local integration and truthful product handoff | P05 | ACTIVE: policy approved, exact final Build then normal local merge |
 
 Execute serially in this order. P01 and P02 need not wait for general harness work.
 A blocked P02 investigation does not prevent preparing P03/P04 evidence for completed
@@ -417,3 +417,25 @@ traces and responsive captures remain `.agent-tmp/p05-fix/{linux,windows}-failur
 `accepted-{linux,macos,windows}.log`, `accepted-ci-final.json` and `accepted-test-results/`.
 The user decision was requested asynchronously; all main-push/publication/automation
 restrictions and previous coverage/profile-isolation limitations remain in force.
+
+### October 2 explicit answer: keep tests enabled; complete P06
+
+The user answered the held decision: proceed with local integration and adjust only
+scan heartbeat acceptance to Linux<=300ms, Windows<=850ms, macOS<=250ms. Chose this
+narrow option, not disabling tests. Both scan E2Es retain every functional/data-safety
+assertion, diagnostics and metric labels; all unrelated timing targets are unchanged.
+C10/current instructions and DB-WORKER-01 record the provisional policy and required
+worker-era controlled recalibration/stricter-budget restoration. Previous red matrix
+37038058657 is not retroactively green. No DB tuning/worker/harness implementation.
+Reuse4298174 local full Product for unchanged application logic; verify policy values
+and boundaries, then one exact-candidate hosted full Build. P06 follows a normal merge
+with tracked user-hunk backup/stash and restoration; untracked work stays in place.
+The pending acceptance question is resolved by this explicit user answer.
+
+Policy verification: both source declarations evaluate to Windows850/Linux300/macOS250;
+inclusive boundaries accepted, boundary+0.001 rejected; assertion/diagnostic references
+share the named budget. Normalized diff versus4298174 confirms all other E2E lines are
+unchanged. Focused two scan E2Es pass2/2 (5.4s), with current application build reused
+only after verifying application/dependency/workflow tree identity. No native ABI changes
+or full local507-unit rerun for policy/docs; local4298174 Product proof remains valid
+for unchanged application logic. New exact hosted candidate gate pending.

@@ -500,3 +500,9 @@ optional skip), and the new restore exclusion case passes all hosted OSes. Final
 37038058657 remains red only on scan heartbeat: Linux253.727ms >250, Windows751.743ms
 >400. P06 integration is held for explicit disposition; primary user work is unchanged.
 No budget change or database-worker implementation is inferred from these results.
+
+October 2 explicit P06 answer: keep scan tests enabled with provisional Linux300ms,
+Windows850ms and macOS250ms budgets. Reference goal250ms and unrelated targets stay
+unchanged. DB-WORKER-01 includes worker-era scan test replacement/recalibration with
+controlled latency/throughput/durability proof. No performance fix is claimed; prior
+red matrix remains red. P06 now proceeds after the new exact-candidate hosted Build.

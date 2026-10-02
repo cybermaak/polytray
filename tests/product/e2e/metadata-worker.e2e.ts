@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { launchIsolatedApp } from '../../support/helpers/isolatedApp';
 
-// October 1 user-approved temporary Windows scan allowance; DB-WORKER-01 retains the 250ms goal.
-const SCAN_HEARTBEAT_BUDGET_MS = process.platform === 'win32' ? 400 : 250;
+// October 2 user-approved provisional scan budgets; DB-WORKER-01 retains the 250ms reference goal.
+const SCAN_HEARTBEAT_BUDGET_MS = process.platform === 'win32' ? 850 : process.platform === 'linux' ? 300 : 250;
 
 async function findMainWindow(app: Awaited<ReturnType<typeof launchIsolatedApp>>['app']) {
   await app.firstWindow();

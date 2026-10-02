@@ -11,8 +11,8 @@ Windows scan writes block Electron main: the controlled 5k baseline measured a
 372.16ms maximum heartbeat gap and 17,468ms after held-subtree release, with exactly
 5,000 rows. An index transaction spent 357.45ms outside its 3.35ms SQL body; these
 are different metrics. WAL128 retained stalls and made scanning 2.23x slower.
-The user temporarily accepts <=400ms Windows scan heartbeat, while the long-term
-reference goal remains <=250ms. Historical 953/1,672ms outliers remain failures.
+The October 2 user decision provisionally accepts <=850ms Windows and <=300ms Linux
+scan heartbeat, with macOS <=250ms and the long-term reference goal <=250ms. Historical 953/1,672ms outliers remain failures.
 
 Move database operations into a dedicated **Node worker_thread that owns the SQLite
 connection**, prepared statements, migrations and transactions. Include blocking
@@ -85,8 +85,8 @@ repeat counts and no concurrent native rebuild/testing. Record main heartbeat ma
 and distribution, query latency, queue high water, first visible batch, total scan time
 and rows/sec. Preserve exact 5,000-row completion and early visibility before release;
 seek <=250ms scan heartbeat on reference hardware without sacrificing total throughput.
-Report hosted Windows results separately; <=400ms is a temporary allowance, not the
-optimization goal. Keep query p95, query heartbeat, cancellation and other C10 targets.
+Report hosted-platform results separately; Linux300ms/Windows850ms are provisional
+allowances, not the optimization goal. Keep query p95, query heartbeat, cancellation and other C10 targets.
 
 Focused data-safety regressions must cover scan/watch races, stale revision/ABA results,
 annotation survival, missing/partial-root pruning fences, pending annotation retry,
@@ -98,3 +98,16 @@ architecture is coherent. Do not build a new test-harness framework or resource 
 Design checkpoint: after 45 minutes or two uninformative focused attempts, record
 ownership/transport/recovery decisions, remaining risks and the smallest next patch.
 Implementation is a separately scheduled iteration with its own bounded milestones.
+
+## Required follow-up: provisional scan test replacement/recalibration
+
+The user chose to keep the specific scan tests enabled, provisionally at Linux300ms,
+Windows850ms and macOS250ms. After worker connection ownership/messaging is implemented,
+replace or recalibrate the provisional heartbeat assertions using controlled same-host,
+same-fixture/runtime before/after samples; record distributions, total scan time/rows per
+second, first visibility, bounded admission and durability. Restore justified stricter
+platform budgets toward the <=250ms recorded-reference goal. Keep functional, exact-row,
+pruning/annotation/recovery, early-visible1s and unrelated query/preview assertions intact.
+Do not disable whole E2Es or use blanket allow-failure to hide genuine CI errors.
+Historical failures retain their original criteria; the new policy is not a speedup.
+This follow-up belongs to the separately bounded DB-WORKER-01 iteration, not P06.
