@@ -1,7 +1,7 @@
 # Product-first restart tracker
 
 Updated October 2, 2026. Authority: [execution plan](2026-09-30-execution-reset-plan.md).
-**P00/P01 complete; P02 temporarily accepted by user at <=400ms Windows scan heartbeat. P03 DONE scoped; P04 COMPLETE: required Product/Build gates green on 2b61aa1. P05 onward and automation remain paused.**
+**P00/P01 complete; P02 temporarily accepted by user at <=400ms Windows scan heartbeat. P03 DONE scoped; P04 COMPLETE: required Product/Build gates green on 2b61aa1. P05 review found one restore/paused-scan blocker; its approved fix and P06 are ACTIVE. Automation/deferred work remain paused.**
 
 One Sol/high owner performs implementation, self-review and focused verification.
 One independent reviewer is reserved for P05, after the coherent product candidate.
@@ -40,8 +40,8 @@ harness-first ordering.
 | P02 | Record Windows scan responsiveness disposition | P00 | USER-ACCEPTED TEMPORARILY <=400ms; DB-WORKER-01 deferred |
 | P03 | Fix only blockers to functional verification | P01, P02 | DONE scoped; no additional repair demonstrated |
 | P04 | Frozen product-quality milestone and affected performance measurement | P03 | DONE: local Product and hosted Build matrix green on 2b61aa1 |
-| P05 | One independent final code/feature/UAT review | P04 | PLANNED |
-| P06 | Local integration and truthful product handoff | P05 | PLANNED |
+| P05 | One independent final code/feature/UAT review | P04 | Astra read-only review complete; one blocking admission fix ACTIVE |
+| P06 | Local integration and truthful product handoff | P05 | AUTHORIZED after fixed-candidate gate |
 
 Execute serially in this order. P01 and P02 need not wait for general harness work.
 A blocked P02 investigation does not prevent preparing P03/P04 evidence for completed
@@ -360,3 +360,21 @@ Raw evidence: `.agent-tmp/restart-p04/local-product.log`, `local-report/`,
 `candidate-sha.txt`. Generated fixtureZIP restored to baseline
 SHA2566ca9f75c11d9330221860ade9fdb641cac6728a9f0a4cc1883989506a39fc109.
 Primary7aab2d6 user hunks/untracked files remain untouched. STOP before P05.
+
+### October 2: P05 finding and approved fix/P06 resume
+
+Astra's read-only review of2b61aa1/docsbb98b62 found one blocker: restore locked the
+renderer before draining a whole paused scan, making Resume/Cancel inaccessible.
+The user approved simple scan exclusion, then P06. Sole Sol owner; no further agents,
+reviewer cycle, deferred DB/harness work or automation. Three gate regressions first
+failed with pending admission on the original source, then passed with scan admission
+and idle-renderer checks. Production fix labels whole scans, bulk scans and retries;
+rejects restore before locking if scan work exists; blocks new scans from queuing during
+admission, rechecks attempts during the renderer handshake and releases lock/leases on
+rejection. Initial Add Folder renderer operations reject an idle-required lock promptly.
+UI keeps preview available but disables Apply for active/paused scans and pending retry.
+Busy admission is recoverable, with no marker/journal/backup side effects; stale preview
+may be regenerated. Focused units34/34 and affected isolated E2Es13/13 passed; expanded focused
+units62/62 include real metadata retry/cancellation state. Previous P04 remains valid
+for unaffected code but does not validate this changed restore/scan source. Final exact
+Product/hosted candidate gate follows; primary user hunks remain untouched until safe P06.

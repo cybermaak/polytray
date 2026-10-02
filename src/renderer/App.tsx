@@ -10,6 +10,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Toolbar } from "./components/Toolbar";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { ComparePanel } from "./components/ComparePanel";
+import { hasActiveScanWork } from "../shared/metadataRestoreScanAdmission";
 import { SettingsModal } from "./components/SettingsModal";
 import { BatchActionsBar } from "./components/BatchActionsBar";
 import { EmptyState } from "./components/EmptyState";
@@ -495,10 +496,16 @@ export const App: React.FC = () => {
     });
     const stopLock = window.polytray.onMetadataRestoreMutationLock(request => {
       void (async () => {
+        if (request.locked) {
+          try { await rendererMutationGateRef.current.lock({ requireIdle: request.requireIdle }); }
+          catch {
+            await window.polytray.acknowledgeMetadataRestoreMutationLock(request.requestId, "busy");
+            return;
+          }
+        }
         restoreMutationLockedRef.current = request.locked;
         setRendererStateLocked(request.locked);
         if (request.locked) {
-          await rendererMutationGateRef.current.lock();
           await publishRendererRestoreSnapshot(buildRendererRestoreSnapshot());
         }
         if (!request.locked && pendingRendererStateWritesRef.current) {
@@ -511,7 +518,11 @@ export const App: React.FC = () => {
         }
         if (!request.locked) flushQueuedRendererMutations();
         await window.polytray.acknowledgeMetadataRestoreMutationLock(request.requestId);
-      })().catch(error => console.error("Failed to update metadata restore mutation lock", error));
+      })().catch(error => {
+        console.error("Failed to update metadata restore mutation lock", error);
+        void window.polytray.acknowledgeMetadataRestoreMutationLock(request.requestId, "failed")
+          .catch(ackError => console.error("Failed to reject metadata restore mutation lock", ackError));
+      });
     });
     const blockMutationEvent = (event: Event) => {
       if (!restoreMutationLockedRef.current && !rendererMutationGateRef.current.isLocked()) return;
@@ -1577,6 +1588,7 @@ export const App: React.FC = () => {
         settings={settings}
         getBackupSnapshot={buildRendererRestoreSnapshot}
         restoreBlocked={!!restoreRecoveryError}
+        scanWorkActive={hasActiveScanWork(backgroundJobs.jobs, backgroundJobs.pending)}
         onRecoveryError={setRestoreRecoveryError}
         onImportNotice={setMetadataImportNotice}
         onSettingsChange={handleSettingsChange}

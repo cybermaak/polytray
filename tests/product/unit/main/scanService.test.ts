@@ -7,6 +7,7 @@ import { EventEmitter } from 'node:events';
 import Database from 'better-sqlite3';
 import JSZip from 'jszip';
 import { createDbAtVersion } from '../../../support/helpers/databaseFixtures';
+import { createMetadataRestoreMutationGate } from '../../../../src/main/metadataRestoreMutationGate';
 import { createBarrier } from '../../../support/helpers/performanceProbe';
 import { createFileIndexRepository, subscribeToFileIndexMutations } from '../../../../src/main/fileIndexing';
 import { createScanService } from '../../../../src/main/scanService';
@@ -1143,4 +1144,38 @@ test('cancelling a retry coalesced with an independent scope scan settles withou
     fixture.cleanup();
     fs.rmSync(rootPath, { recursive: true, force: true });
   }
+});
+
+test('active metadata retry and cancelling retry exclude restore until the real retry settles', async () => {
+  const fixture = createTestDb();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-retry-restore-exclusion-'));
+  const started = createBarrier<void>(), release = createBarrier<void>();
+  const gate = createMetadataRestoreMutationGate();
+  let calls = 0;
+  const service = createScanService({
+    db: fixture.db,
+    discover: async function* (_root, _signal, generation) {
+      yield discovered(root, path.join(root, 'model.stl'));
+      yield { type: 'scope-complete', rootPath: root, scopePath: root, generation, kind: 'directory' };
+      yield { type: 'discovery-complete', rootPath: root, cancelled: false };
+    },
+    extractMetadata: async () => {
+      if (calls++ === 0) throw new Error('retryable metadata failure');
+      started.release(); await release.wait();
+      return { vertexCount: 1, faceCount: 1, dimensions: null };
+    },
+  });
+  try {
+    assert.equal((await gate.run(() => service.scan(root), { kind: 'scan' })).state, 'partial');
+    const job = service.getBackgroundJobs().find(job => job.rootPath === root)!;
+    const retry = gate.run(() => service.retryFailures(job.jobId), { kind: 'scan' });
+    await started.wait();
+    assert.equal(service.getBackgroundJobs().find(item => item.jobId === job.jobId)?.state, 'running');
+    await assert.rejects(gate.acquire({ excludeScans: true }), /Finish or cancel active scans/);
+    assert.equal(service.cancel(job.jobId), true);
+    await assert.rejects(gate.acquire({ excludeScans: true }), /Finish or cancel active scans/);
+    release.release(); await retry;
+    assert.equal(service.getBackgroundJobs().find(item => item.jobId === job.jobId)?.state, 'cancelled');
+    const unlock = await gate.acquire({ excludeScans: true }); await unlock();
+  } finally { release.release(); await service.dispose(); fixture.cleanup(); fs.rmSync(root, { recursive: true, force: true }); }
 });

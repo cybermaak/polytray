@@ -167,10 +167,10 @@ contextBridge.exposeInMainWorld("polytray", {
     onChannel(METADATA_RESTORE_IPC.applyEvent, callback),
   acknowledgeMetadataRestoreApply: (requestId: string, snapshot: RendererRestoreSnapshot) =>
     ipcRenderer.invoke(METADATA_RESTORE_IPC.applyAck, { requestId, snapshot }),
-  onMetadataRestoreMutationLock: (callback: (request: { requestId: string; locked: boolean }) => void) =>
+  onMetadataRestoreMutationLock: (callback: (request: { requestId: string; locked: boolean; requireIdle?: boolean }) => void) =>
     onChannel(METADATA_RESTORE_IPC.mutationLockEvent, callback),
-  acknowledgeMetadataRestoreMutationLock: (requestId: string) =>
-    ipcRenderer.invoke(METADATA_RESTORE_IPC.mutationLockAck, { requestId }),
+  acknowledgeMetadataRestoreMutationLock: (requestId: string, reason?: "busy" | "failed") =>
+    ipcRenderer.invoke(METADATA_RESTORE_IPC.mutationLockAck, { requestId, reason }),
   getMainWindowVisibility: () =>
     ipcRenderer.invoke(IPC.GET_MAIN_WINDOW_VISIBILITY) as Promise<MainWindowVisibilityData>,
   onMainWindowVisibility,

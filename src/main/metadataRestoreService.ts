@@ -12,6 +12,7 @@ import { advanceLibraryRevisions, getBrowseRevision } from './libraryRevisions';
 import { createMetadataRestoreJournal, type MetadataRestoreJournalRecord, type MetadataRestoreLocalState } from './metadataRestoreJournal';
 import { createFileIndexRepository, subscribeToFileIndexMutations, type CommittedFileMutation, type FileIndexRepository } from './fileIndexing';
 import { syncDirectorySync } from './directorySync';
+import { MetadataRestoreAdmissionError } from './metadataRestoreMutationGate';
 
 export interface MetadataRestoreJournal {
   write(record: MetadataRestoreJournalRecord): Promise<void>;
@@ -293,7 +294,7 @@ export function createMetadataRestoreService(dependencies: MetadataRestoreDepend
         await releaseMutationLease(plan.transactionId).catch(() => undefined);
         plans.delete(plan.transactionId);
       }
-      unresolvedFailure = error instanceof Error ? error.message : String(error);
+      unresolvedFailure = error instanceof MetadataRestoreAdmissionError ? null : error instanceof Error ? error.message : String(error);
       return { status: 'failed', message: error instanceof Error ? error.message : String(error) };
     }
   }

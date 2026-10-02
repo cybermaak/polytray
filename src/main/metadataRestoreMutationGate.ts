@@ -1,3 +1,7 @@
+export class MetadataRestoreAdmissionError extends Error {
+  constructor(message = 'Finish or cancel active scans before applying this import.') { super(message); this.name = 'MetadataRestoreAdmissionError'; }
+}
+
 type QueuedMutation = () => Promise<void>;
 
 /** Serializes renderer-lock handshakes before any lease closes the main gate. */
@@ -27,6 +31,8 @@ export function createMetadataRestoreLeaseReservation() {
 export function createMetadataRestoreMutationGate() {
   let locked = false;
   let active = 0;
+  let activeScans = 0;
+  let scanAttemptRevision = 0;
   let idleWaiters: Array<() => void> = [];
   const queued: QueuedMutation[] = [];
 
@@ -44,7 +50,13 @@ export function createMetadataRestoreMutationGate() {
       });
   }
 
-  function run<T>(operation: () => T | Promise<T>): Promise<T> {
+  function run<T>(operation: () => T | Promise<T>, options: { kind?: 'scan' } = {}): Promise<T> {
+    if (options.kind === 'scan') {
+      scanAttemptRevision++;
+      if (locked) return Promise.reject(new MetadataRestoreAdmissionError('A metadata restore is being applied; try the scan again afterward.'));
+      activeScans++;
+      return runActive(operation).finally(() => { activeScans--; });
+    }
     if (!locked) return runActive(operation);
     return new Promise<T>((resolve, reject) => {
       queued.push(async () => {
@@ -54,7 +66,8 @@ export function createMetadataRestoreMutationGate() {
     });
   }
 
-  async function acquire(): Promise<() => Promise<void>> {
+  async function acquire(options: { excludeScans?: boolean } = {}): Promise<() => Promise<void>> {
+    if (options.excludeScans && activeScans > 0) throw new MetadataRestoreAdmissionError();
     if (locked) throw new Error('A metadata restore mutation lease is already active');
     locked = true;
     if (active > 0) await new Promise<void>(resolve => idleWaiters.push(resolve));
@@ -73,5 +86,8 @@ export function createMetadataRestoreMutationGate() {
     };
   }
 
-  return { run, acquire, isLocked: () => locked };
+  return { run, acquire, isLocked: () => locked, getScanAttemptRevision: () => scanAttemptRevision,
+    assertScanAdmissionUnchanged: (revision: number) => {
+      if (revision !== scanAttemptRevision) throw new MetadataRestoreAdmissionError();
+    } };
 }

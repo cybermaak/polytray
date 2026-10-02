@@ -486,3 +486,11 @@ change was needed. Windows scan heartbeat270.64ms passes the previously approved
 exception; the desired250ms goal remains DB-WORKER-01. Screenshots/feature evidence and
 all coverage/signing limitations are in the restart tracker. Later completion changes
 are documentation only. P05/P06, automation, deferred work and publication remain paused.
+
+October 2 P05 review found one blocking restore/paused-scan admission deadlock. The
+user authorized simple exclusion and then P06. Scans/bulk scans/metadata retry remain
+counted through full settlement; restore rejects busy work before renderer locking,
+blocks admission races and handles busy renderer handshakes recoverably. UI disables
+Apply while scans are active/paused while keeping preview/scan controls available.
+The final changed-source gate is required before local integration; automation/deferred
+work and main push/publication stay paused. See the restart tracker for proof/results.

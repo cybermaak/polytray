@@ -127,8 +127,8 @@ interface PolytrayAPI {
   applyMetadataRestoreState: (state: StagedMetadataRestore) => Promise<void>;
   onMetadataRestoreApply: (callback: (request: { requestId: string; state: StagedMetadataRestore }) => void) => () => void;
   acknowledgeMetadataRestoreApply: (requestId: string, snapshot: RendererRestoreSnapshot) => Promise<void>;
-  onMetadataRestoreMutationLock: (callback: (request: { requestId: string; locked: boolean }) => void) => () => void;
-  acknowledgeMetadataRestoreMutationLock: (requestId: string) => Promise<void>;
+  onMetadataRestoreMutationLock: (callback: (request: { requestId: string; locked: boolean; requireIdle?: boolean }) => void) => () => void;
+  acknowledgeMetadataRestoreMutationLock: (requestId: string, reason?: "busy" | "failed") => Promise<void>;
   getMainWindowVisibility: () => Promise<MainWindowVisibilityData>;
   onMainWindowVisibility: (
     callback: (data: MainWindowVisibilityData) => void,

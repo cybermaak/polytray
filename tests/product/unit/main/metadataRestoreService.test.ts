@@ -7,6 +7,7 @@ import Database from 'better-sqlite3';
 import { createMetadataRestoreService } from '../../../../src/main/metadataRestoreService';
 import { createMetadataRestoreJournal } from '../../../../src/main/metadataRestoreJournal';
 import { createFileIndexRepository } from '../../../../src/main/fileIndexing';
+import { createMetadataRestoreMutationGate } from '../../../../src/main/metadataRestoreMutationGate';
 import { createDbAtVersion } from '../../../support/helpers/databaseFixtures';
 import { buildMetadataBackupV1 } from '../../../../src/shared/metadataBackup';
 
@@ -545,4 +546,39 @@ test('cancel serializes with a commit paused at prepared journal write and retai
     await service.acknowledgeImport(plan.transactionId, 7);
     assert.equal(leaseHeld, false);
   } finally { db.close(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(fixture.dir, { recursive: true, force: true }); }
+});
+
+test('busy scan commit is recoverable, writes no marker or backup, and a fresh preview applies after cancellation', async () => {
+  const { db, fixture } = createDb();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'polytray-restore-scan-exclusion-'));
+  const gate = createMetadataRestoreMutationGate();
+  let finishScan!: () => void;
+  const pausedScan = gate.run(() => new Promise<void>(resolve => { finishScan = resolve; }), { kind: 'scan' });
+  const journal = createMetadataRestoreJournal(dir);
+  const service = createMetadataRestoreService({
+    db, journal, recoveryDirectory: path.join(dir, 'backups'),
+    getRendererRevision: () => 7, getRendererState: () => rendererState,
+    applyRendererState: async () => undefined,
+    acquireMutationLease: () => gate.acquire({ excludeScans: true }),
+  });
+  try {
+    const plan = service.previewImport(backup(), rendererState);
+    const rejected = await service.commitImport(plan.transactionId);
+    assert.equal(rejected.status, 'failed');
+    assert.match(rejected.status === 'failed' ? rejected.message : '', /Finish or cancel active scans/);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM metadata_import_transactions').get() as { count: number }).count, 0);
+    assert.equal((await journal.readPending()).length, 0);
+    assert.equal(fs.existsSync(path.join(dir, 'backups')), false);
+    assert.equal((await service.getStatus()).unresolved, false);
+    assert.equal(gate.isLocked(), false);
+    finishScan(); await pausedScan;
+    const retry = service.previewImport(backup(), rendererState);
+    const result = await service.commitImport(retry.transactionId);
+    assert.equal(result.status, 'staged');
+    await service.acknowledgeImport(retry.transactionId, 7);
+    assert.equal(gate.isLocked(), false);
+  } finally {
+    finishScan?.(); await pausedScan; service.dispose(); db.close();
+    fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(fixture.dir, { recursive: true, force: true });
+  }
 });
