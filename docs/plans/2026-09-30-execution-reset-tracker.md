@@ -469,3 +469,14 @@ and no skips/continue-on-error. Application/dependency/workflow code matches4298
 only disclosed test/report/navigation and docs changes invalidate those affected checks.
 A coherent final exact-candidate functional matrix follows; no507-unit local rerun
 solely for those test/doc changes. Previous failures stay recorded.
+
+Functional matrix37045048450: Linux passes the controlled-tail regression and full
+gate; macOS fails only background-work's later healthy-card visibility after a one-time
+programmaticscrollTop0. Tail and restore regressions pass macOS. This assertion conflates
+healthy record survival with a retained virtual-grid viewport settling after job completion.
+Narrow correction checks exact healthy ID/content revision before/after retry and finds
+it via normal search UI, then clears search. Earlier retained-scroll assertions remain
+unchanged; no scroll-cache product fix is claimed. Focused background+controlled-tail
+cases pass2/2 (21.4s). One coherent test-only correction follows; no app/budget changes,
+no dropped functional assertions. Current failures remain recorded. P06 still waits for
+non-waived green gate; no unbounded harness work.

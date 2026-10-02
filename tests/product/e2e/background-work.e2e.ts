@@ -193,6 +193,9 @@ test('background job controls retain browse state and watch follows only watch s
       return jobs.find((job) => job.rootPath === folder && job.state === 'partial')?.jobId ?? null;
     }, retryRoot)).not.toBeNull();
     await page.locator('.background-work-details').evaluate((element) => { (element as HTMLDetailsElement).open = true; });
+    const healthyBeforeRetry = await page.evaluate(async folder =>
+      (await window.polytray.getFiles({ folder, limit: 50, offset: 0 })).files.find(file => file.name === 'healthy'), retryRoot);
+    expect(healthyBeforeRetry).toBeTruthy();
     const retryJobId = await page.evaluate(async (folder) => (await window.polytray.getBackgroundJobs()).find((job) => job.rootPath === folder && job.state === 'partial')!.jobId, retryRoot);
     const retryCard = page.locator(`[data-job-id="${retryJobId}"]`);
     await expect(retryCard).toContainText('metadata failures');
@@ -202,8 +205,16 @@ test('background job controls retain browse state and watch follows only watch s
     fs.writeFileSync(badArchive, await archive.generateAsync({ type: 'nodebuffer' }));
     await retryCard.getByRole('button', { name: 'Retry failed items' }).click();
     await expect(retryCard).toHaveAttribute('data-job-state', 'completed', { timeout: 20_000 });
-    await browseScroller.evaluate((element) => { element.scrollTop = 0; });
+    const healthyAfterRetry = await page.evaluate(async folder =>
+      (await window.polytray.getFiles({ folder, limit: 50, offset: 0 })).files.find(file => file.name === 'healthy'), retryRoot);
+    expect(healthyAfterRetry?.id).toBe(healthyBeforeRetry!.id);
+    expect(healthyAfterRetry?.content_revision).toBe(healthyBeforeRetry!.content_revision);
+    // Retained virtual-grid anchors can settle after the job's terminal event.
+    // Navigate to the exact healthy record through the normal search UI.
+    await page.locator('#search-input').fill('healthy');
     await expect(page.locator('.file-card[aria-label="healthy.stl"]')).toBeVisible();
+    await expect(page.locator('.file-card[aria-label="healthy.stl"]')).toHaveAttribute('data-file-id', String(healthyBeforeRetry!.id));
+    await page.locator('#search-clear').click();
 
     // Enable the real utility watcher, then prove irrelevant settings do not reconfigure it.
     await page.getByRole('button', { name: 'Settings' }).click();
