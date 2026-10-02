@@ -117,6 +117,7 @@ test('integrated 600-record library keeps paging and annotations through archive
     await expect.poll(async () => Number(await page.locator('.file-card:not(.archive-summary)').first().getAttribute('data-file-id')))
       .toBe(before.items[0].file.id);
 
+    const orderedKeys = [...before.items, ...tail.items].map((item) => item.key);
     const tailCard = page.locator(`.file-card[data-file-id="${tail.items[0].file.id}"]`);
     try {
       const scroller = page.locator('[data-virtuoso-scroller]');
@@ -124,7 +125,6 @@ test('integrated 600-record library keeps paging and annotations through archive
       const firstPageHeight = await scroller.evaluate((element) => element.scrollHeight);
       await page.mouse.wheel(0, firstPageHeight);
       const pageOneLastCard = page.locator(`[data-item-key="${before.items[499].key}"]`);
-      const orderedKeys = [...before.items, ...tail.items].map((item) => item.key);
       let navigationState = 'waiting';
       await expect.poll(async () => {
         if (await tailCard.count()) return navigationState = 'target';
@@ -160,6 +160,12 @@ test('integrated 600-record library keeps paging and annotations through archive
     }
     await expect(tailCard.locator('.card-name')).toBeVisible();
     const tailId = String(tail.items[0].file.id);
+    // Reproduce a late wheel/virtualizer update after visibility: the exact target
+    // can unmount before pointer selection, so navigation must recover that ID.
+    await page.locator('[data-virtuoso-scroller]').hover();
+    await page.mouse.wheel(0, 100_000);
+    await expect(tailCard).toHaveCount(0);
+
     const tailTogglePoint = () => page.evaluate((fileId) => {
       const button = document.querySelector<HTMLButtonElement>(`.file-card[data-file-id="${fileId}"] .file-select-toggle`);
       const scroller = button?.closest<HTMLElement>('[data-virtuoso-scroller]');
@@ -191,6 +197,29 @@ test('integrated 600-record library keeps paging and annotations through archive
     };
     const clickMountedTailToggle = async () => {
       for (let attempt = 0; attempt < 4; attempt++) {
+        if (!await tailTogglePoint()) {
+          const recovery = await page.evaluate(({ keys, targetKey }) => {
+            const scroller = document.querySelector<HTMLElement>('[data-virtuoso-scroller]');
+            const grid = document.querySelector<HTMLElement>('#file-grid');
+            const first = grid?.querySelector<HTMLElement>('[data-item-key]');
+            if (!scroller || !grid || !first) return null;
+            const firstIndex = keys.indexOf(first.dataset.itemKey ?? '');
+            const targetIndex = keys.indexOf(targetKey);
+            if (firstIndex < 0 || targetIndex < 0) return null;
+            const columns = getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/).length;
+            const rowGap = Number.parseFloat(getComputedStyle(grid).rowGap) || 0;
+            const viewport = scroller.getBoundingClientRect();
+            const firstBounds = first.getBoundingClientRect();
+            const rows = Math.floor(targetIndex / columns) - Math.floor(firstIndex / columns);
+            return {
+              x: viewport.left + viewport.width / 2, y: viewport.top + viewport.height / 2,
+              delta: firstBounds.top - viewport.top + rows * (firstBounds.height + rowGap) - viewport.height / 2,
+            };
+          }, { keys: orderedKeys, targetKey: tail.items[0].key });
+          if (!recovery) throw new Error('Current grid geometry cannot locate the exact tail ID');
+          await page.mouse.move(recovery.x, recovery.y);
+          await page.mouse.wheel(0, Math.round(recovery.delta));
+        }
         await expect.poll(async () => Boolean(await tailTogglePoint()), { timeout: 2_000 }).toBe(true);
         const point = await tailTogglePoint();
         if (!point) continue;

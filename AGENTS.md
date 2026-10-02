@@ -63,7 +63,8 @@ when running the full gate. Main push and publication remain unauthorized.
 Non-main CI dispatch/results retrieval is authorized with bounded monitoring;
 the old ten-minute manual-report and three-attempt rules do not govern this restart.
 The October 2 user-approved C10 exception keeps scan tests enabled with provisional
-heartbeat budgets: Windows <=850ms, Linux <=300ms, macOS <=250ms. Unrelated query/preview
+heartbeat comparisons: Windows <=850ms and Linux <=300ms are report-only;
+macOS <=250ms remains gated. Unrelated query/preview
 budgets stay unchanged. DB-WORKER-01 owns architecture and test recalibration; the
 long-term reference goal remains <=250ms and no performance fix is claimed.
 

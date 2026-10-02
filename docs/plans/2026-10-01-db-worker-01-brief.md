@@ -111,3 +111,11 @@ pruning/annotation/recovery, early-visible1s and unrelated query/preview asserti
 Do not disable whole E2Es or use blanket allow-failure to hide genuine CI errors.
 Historical failures retain their original criteria; the new policy is not a speedup.
 This follow-up belongs to the separately bounded DB-WORKER-01 iteration, not P06.
+
+Final gate/report distinction: the user's disable fallback is applied only to numeric
+SCAN heartbeat ceiling assertions on Linux/Windows, not the E2Es. Linux300/Windows850
+remain reported comparisons with raw samples/slow phases and explicit missed-target
+warnings. macOS250 remains blocking. DB-WORKER-01 must replace/recalibrate and restore
+justified blocking scan timing checks after its controlled worker-era evidence; retain
+all functional and measurement-validity assertions. Report functional CI and scan
+performance separately while this exception remains active.

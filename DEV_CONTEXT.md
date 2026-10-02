@@ -506,3 +506,10 @@ Windows850ms and macOS250ms budgets. Reference goal250ms and unrelated targets s
 unchanged. DB-WORKER-01 includes worker-era scan test replacement/recalibration with
 controlled latency/throughput/durability proof. No performance fix is claimed; prior
 red matrix remains red. P06 now proceeds after the new exact-candidate hosted Build.
+
+October 2 clarified scan fallback: only Linux/Windows numeric scan heartbeat ceilings
+are report-only, keeping300/850 comparisons and full timing/slow-phase evidence plus
+explicit warnings. Both E2Es, functional/data-safety and measurement checks remain
+enabled; macOS250 and unrelated budgets stay blocking. Windows1495ms is not fixed.
+DB-WORKER-01 owns recalibration/restored strict checks. A separate exact-tail navigation
+failure remains blocking and is under narrow repair before P06 integration.

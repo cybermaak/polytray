@@ -289,3 +289,11 @@ local Product proof; no507-unit rerun solely for constants/docs. DB-WORKER-01 mu
 revisit/recalibrate the provisional tests after worker ownership/messaging with
 controlled throughput/durability/latency evidence and justified stricter budgets.
 Historical red runs stay red; no main push/publication or deferred implementation.
+
+October 2 clarified fallback: Windows exceeded850ms in37041710616. The original human
+instruction already allowed disabling specific tests; apply only numeric SCAN ceilings
+as report-only on Linux/Windows with300/850 comparison thresholds, full timing evidence
+and explicit warnings. Complete E2Es and functional/data-safety/measurement checks stay
+enabled/blocking; macOS250 and unrelated budgets remain gated. Tail selection remains
+blocking and requires a narrow real-input fix. No further permission request is needed
+for this clarified scope. Final green claim is for the disclosed functional gate only.

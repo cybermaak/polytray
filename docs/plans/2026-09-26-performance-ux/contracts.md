@@ -123,7 +123,7 @@ These numeric values are initial acceptance targets to test on recorded hardware
 | Warm folder query, 10k / 50k models, 500-item page | Median <=50 / <=150 ms; 50k p95 <=250 ms on the recorded reference machine, with count and archive grouping included |
 | Same query while heartbeat runs in main | No multi-second main-process stall; max heartbeat gap <=250 ms in the bounded reference test |
 | Cold synthetic 5k-file scan on local storage | First committed visible batch <=1 second, and always before a deliberately delayed second subtree finishes enumeration |
-| Scan steady state | Main heartbeat max gap <=250 ms (provisional Linux acceptance <=300 ms / Windows <=850 ms; see October 2 exception below); queue depth stays within documented bounds; progress publication <=4 Hz plus boundary events |
+| Scan steady state | Main heartbeat max gap <=250 ms (Linux <=300 ms / Windows <=850 ms report-only comparisons; macOS <=250 ms gated; see October 2 exception below); queue depth stays within documented bounds; progress publication <=4 Hz plus boundary events |
 | Settled visible preview | Zero renderer frames during a one-second quiet interval after controls settle; test frame scheduling directly as well as sampled draw calls |
 | Dense synthetic preview | No orientation/normal loop on the visible renderer; cooperative build slices target <=8 ms, with CPU long-task max <=100 ms on reference hardware; separately record GPU upload/driver limits |
 | Preview replacement/cancel | Old request immediately loses publication rights; ports/timers settle; obsolete owned parser stops within 500 ms in the cancellation fixture |
@@ -172,3 +172,17 @@ revisit these provisional tests after dedicated SQLite worker ownership and orde
 messaging: controlled same-host/fixture before/after latency and total throughput,
 durability/data-safety proof, and restoration of justified stricter budgets. Exceptions
 must not become permanent through omission. See the worker brief and restart tracker.
+
+### October 2 enabled functional gate with explicit scan timing reports
+
+Using the user's already-authorized disable fallback after Windows1495.502ms >850,
+only the numeric SCAN heartbeat ceiling assertions are report-only on Linux/Windows.
+Both complete E2Es remain enabled; all functional/data-safety, measurement-validity,
+bounded completion, queue/progress, early-visible1s and unrelated query/preview targets
+stay blocking. macOS<=250ms stays blocking. Linux300/Windows850 remain comparison
+thresholds; every sample/slow phase is retained in CI logs, targetMet is reported and
+misses emit explicit warnings. A green functional gate does not mean scan performance
+passed. Prior run37041710616 remains red (also a real tail-selection failure).
+DB-WORKER-01 must address/recalibrate these timing assertions after worker ownership/
+messaging with controlled latency, throughput and durability evidence and stricter
+justified budgets. No whole test skips or blanket continue-on-error are authorized.

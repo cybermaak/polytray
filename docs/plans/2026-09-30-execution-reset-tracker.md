@@ -439,3 +439,33 @@ unchanged. Focused two scan E2Es pass2/2 (5.4s), with current application build 
 only after verifying application/dependency/workflow tree identity. No native ABI changes
 or full local507-unit rerun for policy/docs; local4298174 Product proof remains valid
 for unchanged application logic. New exact hosted candidate gate pending.
+
+### October 2 clarified authorized fallback and real tail failure
+
+Policy-only matrix37041710616: macOS/Linux507 units+73 E2Es pass and package; Windows
+71 E2Es pass/2 fail/1 optional skip. New restore exclusion passes everywhere. Windows
+heartbeat1495.502ms >850 (index-batch1483.854ms) remains an actual performance miss.
+The parent relayed the existing human disable fallback: ONLY numeric scan ceilings
+are now report-only on Linux/Windows, with300/850 comparisons, full samples/slow phases,
+explicit targetMet/missed warnings; macOS250 stays gated. E2Es/functional/data safety,
+measurement validity and unrelated budgets remain enabled/blocking. The pending timing
+question is resolved by that explicit prior authorization, not a new approval request.
+
+Windows integrated-library fails a real exact-tail interaction atline194: after target
+visibility the tail toggle becomes unmounted; the pointer helper only polls a missing
+node. It cannot be ignored. A controlled real wheel to the end reproduces unmounting;
+then exact-ID wheel navigation must recover the target before a stable real pointer
+hit and unchanged selection/pressed assertions. This is one narrow fixture/navigation
+repair, not an app/harness redesign. Focused RED/GREEN evidence follows;30min checkpoint.
+All failed/cancelled histories stay recorded. P06 still waits for non-waived gates.
+
+Tail diagnosis completed within the30min checkpoint: controlled real-wheel unmount
+reproduces the original2s missing-toggle failure (RED). Recovery derives the exact
+known item row from current mounted grid geometry and uses bounded real wheel input;
+then existing stable pointer hit/selected exact ID/pressed/count assertions run unchanged.
+Focused integrated+two scan cases pass3/3 (14.7s). Gate policy checks confirm macOS250
+gated, Linux300/Windows850 report-only, with finite/positive/sample checks still blocking
+and no skips/continue-on-error. Application/dependency/workflow code matches4298174;
+only disclosed test/report/navigation and docs changes invalidate those affected checks.
+A coherent final exact-candidate functional matrix follows; no507-unit local rerun
+solely for those test/doc changes. Previous failures stay recorded.
