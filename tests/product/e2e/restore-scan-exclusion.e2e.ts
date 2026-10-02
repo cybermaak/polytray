@@ -100,8 +100,10 @@ test('active and paused scans exclude restore; admission race unlocks and comple
     await expect(page.locator('#apply-metadata-import')).toBeEnabled();
     await page.locator('#apply-metadata-import').click();
     await expect.poll(() => page.evaluate(async () => (await window.polytray.getMetadataRestoreStatus()).pendingAnnotationCount)).toBe(1);
+    // The pending count is written at the SQLite commit; the restore UI closes only after the
+    // renderer apply and acknowledgment that follow, which can take several seconds on Windows.
+    await expect.poll(() => page.evaluate(async () => (await window.polytray.getMetadataRestoreStatus()).unresolved), { timeout: 30000 }).toBe(false);
     await expect(page.locator('#close-settings-during-restore')).toHaveCount(0);
-    expect((await page.evaluate(() => window.polytray.getMetadataRestoreStatus())).unresolved).toBe(false);
   } finally {
     if (!fs.existsSync(release)) fs.writeFileSync(release, 'release');
     await isolated.close();
