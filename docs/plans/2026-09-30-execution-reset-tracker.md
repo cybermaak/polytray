@@ -1,7 +1,7 @@
 # Product-first restart tracker
 
-Updated October 1, 2026. Authority: [execution plan](2026-09-30-execution-reset-plan.md).
-**P00/P01 complete; P02 temporarily accepted by user at <=400ms Windows scan heartbeat. P03 DONE scoped; P04 onward and automation remain paused.**
+Updated October 2, 2026. Authority: [execution plan](2026-09-30-execution-reset-plan.md).
+**P00/P01 complete; P02 temporarily accepted by user at <=400ms Windows scan heartbeat. P03 DONE scoped; P04 explicitly ACTIVE. P05 onward and automation remain paused.**
 
 One Sol/high owner performs implementation, self-review and focused verification.
 One independent reviewer is reserved for P05, after the coherent product candidate.
@@ -39,7 +39,7 @@ harness-first ordering.
 | P01 | Finish small-window preview fix | P00 | DONE (focused macOS + Windows) |
 | P02 | Record Windows scan responsiveness disposition | P00 | USER-ACCEPTED TEMPORARILY <=400ms; DB-WORKER-01 deferred |
 | P03 | Fix only blockers to functional verification | P01, P02 | DONE scoped; no additional repair demonstrated |
-| P04 | Frozen product-quality milestone and affected performance measurement | P03 | PLANNED |
+| P04 | Frozen product-quality milestone and affected performance measurement | P03 | ACTIVE: local Product + one hosted Build matrix |
 | P05 | One independent final code/feature/UAT review | P04 | PLANNED |
 | P06 | Local integration and truthful product handoff | P05 | PLANNED |
 
@@ -267,3 +267,16 @@ ZIP was restored to its known SHA256. Historical Windows cleanup/tail-card flake
 harness residuals without a current failing reproduction; Windows live-disappearance,
 manual cross-platform UAT and previous evidence limitations remain disclosed. P04/P05
 are untouched. Primary user changes remain untouched; automation stays paused.
+
+### October 2: P04 authorized and candidate frozen
+
+Baseline774b07c was clean. Freeze the same app/test/config tree with this status-only
+checkpoint and execute local Node22 Product plus one exact-SHA ci/sandbox Build matrix.
+Use existing full gates; no gate split or timing changes. Global E2E setup builds once
+for the test phase; no duplicate manual build. The unchanged hosted packaging action
+also rebuilds JS as its existing packaging prerequisite. Record that packaging outcome
+separately rather than alter the workflow during this milestone. Native sequence:
+Node rebuild -> stale marker cleanup -> units -> Electron rebuild -> E2E. All GUI tests
+use explicit private Chromium/userData/DB and synthetic libraries/mock slicer. Inspect
+existing responsive screenshots and feature journeys as automated evidence, not human UAT.
+P05/P06, deferred architecture/stability work and automation are not authorized here.

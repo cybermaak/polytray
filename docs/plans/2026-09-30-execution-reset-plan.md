@@ -264,3 +264,11 @@ relevant. The [focused brief](2026-10-01-db-worker-01-brief.md) defines safety a
 measurement requirements; design/implementation needs its own bounded iteration.
 P03 now handles only demonstrated blockers to functional verification. P04 remains
 unrun and is a separate authorization/milestone; P05 remains the independent review.
+
+## October 2: P04 explicit resume
+
+The user authorizes P04's frozen-candidate full local Product gate and one hosted Build
+matrix, current runtime/build and representative automated synthetic UAT evidence.
+This supersedes the earlier P04 pause only. P05/P06, deferred DB-WORKER/H/M/C work,
+automation, main push and publication remain paused. Retain the approved Windows scan
+heartbeat <=400ms and all other budgets; do not label historical failures green.

@@ -474,3 +474,7 @@ scan heartbeat <=400ms (other platforms250ms), with the long-term250ms goal defe
 to DB-WORKER-01. This is an acceptance disposition,
 not a performance fix. P03 passed four focused local cases with no additional repair demonstrated; P04-P06,
 automation, main push and publication remain paused.
+
+October 2: P04 is explicitly active for a frozen-candidate local Product and hosted
+Build matrix. P05/P06, automation and deferred architecture/stability work remain paused.
+See the single restart tracker for exact candidate/results and coverage limitations.
