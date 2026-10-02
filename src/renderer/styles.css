@@ -1350,7 +1350,15 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  max-height: 45%;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.viewer-footer .viewer-title {
+  flex: 0 0 auto;
+  overflow: visible;
 }
 
 .viewer-title h2 {
@@ -1540,7 +1548,7 @@ textarea:focus-visible {
 .viewer-stage {
   display: flex;
   flex: 1;
-  min-height: 0;
+  min-height: 160px;
   position: relative;
 }
 

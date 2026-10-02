@@ -31,7 +31,7 @@ harness-first ordering.
 | ID | Work | Depends on | State |
 | --- | --- | --- | --- |
 | P00 | Reconcile incoming work and adopt staged gate policy | Explicit resume | DONE |
-| P01 | Finish small-window preview fix | P00 | PLANNED |
+| P01 | Finish small-window preview fix | P00 | LOCAL PASS; Windows proof pending |
 | P02 | Resolve demonstrated Windows scan responsiveness defect | P00 | PLANNED |
 | P03 | Fix only blockers to functional verification | P01, P02 | PLANNED |
 | P04 | Frozen product-quality milestone and affected performance measurement | P03 | PLANNED |
@@ -182,3 +182,5 @@ whole-codebase refactor. Targeted regressions and a final batch check only.
 | Task | Candidate / change | Focused verification | Milestone due/reused | Result / next action |
 | --- | --- | --- | --- | --- |
 | P00 | cdf7967 imported; six patches preserved/reconciled; staged rules adopted | Remote delta/review, patch comparison and diff check | P04 pending | DONE; P01 next |
+
+| P01 local | Preserved CSS: min 160px stage, scrollable footer capped 45%; reachability in both themes | Fresh global build/typecheck; responsive E2E 1 pass/18 combinations (27s); final both-theme check 1 pass (25s) reused build; screenshots inspected | P04 broad gate pending | 900x600 viewer 256px in both themes; 1280/1920 loading, widths and focus contracts pass. Hosted proof remains pending. Evidence `.agent-tmp/restart-p01/local-evidence` |

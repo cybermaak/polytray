@@ -160,6 +160,9 @@ test("responsive panels preserve browsing space across supported window sizes", 
           const selectedPath = await longNameCard.getAttribute('title');
           await longNameCard.locator(".card-name").click();
           await expect(mainWindow.locator("#preview-panel")).not.toHaveClass(/hidden/);
+          await expect.poll(() => mainWindow.locator('#viewer-container').evaluate(element =>
+            Math.round(element.getBoundingClientRect().height),
+          ), { timeout: 5_000 }).toBeGreaterThanOrEqual(160);
           try {
             await expect(mainWindow.locator("#viewer-loading")).toHaveClass(/hidden/, { timeout: 30000 });
           } catch (error) {
@@ -192,6 +195,46 @@ test("responsive panels preserve browsing space across supported window sizes", 
             }));
             throw error;
           }
+          if (sizeCase.name === 'default' && windowCase.width === 900) {
+            const crowdedPreview = await mainWindow.evaluate(() => {
+              const panel = document.querySelector<HTMLElement>('#preview-panel')!;
+              const footer = panel.querySelector<HTMLElement>('.viewer-footer')!;
+              const archiveStrip = panel.querySelector<HTMLElement>('#archive-preview-models')!;
+              const partsStrip = panel.querySelector<HTMLElement>('#viewer-multi-model')!;
+              const fillers = [archiveStrip, partsStrip].map((strip) => {
+                const button = document.createElement('button');
+                button.className = 'multi-model-thumb';
+                button.setAttribute('aria-hidden', 'true');
+                strip.appendChild(button);
+                strip.classList.remove('hidden');
+                return button;
+              });
+              try {
+                footer.scrollTop = footer.scrollHeight;
+                const footerBounds = footer.getBoundingClientRect();
+                const panelBounds = panel.getBoundingClientRect();
+                const lastControl = panel.querySelector<HTMLElement>('#create-and-add-collection')!;
+                const controlBounds = lastControl.getBoundingClientRect();
+                const x = controlBounds.left + controlBounds.width / 2;
+                const y = controlBounds.top + controlBounds.height / 2;
+                return {
+                  viewerHeight: panel.querySelector<HTMLElement>('#viewer-container')!.getBoundingClientRect().height,
+                  footerBottom: footerBounds.bottom,
+                  panelBottom: panelBounds.bottom,
+                  lastControlReachable: y >= footerBounds.top && y <= Math.min(footerBounds.bottom, panelBounds.bottom)
+                    && lastControl.contains(document.elementFromPoint(x, y)),
+                };
+              } finally {
+                for (const button of fillers) button.remove();
+                archiveStrip.classList.add('hidden');
+                partsStrip.classList.add('hidden');
+                footer.scrollTop = 0;
+              }
+            });
+            expect(crowdedPreview.viewerHeight).toBeGreaterThanOrEqual(160);
+            expect(crowdedPreview.footerBottom).toBeLessThanOrEqual(crowdedPreview.panelBottom + 1);
+            expect(crowdedPreview.lastControlReachable).toBe(true);
+          }
           await mainWindow.waitForFunction((preferredSidebarWidth) => {
             const layout = document.querySelector("#main-layout");
             const sidebar = document.querySelector("#sidebar");
@@ -221,6 +264,8 @@ test("responsive panels preserve browsing space across supported window sizes", 
               browseWidth: content.getBoundingClientRect().width,
               previewWidth: previewBounds.width,
               previewMode: isOverlay ? "overlay" : "docked",
+              viewerHeight: preview.querySelector("#viewer-container").getBoundingClientRect().height,
+              footerHeight: preview.querySelector(".viewer-footer").getBoundingClientRect().height,
               previewWithinContent: previewBounds.left >= contentBounds.left - 1
                 && previewBounds.right <= (isOverlay ? contentBounds.right : layoutBounds.right) + 1,
             };
@@ -249,6 +294,8 @@ test("responsive panels preserve browsing space across supported window sizes", 
               preview: measurements.previewWidth,
             },
             previewMode: measurements.previewMode,
+            viewerHeight: measurements.viewerHeight,
+            footerHeight: measurements.footerHeight,
             persistedPreferences,
           });
 
