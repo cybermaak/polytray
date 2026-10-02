@@ -272,3 +272,9 @@ matrix, current runtime/build and representative automated synthetic UAT evidenc
 This supersedes the earlier P04 pause only. P05/P06, deferred DB-WORKER/H/M/C work,
 automation, main push and publication remain paused. Retain the approved Windows scan
 heartbeat <=400ms and all other budgets; do not label historical failures green.
+
+P04 completed on exact candidate2b61aa1: local full Product and hosted
+[Build37011206604](https://github.com/cybermaak/polytray/actions/runs/37011206604)
+passed across macOS/Linux/Windows, including CI packaging. No corrections/retries or
+assertion changes were needed. See the tracker for exact counts, screenshots, performance
+and skipped/unperformed coverage. This closes P04 only; P05/P06 are not started.

@@ -1,7 +1,7 @@
 # Product-first restart tracker
 
 Updated October 2, 2026. Authority: [execution plan](2026-09-30-execution-reset-plan.md).
-**P00/P01 complete; P02 temporarily accepted by user at <=400ms Windows scan heartbeat. P03 DONE scoped; P04 explicitly ACTIVE. P05 onward and automation remain paused.**
+**P00/P01 complete; P02 temporarily accepted by user at <=400ms Windows scan heartbeat. P03 DONE scoped; P04 COMPLETE: required Product/Build gates green on 2b61aa1. P05 onward and automation remain paused.**
 
 One Sol/high owner performs implementation, self-review and focused verification.
 One independent reviewer is reserved for P05, after the coherent product candidate.
@@ -26,10 +26,10 @@ harness-first ordering.
   functional checks. No assertions moved; any minimal split belongs to P04.
 - P01 passes focused local macOS/Windows checks. P02 is temporarily user-accepted
   at <=400ms Windows scan heartbeat; the database stall is not fixed. DB-WORKER-01
-  owns the deferred architectural repair. WAL128 remains rejected. P04 is unrun.
+  owns the deferred architectural repair. WAL128 remains rejected. P04 gates now pass on 2b61aa1; details below.
 - Application scan/database source remains unchanged; the two scan tests now apply
   only the explicit Windows budget exception. No transient diagnostic tooling remains.
-  WAL128 stays in saved scratch. P03 is DONE scoped; P04 onward/automation are paused.
+  WAL128 stays in saved scratch. P03 is DONE scoped; P04 is complete; P05 onward/automation are paused.
 
 ## Stage A/B: product completion and minimum honest quality gate
 
@@ -39,7 +39,7 @@ harness-first ordering.
 | P01 | Finish small-window preview fix | P00 | DONE (focused macOS + Windows) |
 | P02 | Record Windows scan responsiveness disposition | P00 | USER-ACCEPTED TEMPORARILY <=400ms; DB-WORKER-01 deferred |
 | P03 | Fix only blockers to functional verification | P01, P02 | DONE scoped; no additional repair demonstrated |
-| P04 | Frozen product-quality milestone and affected performance measurement | P03 | ACTIVE: local Product + one hosted Build matrix |
+| P04 | Frozen product-quality milestone and affected performance measurement | P03 | DONE: local Product and hosted Build matrix green on 2b61aa1 |
 | P05 | One independent final code/feature/UAT review | P04 | PLANNED |
 | P06 | Local integration and truthful product handoff | P05 | PLANNED |
 
@@ -280,3 +280,83 @@ Node rebuild -> stale marker cleanup -> units -> Electron rebuild -> E2E. All GU
 use explicit private Chromium/userData/DB and synthetic libraries/mock slicer. Inspect
 existing responsive screenshots and feature journeys as automated evidence, not human UAT.
 P05/P06, deferred architecture/stability work and automation are not authorized here.
+
+### October 2: P04 complete, one frozen milestone attempt
+
+Validated candidate: **2b61aa1d4488fdc6b3fec2b71cb9447ad86ab03f**, same app/test/config
+as774b07c; only P04-active status documentation changed before freeze. Local full
+Product and [Build37011206604](https://github.com/cybermaak/polytray/actions/runs/37011206604)
+are **GREEN** on that exact candidate. The later completion checkpoint changes only
+documentation; no application, test, workflow, dependency or budget correction/retry
+was needed. No numeric assertion was moved or relaxed. Windows scan400ms is the
+previously explicit temporary exception; historical953/1,672ms failures stay red.
+
+| Environment / runtime | Unit phase | E2E phase | Build/typecheck | Packaging |
+| --- | --- | --- | --- | --- |
+| Local macOS26.6.2 arm64 / Node22.23.3 / Electron34.5.8 | 499 pass, 1 platform skip | 72 pass, 1 optional skip (3.0m) | PASS, one global E2E build | Not run locally |
+| [Hosted macOS26 arm64](https://github.com/cybermaak/polytray/actions/runs/37011206604/job/110851122601) / Node22.23.2 | 499 pass, 1 platform skip | 72 pass, 1 optional skip (6.2m) | PASS | DMG and macOS ZIP PASS; signing skipped |
+| [Hosted Ubuntu24.04 x64](https://github.com/cybermaak/polytray/actions/runs/37011206604/job/110851122941) / Node22.23.3 | 499 pass, 1 platform skip | 72 pass, 1 optional skip (10.6m) | PASS | AppImage PASS |
+| [Hosted Windows Server2025 x64](https://github.com/cybermaak/polytray/actions/runs/37011206604/job/110851122850) / Node22.23.3 | 499 pass, 1 platform skip | 72 pass, 1 optional skip (10.4m) | PASS | NSIS installer and portable EXE PASS |
+
+Every Product gate preserved Node rebuild -> stale marker cleanup -> units ->
+Electron rebuild -> E2E. Local Node22.23.3 was an official checksum-verified scratch
+runtime (archiveSHA25672d5d8832b41c9d9646197af614ffd751406ea4d215060eb91b98864e1919a3e),
+matching `.nvmrc` major22. Hosted macOS resolved the preceding22.23.2 patch; provenance
+is recorded separately. The unchanged packaging action rebuilds JS after Product as
+its existing prerequisite; no duplicate standalone build was added. No native/test
+commands ran concurrently in a checkout. All GUI tests used explicit scratch Chromium
+profiles/userData and private SQLite/synthetic fixtures; slicer launches were mocks.
+
+Affected scan measurements from this milestone (one sample per environment):
+
+| Environment | First card before held-subtree release | Main heartbeat maximum / accepted budget |
+| --- | --- | --- |
+| Local macOS | 212.6ms | 29.08 /250ms |
+| Hosted macOS | 493.8ms | 112.41 /250ms |
+| Hosted Linux | 252.3ms | 55.05 /250ms |
+| Hosted Windows | 233.9ms | 270.64 /400ms temporary |
+
+All scans assert exact5,000 completion, bounded discovery/metadata queues50/100 and
+regular progress<=4/s. These are different hosts, not a controlled before/after speedup.
+Current full-gate scan-total throughput is not separately instrumented; P02's controlled
+17.5s default/38.9s WAL128 comparison remains historical evidence, not a new P04 value.
+Windows still exceeds the desired250ms goal; DB-WORKER-01 remains deferred.
+
+Automated synthetic UAT evidence reuses the full-suite journeys: paging/search/selection,
+keyboard focus, preview replace/cancel, scan and thumbnail controls, chosen archive-member
+mock-slicer handoff, metadata export/import/conflict/pending annotation handling and
+interrupted renderer/SQLite restore recovery. All those existing cases passed. Local
+responsive flow produced18 screenshots; four representative captures were visually
+inspected across900x600/1280x800/1920x1080 and dark/light themes. Default viewer heights
+were256.1/366.1/529.5px and browse widths640/660/1300px; minimum-size footer reachability
+and overlay focus/scroll contracts passed. This is automated evidence, not human UAT.
+
+Representative local captures (frozen2b61aa1):
+
+- [900x600 dark](../../.agent-tmp/restart-p04/local-test-results/responsive-layout.e2e.ts-r-457fb-ross-supported-window-sizes/responsive-900x600-default-dark.png)
+- [900x600 light](../../.agent-tmp/restart-p04/local-test-results/responsive-layout.e2e.ts-r-457fb-ross-supported-window-sizes/responsive-900x600-default-light.png)
+- [1280x800 light](../../.agent-tmp/restart-p04/local-test-results/responsive-layout.e2e.ts-r-457fb-ross-supported-window-sizes/responsive-1280x800-default-light.png)
+- [1920x1080 dark](../../.agent-tmp/restart-p04/local-test-results/responsive-layout.e2e.ts-r-457fb-ross-supported-window-sizes/responsive-1920x1080-default-dark.png)
+
+Skipped/unperformed coverage remains explicit:
+
+- Local/macOS/Linux unit skip: native Windows lowercase ancestor-scope enumeration.
+  Windows executes that case but skips descriptor-open symlink-swap test because
+  `O_NOFOLLOW` is unavailable there. No access safeguards were weakened.
+- All E2E environments skip optional real `base.3mf`; no real library/profile/slicer used.
+- Linux/Windows GPU timer-query extension was unavailable, so GPU elapsed/upload timing
+  was not measured there; functional dense/multipart preview assertions still passed.
+- Windows restart-with-missing-root/recovery passes; uninterrupted live disappearance
+  remains unverified. Manual cross-platform UAT, reference performance/stability repeats,
+  raw resource census, optional real-model evidence and signed/notarized release validation
+  were not performed. macOS CI had no signing identity. Packaging is not publication.
+- No separate lint/repo gate was added for status-only documents; required Product and
+  hosted Build gates passed. One passing milestone does not prove harness stability or
+  all original G02/G03 numeric/resource requirements. P05 independent review and P06
+  integration are unstarted; H/M/C/DB-WORKER and automation remain deferred/paused.
+
+Raw evidence: `.agent-tmp/restart-p04/local-product.log`, `local-report/`,
+`local-test-results/`, `hosted-{macos,linux,windows}.log`, `hosted-final.json` and
+`candidate-sha.txt`. Generated fixtureZIP restored to baseline
+SHA2566ca9f75c11d9330221860ade9fdb641cac6728a9f0a4cc1883989506a39fc109.
+Primary7aab2d6 user hunks/untracked files remain untouched. STOP before P05.

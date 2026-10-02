@@ -478,3 +478,11 @@ automation, main push and publication remain paused.
 October 2: P04 is explicitly active for a frozen-candidate local Product and hosted
 Build matrix. P05/P06, automation and deferred architecture/stability work remain paused.
 See the single restart tracker for exact candidate/results and coverage limitations.
+
+October 2 P04 completion: exact candidate2b61aa1 passed local Node22 full Product
+(499 units/1 platform skip;72 E2Es/1 optional real-model skip) and hosted Build37011206604
+on macOS/Linux/Windows, including each CI packaging target. No repair/retry or budget
+change was needed. Windows scan heartbeat270.64ms passes the previously approved400ms
+exception; the desired250ms goal remains DB-WORKER-01. Screenshots/feature evidence and
+all coverage/signing limitations are in the restart tracker. Later completion changes
+are documentation only. P05/P06, automation, deferred work and publication remain paused.
