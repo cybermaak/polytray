@@ -1,160 +1,178 @@
-# Paused restart task tracker
+# Product-first restart tracker
 
-Authority: [execution reset plan](2026-09-30-execution-reset-plan.md).
-**PAUSED: no tasks below are dispatched.** Documentation preparation does not
-resume implementation, agents, tests, CI, or the hourly supervisor.
+Updated October 1, 2026. Authority: [execution plan](2026-09-30-execution-reset-plan.md).
+**PAUSED: documentation only; no tasks dispatched or automation restarted.**
 
-Owner on resume: one Sol/high implementation and verification agent. Independent
-review is reserved for R08. Existing completed fixes stay completed; this queue
-does not replay the original 33 tasks.
+One Sol/high owner performs implementation, self-review and focused verification.
+One independent reviewer is reserved for P05, after the coherent product candidate.
+The former R00-R09 queue is replaced by the stages below; do not execute its old
+harness-first ordering.
 
-## Current checkpoint
+## Checkpoint
 
-- Repair branch: `codex/independent-access-review`, worktree
-  `/Users/maak/.codex/worktrees/independent-access-review/polytray`, HEAD `e601afc`.
-- Six dirty files recorded in the plan; no reset, stash, cleanup or integration
-  was performed while preparing these documents.
-- Last committed local gate: Build, 495 unit passes/74 E2E passes, expected skips.
-- Hosted evidence: macOS/Linux passed together at `567e5e1`; latest `e601afc`
-  Linux passed while macOS/Windows failed. No all-platform final green candidate.
-- Current next action: user reviews this plan and decides whether to resume.
-- Outstanding policy choice: adopt staged gate scheduling in R00. Any change to
-  numeric performance/platform acceptance requires a separate explicit decision.
+- Incoming reviewed source: origin/ci/sandbox `cdf7967`; fetched, not locally merged.
+- Paused repair branch: codex/independent-access-review at `e601afc`, with six preserved
+  dirty files. The CSS fix needs reconciliation; WAL128 remains an unverified experiment.
+- External changes already handle duplicate builds, ABI marker, several fixture races,
+  debounce timers and streaming anchors. Import/reconcile once; do not redo them.
+- Latest reviewed external CI: macOS/Linux pass; Windows preview loading and scan
+  heartbeat fail. Historical 31/33 accepted is not final readiness of the incoming tree.
+- User decision: product fixes first, minimal necessary functional quality work,
+  performance at milestones, broad harness/code stabilization afterward.
 
-## Queue and dependencies
+## Stage A/B: product completion and minimum honest quality gate
 
-| ID | Type | Deliverable / owning scope | Depends on | State |
+| ID | Work | Depends on | State |
+| --- | --- | --- | --- |
+| P00 | Reconcile incoming work and adopt staged gate policy | Explicit resume | PLANNED |
+| P01 | Finish small-window preview fix | P00 | PLANNED |
+| P02 | Resolve demonstrated Windows scan responsiveness defect | P00 | PLANNED |
+| P03 | Fix only blockers to functional verification | P01, P02 | PLANNED |
+| P04 | Frozen product-quality milestone and affected performance measurement | P03 | PLANNED |
+| P05 | One independent final code/feature/UAT review | P04 | PLANNED |
+| P06 | Local integration and truthful product handoff | P05 | PLANNED |
+
+Execute serially in this order. P01 and P02 need not wait for general harness work.
+A blocked P02 investigation does not prevent preparing P03/P04 evidence for completed
+features, but no unresolved product blocker is disguised as accepted.
+
+### P00 - Reconcile, preserve and specify the gate
+
+Owner: sole worker. Scope: candidate branch, six dirty patches, project instructions
+and one checkpoint. Preserve WIP to task scratch before merging/rebasing incoming
+cdf7967; keep unrelated user files out. Compare the old anchor/thumbnail patches
+with their external replacements rather than applying both. Preserve the WAL experiment
+separately until P02 proves it. Adopt one-owner/final-review rules and the test schedule
+in AGENTS/workflow docs without committing user hunks. List functional assertions versus
+numeric performance assertions that currently share tests; propose only minimal
+separation at P04, never blanket test exclusion. Gate: coherent baseline, conflict
+resolution/self-review and relevant narrow checks for actual changed behavior. Do not
+run the entire suite merely to inventory the branch.
+
+### P01 - Finish the actual preview layout repair
+
+Scope: styles.css, affected preview layout, responsive-layout.e2e.ts. Reuse the private
+RED zero/50px stage evidence and pending CSS candidate. At 900x600 require a usable
+preview area (candidate minimum 160px), successful tiny-STL preview and reachable footer
+controls in both themes. Inspect 1280x800/1920x1080 for overflow/browse-width regression.
+Gate: build once if stale, focused responsive/focus cases and representative screenshots.
+No separate reviewer or full matrix at this task boundary. Hosted Windows proof is
+collected with P04 or a single focused run if needed to resolve a Windows-only cause.
+
+### P02 - Fix the Windows stall with causal evidence
+
+Scope: synchronous database/scan-write path and its focused regression. Start from
+315ms metadata write/329ms heartbeat evidence and latest 953 ms external miss. Establish
+whether checkpoint, transaction/index work, notification or I/O is responsible. Compare
+baseline/one bounded change in the same environment; use existing diagnostics first.
+Do not accept WAL128 merely because it looks plausible. Preserve durability, annotation
+safety, pruning fences and exact row counts; record total scan time as well as latency.
+Gate: causal explanation, affected correctness regression and one selected scan
+measurement. Full performance suites wait for milestones. Stop after 45 minutes or two
+uninformative diagnostic attempts and record the actual next decision; no diagnostic
+framework or repeated matrix expansion. A persistent real UI stall remains a product
+finding even if numeric benchmarks are scheduled outside the ordinary gate.
+
+### P03 - Minimum changes needed to verify the product
+
+Scope: only a demonstrated blocker in the selected functional checks. Prefer external
+fixes already present. Examples: expired/old thumbnail value, exact target navigation,
+per-test missing backup, wrong main window, private scratch ENOTEMPTY after process exit.
+Add no generic abstraction unless repeated consumers demonstrably need it. Preserve
+primary errors and ensure cleanup waits for the exact owned process. Gate: original
+failure reproduced or exact artifact cause established, repaired focused case passes,
+neighboring affected behavior checked. Everything else enters H/M/C queues below.
+A 30-minute investigation checkpoint prevents this task becoming whole-harness repair.
+
+### P04 - One coherent product-quality milestone
+
+Freeze the candidate. Run full functional units/integration/E2E and the required
+platform functional matrix once, building once per environment with the correct
+Node->unit->Electron->E2E sequence. Reuse representative existing UAT journeys: paging,
+search/selection, keyboard focus, preview replace/cancel, scan/thumbnail controls,
+archive mock-slicer handoff, metadata export/import and interrupted recovery. Inspect
+screenshots; do not create another parallel UAT framework.
+
+Measure only the changed scan/preview performance paths at this milestone; put broad
+benchmark calibration/repetition in M01/M02. If functional/timing assertions are mixed,
+make the smallest explicit gate separation: retain correctness/cleanup assertions,
+move numeric benchmarks intact to a scheduled nonblocking report, and record the new
+workflow scope. If that cannot be done narrowly, use the existing gate and disclose
+its exact red results instead of claiming all green or building a large runner.
+
+Gate: a genuinely green, named functional gate on the same source/test/config tree,
+no hidden product failures, and a separate honest performance result. If the unchanged
+Build job is red, it is still red; never label all CI green. Follow-up repairs use
+focused checks before another justified full milestone run.
+
+### P05 - One independent review at final acceptance
+
+One independent reviewer, only after all product tasks have reached the milestone.
+Review actual code and feature/UAT evidence, changed assertion semantics, file access,
+data recovery, cancellation/process ownership and identified user-facing defects.
+Return one consolidated severity-ranked list. Worker owns fixes; reviewer rechecks the
+affected delta only. No per-task spec/quality agents or repeated unchanged broad tests.
+Gate: no unresolved blocking product/review finding, or explicit user disposition.
+Do not call agent inspection human UAT or expand cosmetic comments into a cleanup project.
+
+### P06 - Integrate locally and separate completed from deferred
+
+Integrate the accepted tree without user edits; verify relevant tree identity to reuse
+validation. Update original G02/G03 ledger accurately and provide current SHA, gate/CI
+links, screenshots and a short remaining-work list. Report product-quality acceptance
+separately from pending performance targets and whole-harness reliability. Do not
+mark original requirements met simply because tests were moved. Keep profile incident
+and platform/security limitations disclosed. No main push or publication.
+
+## Stage C: separately scheduled stabilization and code work
+
+These tasks do not run during product completion unless a specific finding is promoted
+to a demonstrated blocking product defect. Keep analyses bounded and fixes small.
+
+| ID | Task / concrete output | Entry condition | State |
+| --- | --- | --- | --- |
+| H01 | Correct stability reports: top-level errors, missing/partial repetitions and estimation caveats | Before using stability report for decisions | DEFERRED |
+| H02 | Stabilize common fixture/setup/cleanup/navigation failure classes in one dedicated batch | Product milestone complete; recurring failures inventoried | DEFERRED |
+| H03 | Assess splitting large scenarios/shared app state; keep/change/defer plan then smallest useful patch | H02 evidence shows coupling still causes failures | DEFERRED |
+| H04 | Improve focused CI/run selection using existing workflow; conservative defaults, no duplicate runner | Repeated scoped execution has proven friction | DEFERRED |
+| M01 | Define performance stage policy and per-environment calibration from existing evidence | Product milestone measurements available | DEFERRED |
+| M02 | Dedicated common-performance iteration and scheduled benchmark evidence | M01; specific prioritized bottleneck | DEFERRED |
+| C01 | Investigate cached scroll-anchor layout/query invalidation | Product complete, unless targeted repro proves blocker sooner | DEFERRED |
+| C02 | Bounded code/test-hook simplification with risk map and behavior preservation | Product complete; measurable maintenance benefit | DEFERRED |
+
+**H01 acceptance:** a report with Playwright teardown/global errors cannot claim a 100%
+full-run green result. Missing reports or incomplete requested repetitions are visible.
+Use small pure unit tests. The product-of-pass-rates estimate must state independence
+and sample-size limits; do not mistake five passing attempts for proven stability.
+
+**H02/H03 acceptance:** choose the most common cause across current failed artifacts;
+make tests independent of prior test actions and require actual settled user state.
+Consider background-work's multi-scenario test, responsive-layout's 18 reload cycles,
+and app.e2e's 33 shared-state tests only where evidence warrants splitting. Validate
+standalone plus a small combined run. No all-suite repeats on every edit.
+
+**H04 acceptance:** reuse incoming platform/grep selection where callable. The new
+Stability workflow is not dispatchable until registered on default branch; do not push
+main merely to enable it. Use few repetitions/one platform by default and enumerate
+supported scopes. Keep native prerequisites, global build and failure-only evidence.
+Do not add a new scheduler, telemetry framework or arbitrary shell input.
+
+**M01/M02 acceptance:** document milestones, reference hardware, fixture, sample count,
+median/p95, heartbeat, total throughput and budgets separately from noisy hosted
+runners. Preserve functional early-batch-before-held-subtree, eventual completion,
+stale-publication and cleanup checks in product tests. Reference threshold misses
+remain open until fixed or explicitly accepted; no silent widening. Perform benchmarks
+at the planned iteration/release stages, not each commit. Group common bottlenecks
+before one measurement run; no speculative tuning from one slow sample.
+
+**C01/C02 acceptance:** first prove the issue or maintenance benefit. C01 covers changing
+columns/row size/query while cached anchor state survives. C02 may separate production
+behavior from test hooks using existing seams, but cannot remove Linux termination
+ownership checks, cache fences or recovery state merely to reduce code/tests. No
+whole-codebase refactor. Targeted regressions and a final batch check only.
+
+## Execution record (populate only after explicit resume)
+
+| Task | Candidate / change | Focused verification | Milestone due/reused | Result / next action |
 | --- | --- | --- | --- | --- |
-| R00 | Process | One-owner instructions, preserved WIP inventory, verification ledger | User resume | PLANNED |
-| R01 | Harness repair | Close proven fixture/anchor/refresh gaps; confirm independent setup | R00 | PLANNED |
-| R02 | Product fix | Small-window preview repair and focused UI proof | R01 | PLANNED |
-| R03 | Verification tooling | Focused platform/suite CI without packaging | R00 | PLANNED |
-| R04 | Bounded analysis | Remove duplicate builds only if a narrow safe change | R03 | PLANNED |
-| R05 | Product investigation/fix | Windows synchronous scan-write attribution and bounded repair | R03 | PLANNED |
-| R06 | Focused acceptance | Validate Windows fixes; classify remaining platform failures | R01, R02, R05 | PLANNED |
-| R07 | Final gates | Frozen integration tree, full Product/matrix and UAT evidence | R06; R04 disposition | PLANNED |
-| R08 | Independent review | One combined source/feature/evidence review and delta repair loop | R07 | PLANNED |
-| R09 | Handoff | Local integration, accurate G02/G03 statuses and final report | R08 | PLANNED |
-
-Execution is serial even when dependencies permit another order. Recommended
-order is R00, R01, R02, R03, R04, R05, R06, R07, R08, R09. R04 can be recorded
-DEFERRED with rationale; it must not become a broad harness rewrite.
-
-## Task briefs and acceptance
-
-### R00 - Establish one owner and an honest checkpoint
-
-Read current Git state and user instructions; snapshot the six dirty-file patches
-in task scratch before separating them. Classify CSS/UI tests, Mac fixture changes,
-and WAL experiment independently. No blind revert or staging unrelated user edits.
-Make the new process discoverable from project instructions while preserving the
-existing user changes; keep pre-main-push Build/Product and native order intact.
-Update the verification ledger with existing reusable exact-tree evidence. Do not
-start another worker/coordinator or a reviewer. **Gate:** path/status/patch inventory,
-explicit command timing, no source/test execution needed merely to inventory.
-
-### R01 - Finish only the demonstrated harness gaps
-
-Own pending changes in `background-work.e2e.ts`, `thumbnail-invalidation.e2e.ts`
-and `gridFailureEvidence.ts`, plus minimal directly affected helper changes.
-Retain the already reviewed branch's independent recovery/slicer fixtures and
-main-window helper; check for omissions rather than rewrite every test. Preserve
-exact IDs, mostly-visible anchor and <=2px documented rounding tolerance, refreshed
-path identity and image-content assertions. A fixture change must not hide a real
-lost selection or stale image. **Gate:** affected tests pass; recovery cases can run
-individually; bounded repeated run only for the previously intermittent cases
-(reuse the existing ten-repeat anchor evidence if unchanged). No full Product yet.
-
-### R02 - Give the preview usable space at small sizes
-
-Own pending `styles.css` and `responsive-layout.e2e.ts` changes. Reuse existing RED
-zero/50px stage evidence. Validate stage >=160px for the reported case, working
-preview and reachable footer controls in both themes at 900x600; inspect larger
-sizes for regression. Preserve sidebar/browse-width contracts. **Gate:** current
-build, responsive E2E plus affected focus checks, selected screenshots. No new UI
-features, separate worker, or intermediate independent reviewer.
-
-### R03 - Add a small focused CI entrypoint
-
-Own a minimal workflow/runner adapter and relevant `tests/repo/ci` contracts.
-Inputs choose OS and a finite suite such as scan-streaming, responsive-preview,
-workflow-recovery or watcher. Default Build continues to run the full matrix;
-Release is unchanged. A focused run must build current code, generate fixtures,
-prepare correct native runtime, run selected real Electron tests and retain failure
-artifacts. Do not run packaging or all-platform tests in focused mode. No arbitrary
-shell-command input. **Gate:** contract RED/GREEN, syntax checks, one sandbox
-validation of a selected suite on its selected OS. Record this as focused evidence,
-never a full Product pass. Reuse the workflow's tested isolation/Openbox setup.
-
-### R04 - Decide whether duplicate-build removal is worth doing
-
-Inspect `app.e2e.ts` and `viewer-idle.e2e.ts` embedded builds and current orchestration.
-Use existing timing/logs before running new benchmarks. Bound analysis to 30 minutes.
-If safe, move build ownership to one entrypoint with fresh-output preflight and
-working standalone suite commands. Never depend on test-file order or share native
-modules between checkouts. **Gate if changed:** orchestration contract plus one
-standalone consumer and one combined invocation proving build happens once. If the
-change needs broad runner redesign, record DEFERRED and proceed; do not spend a
-full matrix solely to optimize test runtime.
-
-### R05 - Attribute the Windows scan stall before tuning SQLite
-
-Own `database.ts`, narrowly related scan/index diagnostics and the focused scan
-test. Preserve the dirty 128-page WAL experiment outside the accepted baseline.
-Use current timing evidence (315ms metadata span near329ms heartbeat gap), query
-and transaction boundaries, WAL state and runner conditions to distinguish causes.
-Run a controlled before/after on the same hosted Windows setup; at most two focused
-diagnostic attempts per hypothesis. Retain <=1s early visibility, <=250ms heartbeat,
-exact5000 rows, annotations/pruning safety and queue bounds. Assess total scan time
-and checkpoint I/O, not just one lucky heartbeat sample. **Gate:** a causal fix plus
-focused behavior/unit coverage and Windows proof, or an explicit evidence-backed
-unresolved finding with the decision needed. No durability weakening or speculative
-checkpoint change accepted on documentation theory alone.
-
-### R06 - Close the remaining focused platform evidence
-
-Use R03 to run only affected Windows scan, responsive-preview and any still-failing
-restore/watcher cases. For failures, distinguish primary defects from cleanup or
-worker-restart cascades; reuse complete failure artifacts. Do not reproduce fixed
-Linux lifecycle work unless affected. **Gate:** exact candidate passes the selected
-cases, with limitations recorded; no timing/fixture/assertion changes silently
-waive a contract. Keep Windows restart-offline versus live disappearance explicit.
-
-### R07 - Freeze and validate one integration candidate
-
-Reconcile all task commits into one candidate with no speculative WAL setting or
-unexplained test changes. Run required Build/Product once and full hosted matrix
-once on the same relevant tree; preserve native order. Verify synthetic UAT journeys:
-browse/search beyond page500, keyboard End/focus, small preview, replacement/cancel,
-scan controls, thumbnails/refresh, archive handoff with mock slicer, backup/restore
-and interrupted recovery. Reuse existing current-tree journey tests; do not create
-a duplicate UAT suite. Capture representative screenshot evidence and inspect it.
-**Gate:** passing agreed matrix, evidence tuple, fixture restored, no orphan task
-processes. If a fresh failure arises, return to its owner/cause and use focused
-verification before another broad run. Report human UAT as unperformed where true.
-
-### R08 - One final independent acceptance review
-
-Freeze source; dispatch one independent reviewer with the original scope, current
-baseline/candidate, risk map and evidence index. Review actual source and feature
-outcomes, especially file access, persistence, scan/watch races, process signalling
-and test semantics. No separate spec/quality agents and no unchanged suite reruns.
-Worker remains sole writer for fixes; reviewer checks affected deltas. **Gate:**
-all blocking findings fixed/verified or explicitly accepted by the user; nonblocking
-comments do not expand into unrelated cleanup. Do not call automated review human UAT.
-
-### R09 - Integrate and hand back without publication
-
-Mechanically integrate the accepted candidate to local main with user edits excluded.
-Verify relevant tree identity to reuse tests; any behavioral merge change invalidates
-affected evidence. Reconcile the original tracker, G02/G03, README/DEV_CONTEXT and
-one final report. Keep prior failures and profile-isolation incident disclosed.
-**Gate:** accurate final SHA, tests/CI links, screenshots, explicit residuals and user
-changes preserved. No origin/main push, release or website action. Stop for the
-user's next decision; do not invent additional optimization work.
-
-## Minimal execution log (populate only after resume)
-
-| Task | Candidate | Change / hypothesis | Focused gate | Broad gate reused/due | Outcome / evidence |
-| --- | --- | --- | --- | --- | --- |
-| - | e601afc + six preserved dirty files | Paused starting state | Existing evidence only | Final matrix remains due | No execution authorized by this document |
+| Planning only | cdf7967 incoming; e601afc WIP preserved | Documentation checks only | Product milestone pending | Await user resume |

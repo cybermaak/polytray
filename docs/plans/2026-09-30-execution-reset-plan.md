@@ -1,248 +1,244 @@
-# Polytray execution reset: one owner, staged verification, final review
+# Polytray restart plan: product first, verification at milestones
 
-## State and authority
+Updated October 1, 2026 after the user's clarification and the external CI work.
 
-**Implementation and hourly supervision remain PAUSED.** This document is the
-requested process and restart plan, not permission to resume work, tests, CI,
-review agents, or experiments. Only documentation was prepared during this pause.
+## Authority and current state
 
-The user's September 30 decision replaces the previous coordinator/worker and
-per-task specification/quality-review cycle with:
+**Implementation, test execution, CI dispatch and hourly supervision remain PAUSED.**
+This update changes the plan only. Resume requires an explicit user instruction.
 
-1. One Sol/high agent implements, self-reviews, tests, and owns integration.
-2. After a task passes its defined local gate, that same agent selects the next task.
-3. One independent reviewer examines the coherent final code and feature/UAT
-   evidence at the end. No routine intermediate reviewer agents.
-4. The worker fixes final-review findings; the reviewer rechecks only the
-   affected changes. Automated tests are evidence, not a substitute for this
-   final fresh perspective; an agent's screenshot inspection is not human UAT.
+The objective is to finish the product and fix demonstrated product problems with
+minimal necessary verification overhead, obtain an honest green product-quality
+result, and then tackle broader harness stability, performance calibration and code
+cleanup as separate iterations. The concern is unnecessary repeated execution and
+harness complexity, not test count. Existing useful tests are retained and scheduled
+where they provide evidence.
 
-On explicit resume, this process supersedes the per-task delegation/review
-requirements in the September 27 sequential policy, Luna handoff, and applicable
-skill workflow. It does not weaken product contracts or authorize publication.
-The detailed verification scheduling below is the proposed policy to adopt in
-R00; it makes the timing of mandatory checks explicit rather than deleting them.
+One Sol/high owner implements, self-reviews, verifies and integrates. There are no
+per-task reviewer agents. One independent reviewer checks the completed product
+candidate and feature/UAT evidence at the acceptance milestone. Subsequent review
+is limited to fixes of its actual findings, not a fresh audit after every edit.
 
-No origin/main push, release, website publication, real library/slicer tests,
-remote Windows/Linux Codex setup, or unrelated user-file changes are authorized.
-The earlier user override allows justified non-main CI runs and automatic result
-retrieval; ten minutes of live watching is not a reason to wait for a manual report.
+This supersedes the September 30 ordering that put harness construction and CI
+plumbing ahead of product fixes, and the older two-reviewers-per-task process.
+Staged test timing below replaces per-commit broad validation. No publication,
+origin/main push, real user-profile/library/slicer tests or remote Windows/Linux
+Codex setup is authorized. Preserve unrelated user changes and all paused work.
 
-## Frozen starting point
+## Reconcile the external work; do not repeat it
 
-- Original implementation ledger: **31/33 accepted**. All 30 implementation
-  tasks and G01 were accepted; G02 validation and G03 readiness remain open.
-  This count is not a measure of remaining effort and does not certify new repairs.
-- Active repair checkout:
-  `/Users/maak/.codex/worktrees/independent-access-review/polytray`, branch
-  `codex/independent-access-review`, committed HEAD `e601afc`.
-- That committed tree passed local Build/Product: 495 unit passes and 74 E2E
-  passes, with one expected unit skip and one optional real-model skip.
-- Latest hosted run: [36789407775](https://github.com/cybermaak/polytray/actions/runs/36789407775).
-  Linux passed; macOS had 72 passes/2 failures; Windows had 69 passes/5 failures.
-  The preceding `567e5e1` candidate passed macOS and Linux, but Windows failed.
-  Do not combine different SHAs' passes into a claim that one final matrix passed.
-- Six uncommitted files remain. Preserve all before splitting anything:
-  `src/main/database.ts`, `src/renderer/styles.css`,
-  `tests/product/e2e/background-work.e2e.ts`,
-  `tests/product/e2e/responsive-layout.e2e.ts`,
-  `tests/product/e2e/thumbnail-invalidation.e2e.ts`,
-  `tests/support/helpers/gridFailureEvidence.ts`.
-- The database change sets `wal_autocheckpoint = 128`. It is an **unverified
-  experiment**, not an accepted optimization. Its final verification was interrupted.
-- Primary-checkout user edits in AGENTS.md, DEV_CONTEXT.md, marketing/capture
-  files and untracked documentation remain excluded. Existing diagnostics and
-  worktrees must not be deleted to satisfy a cleanliness test.
+Reviewed incoming branch: `origin/ci/sandbox` at `cdf7967`, fetched but not merged
+into local main or the paused repair checkout. Its review is
+[CI stability review](https://github.com/cybermaak/polytray/blob/cdf7967/docs/plans/2026-10-01-ci-stability-review.md).
+It descends from paused repair HEAD `e601afc` and already includes:
 
-The restart task tracker is [execution-reset-tracker.md](2026-09-30-execution-reset-tracker.md).
-It tracks finishing work; it does not replace or reset the original 33 task IDs.
+- One global E2E build, removal of duplicate per-file builds, native rebuild-marker
+  correction, Node 22 CI setup, and the rule against concurrent native tests.
+- Real content changes for watcher fixtures, deterministic debounce timers, a
+  refreshed-thumbnail path wait, and consolidation of two duplicated E2E cases.
+- A reproduced streaming-scroll anchor fix and corresponding unit/E2E coverage.
+- PR CI, retained failure evidence, and a manual platform/grep stability workflow.
 
-## Process changes and enforcement
+These are incoming completed changes, not new implementation tasks. Confirm their
+relevant tree and evidence once when importing. Do not rebuild the same helpers,
+reapply the old anchor patch, or redo their entire investigation.
 
-| Waste source | Concrete change | Evidence that the change is being followed |
+Paused checkout remains
+`/Users/maak/.codex/worktrees/independent-access-review/polytray`, branch
+`codex/independent-access-review`, HEAD `e601afc` with six dirty files. Preserve
+patches before reconciliation: database.ts, styles.css, background-work.e2e.ts,
+responsive-layout.e2e.ts, thumbnail-invalidation.e2e.ts, gridFailureEvidence.ts.
+The old anchor/thumbnail patches may be superseded by the external changes. The
+CSS repair is a product candidate; `wal_autocheckpoint = 128` is an unverified
+experiment, not an accepted optimization. Do not silently merge that experiment.
+
+Latest reviewed external CI passed macOS/Linux; Windows retained preview loading
+and a 953ms scan heartbeat gap. Historical local passes or different SHAs' platform
+passes do not establish a green final candidate. The original 31/33 ledger remains
+historical; use the [revised tracker](2026-09-30-execution-reset-tracker.md) for remaining work.
+
+## Delivery stages
+
+### Stage A - Finish the product
+
+1. Import/reconcile the reviewed external changes and preserve unresolved WIP.
+2. Finish the small-window preview repair: the reported zero-height viewer is a
+   real product defect. Keep controls reachable and browsing usable.
+3. Diagnose/fix the demonstrated Windows synchronous scan stall. Investigate the
+   measured write path; do not tune SQLite merely to chase a CI number.
+4. Make only the small fixture or cleanup corrections required to verify those
+   product changes and critical user journeys. No general harness rewrite.
+
+Each task closes with self-review and focused checks, then the owner moves on.
+No full unit suite, Product run, platform matrix or external review is triggered
+merely by a commit, an intermediate patch, or a status update.
+
+### Stage B - Obtain an honest product-quality pass
+
+Freeze a coherent candidate. Execute one planned functional integration gate on
+that tree, collect representative UAT/screenshot evidence, and perform one final
+independent code/feature review. Fix specific blocking findings with focused checks.
+Repeat broader validation only when relevant candidate changes invalidate it.
+
+The product-quality gate covers data correctness, persistence/recovery, IPC and
+file-access boundaries, working user journeys, functional preview/scan behavior,
+no stale publication, and bounded resource ownership/cleanup. A stuck preview,
+lost annotations or orphaned renderer is a product defect, not performance noise.
+
+Tight numeric benchmarks are scheduled at explicit performance milestones below;
+they are not run as pass/fail assertions on every edit or every ordinary PR push.
+Keep actual completion/cancellation and cleanup checks in the functional gate.
+Do not equate a noisy timing miss with an exempted functional failure.
+
+**Truthful green rule:** name the gate and candidate that passed. Do not call the
+existing Build workflow or the entire suite green while it still has failures.
+If benchmark assertions currently share tests with correctness checks, extract
+only the timing assertions into the scheduled performance lane; retain functional
+assertions in the product lane and report both results. Record every moved test,
+assertion and target. Tests are rescheduled, not deleted or silently skipped.
+
+Any gate split must be minimal and transparent. If it needs substantial runner
+work, use the existing gate for the one milestone attempt, report the exact open
+results, and park the broader change in Stage C. Do not spend an open-ended
+iteration building infrastructure just to produce a green badge.
+
+### Stage C - Separate harness, performance and code-stability iterations
+
+After product acceptance, address common reliability and maintenance issues in
+bounded batches, rather than discovering and fixing one test per full CI matrix:
+
+- Harness reliability and cost: shared-state isolation, large scenario tests,
+  navigation, fixture lifecycle, scoped CI selection and evidence completeness.
+- Performance: reference measurements, hosted-runner calibration, throughput and
+  resource trends. Fix demonstrated common bottlenecks in a dedicated iteration.
+- Code stability: bounded simplification of test hooks, ownership seams and code
+  health, with behavior-preserving regressions. Do not turn this into a rewrite.
+
+These are explicit follow-up tasks. They do not automatically block a passing
+product-quality milestone. An actual data-loss/security/lifecycle defect found in
+any stage is promoted to a product blocker with concrete evidence.
+
+## Exactly when verification runs
+
+| Trigger | Run | Do not run automatically |
 | --- | --- | --- |
-| Repeated independent reviews | One implementation owner; self-review checklist; one final combined reviewer | No reviewer dispatch between R00 and R08 |
-| Full suites after small edits | Gate tiers below; broad checks on a frozen candidate | Each run records why affected coverage requires it |
-| Multiple diagnostic-only matrices | Hypothesis and complete evidence checklist before dispatch; focused platform/suite CI | A run has a stated decision it can resolve |
-| Fragile fixtures and navigation | Bounded harness repair list, standalone test checks, exact visible targets | Failures are reproducible without earlier tests |
-| Repeated large-context coordination | One current checkpoint, one task owner, short summaries | No copying full logs/histories into agent prompts |
-| Moving finish line | Explicit blockers, residuals, and investigation limits | New findings enter a classified queue; no silent expansion |
+| One edit while reproducing/fixing | Failing regression and directly affected neighboring cases | Whole unit suite, Product, all platforms, reviewers |
+| Coherent source task closes | Self-review; focused unit/integration tests; build only if needed for current app output | Full performance suite or repeated stability runs |
+| UI behavior changed | Existing affected E2E flow and one relevant screenshot/layout check | Every viewport/theme/feature journey |
+| Windows/Linux-specific unknown | One affected case/suite on the affected platform | All-platform matrix and packaging |
+| Pure docs change | Links, status consistency, diff check; applicable docs checks | Build, native rebuild, Product, CI |
+| Product-complete candidate (Stage B) | Build once; full functional unit/integration/E2E gate; required platform functional matrix; representative UAT evidence | Benchmark repetition or general harness redesign |
+| Final independent review | One reviewer of source, behavior and collected evidence | Separate spec and quality agents; duplicate test execution |
+| Review finding repaired | Regression and affected gate; reuse unchanged evidence | Rerun all platforms solely because a reviewer commented |
+| Performance milestone | Selected reference/per-platform benchmark suite, once per coherent data-path batch | Timing benchmarks on every commit |
+| Dedicated stability iteration | Small known-flaky subset, selected platform, bounded repetitions | Default whole-suite repeats on all OSes |
+| Actual authorized main push/release candidate | Required final gates in project instructions and explicit permission | Publication inferred from green tests |
 
-Use one authoritative repair checkout and one app/native-test lane. Do not
-create a coordinator plus another implementation worker. A fresh Sol/high
-session with the short checkpoint is preferable if the existing session is
-dominated by historical context; keep the old session idle and do not fork its
-entire history. Starting a session is deferred until the user resumes.
+Performance milestones are: (1) completion of the current scan/preview product
+fixes, only their affected measurements; (2) the planned Stage C common-performance
+iteration; and (3) a future explicitly authorized release-readiness measurement.
+At milestone 1, record numeric results even if the functional gate passes. An
+unresolved timing target stays open in the performance ledger; it cannot be called
+met merely because it no longer executes in the ordinary product gate. Root-cause
+reproductions of a performance bug may measure the affected path during iteration;
+that is not permission to run every benchmark.
 
-Per-task cycle: `scope -> reproduce -> change -> self-review -> focused gate ->
-commit/checkpoint -> next task`. A task can be LOCALLY_VERIFIED while the combined
-candidate still awaits final acceptance. Do not describe that state as a hosted
-Product pass or mark G02/G03 DONE prematurely.
+C10 reference values remain recorded, with hardware/runtime/fixture provenance.
+Changing their value or claiming full original G02 acceptance still needs an
+explicit acceptance decision. This user-directed scheduling change does not
+require resolving every benchmark before reporting the narrower product milestone.
 
-Self-review must answer: Does the change explain the observed cause? Does the
-regression fail before the fix? Are error/cancel/restart paths covered where
-affected? Are source identity, data preservation and isolation intact? Did an
-assertion/fixture/threshold change, and does it still prove the original behavior?
-What existing evidence became stale? Are there unrelated changes in the diff?
+## Commands and execution rules
 
-## Verification schedule
+- The incoming global setup builds once for an E2E invocation. Do not add per-file
+  builds or perform an immediately duplicated build/typecheck. Reusing a build via
+  `POLYTRAY_E2E_SKIP_BUILD=1` requires verified current source/output.
+- Focused units: `node scripts/run-node-tests.mjs <exact test paths>` with Node
+  native dependencies ready. Focused E2E: existing Playwright file/title selection
+  with current fixtures and Electron native dependencies ready.
+- `npm run test:e2e:changed` is advisory: Electron-loaded application changes are
+  not fully traced, and the far-behind origin/main may select nearly everything.
+  Select tests from the actual changed behavior rather than trusting it as coverage.
+- Full Product remains Node native rebuild -> marker invalidation -> units ->
+  Electron native rebuild -> E2E. Never alternate ABIs underneath another command.
+  One checkout, one test lane; never share native node_modules between worktrees.
+- Use incoming CI selection where available. The new Stability workflow requires
+  default-branch registration before dispatch; no main push is authorized to enable
+  it. Do not make that workflow a prerequisite for ordinary product work. If a
+  scoped hosted check is essential now, add only minimal selection to an existing
+  authorized workflow or use one deliberate full milestone run.
+- Do not launch five-repeat/all-platform stability defaults as a routine check.
+  Start with the affected test, one platform and the minimum useful repetitions.
+- Rerun after a relevant change or a stated diagnostic question, not to obtain a
+  lucky green result. Keep failure artifacts and disclose transient failures.
 
-The coherent repair candidate is the unit for full validation. Mandatory
-AGENTS.md checks still run before final acceptance and any subsequently authorized
-main push; they are not repeated after every intermediate edit or review comment.
-R00 records this timing explicitly in project instructions without staging user
-hunks. If a task must be independently accepted before the batch, run its required
-broader gate then and reuse that exact evidence later where applicable.
+On resume, P00 reconciles project instructions to this schedule, preserving user
+hunks and recording any functional/performance gate separation before executing it.
+Do not silently keep older per-task full-suite/reviewer rules in force alongside
+this plan. No test scripts or workflow behavior have changed during this doc update.
 
-| Event / change | Run now | Defer until the frozen candidate |
-| --- | --- | --- |
-| Reproduce one issue | Smallest failing unit or E2E case | Unrelated cases/platforms |
-| Iterate a fix | Regression plus directly affected adjacent cases; self-review | Full Product, external reviewers |
-| Pure main/shared utility task closes | Targeted tests; required product-unit suite once per coherent main/shared change set | GUI suite unless affected |
-| Renderer/app/IPC change | Build if output is stale, then affected E2E/units under correct runtime | Full Product and full OS matrix |
-| Fixture/helper change | Consumer tests and relevant helper tests; demonstrate standalone execution | Unrelated product cases |
-| Workflow change | Repo contract RED/GREEN, relevant Repo checks; focused sandbox job validates actual workflow | All-platform Product/packaging unless changed or at final gate |
-| Documentation only | Link/status/diff checks and relevant docs tests | Build/Product/CI |
-| Platform-only unknown | One selected platform with a finite set of affected tests and failure evidence | Other platforms and packaging |
-| R07 frozen integration candidate | Build once; full Product locally; one full platform matrix | Nothing required for acceptance |
-| Final review repair | Affected regression/gates; rerun full gate if relevant source/test/config changed | Unchanged evidence is reusable, not an automatic rerun |
-| Mechanical local integration | Compare relevant source/test/config tree and fixture/runtime tuple | No duplicate suite solely for a different commit SHA |
+## Minimal harness work now versus dedicated work later
 
-Commands already present:
+**Now, only when it blocks product verification:** reuse isolated-profile launches,
+known main-window selection, per-test recovery fixtures and exact-target navigation.
+Repair a specific stale-result wait or exact-process scratch cleanup failure. Use
+existing screenshots/logs/state probes; add one decisive missing observation only.
+Preserve functional assertions. A short cleanup grace period may account for an
+exited process's file handles; swallowing app shutdown failure or leaking a live
+process is not an acceptable cleanup fix.
 
-- Build: `npm run build` (includes typecheck; do not immediately duplicate it).
-- Unit suite: `npm run test:product:unit` with the Node native dependency ready.
-- Focused Node tests: `node scripts/run-node-tests.mjs <exact test paths>`.
-- Focused E2E: `npx playwright test <exact file> --grep '<exact title pattern>'`,
-  after a current build/fixtures and Electron native preparation. This command
-  does not itself guarantee those prerequisites.
-- Full gate: `PYTHON=/usr/bin/python3 npm run test:product` on this macOS host.
-  Preserve **Node native rebuild -> units -> Electron native rebuild -> E2E**.
-  Do not insert Node SQLite tests after the Electron rebuild before E2E.
-- Repo checks: `npm run test:repo`; distinguish the documented ignored scratch
-  convention failure from new failures. Do not delete user/task evidence to get green.
+**Later:** shared-state redesign of the 33-test app suite; splitting the eight-scenario
+background test and 18-cycle responsive test; broad removal of production test hooks;
+new telemetry, generalized fake environments, a complete fixture abstraction, and
+whole-suite flake statistics. Analysis tasks must produce a keep/change/defer decision
+and a small next patch, not an automatic refactor.
 
-Focused CI selection is **not currently available** in the Build workflow.
-R03 must add and verify it before the plan relies on it. Use enumerated platform
-and suite choices, not arbitrary command strings or user-supplied shell fragments.
-Default existing full Build behavior remains unchanged; focused jobs do not package
-or publish. No new remote Codex hosts are needed.
+External-review follow-ups are classified separately:
 
-## Test/harness work: known repairs versus investigations
+- Stability summary ignores top-level Playwright errors: confirmed reporting defect,
+  assigned H01. It blocks trusting that report, not unrelated product implementation.
+- Cached scroll anchor retains column/row geometry across layout changes: source-level
+  risk, not a reproduced GUI defect. C01 investigates once; promote only on evidence.
+- Windows cleanup and tail-card flakiness: fix narrowly in P03 only if they block the
+  product milestone; systematic reliability work belongs to H02.
+- The external streaming-anchor fix replaces the earlier theory that all observed
+  anchor failures were merely overscan/rounding. Keep its real regression coverage.
 
-Already fixed on the isolated branch: native path fixture mismatch, slicer and
-restore per-test setup, bounded main-window discovery, Linux window-manager setup,
-failure artifacts, correct virtualized target navigation, and exact-process cleanup.
-These must be retained and checked for coverage gaps, not reimplemented wholesale.
+## Cost and stopping controls
 
-Required remaining work:
+One current checkpoint and one evidence ledger; do not maintain many parallel
+narratives. Record task, candidate, changed paths, focused command/result, duration,
+next action and blocker. Keep raw logs in scratch and summarize, not copy full histories.
 
-- Finish the preserved thumbnail-refresh wait: observe the new authoritative
-  path before reading it; retain bytes/color/size/revision assertions.
-- Finish the visible-anchor test: use a mostly visible exact key, record geometry,
-  retain scroll/selection semantics. The proposed two-pixel tolerance addresses
-  observed one-pixel rounding; it must not hide a changed row or lost visible position.
-- Confirm the shared main-window and independent-fixture fixes cover affected
-  consumers. Run recovery tests by exact title alone. No test may depend on a
-  previous test creating its backup, selecting its slicer or restoring its state.
-- Keep captured traces, screenshot/DOM state, app errors, job/revision state and
-  process identity on failure. Diagnostic I/O must never prevent cleanup or replace
-  the original assertion error. Do not grow a general telemetry subsystem.
-- Test launches must set explicit private Chromium profile/userData and private
-  database/library paths from process start. HOME or ELECTRON_USER_DATA alone is
-  insufficient on macOS. No repeat of the unflagged real-profile incident.
-- Make exact target navigation and async operation completion deterministic.
-  Do not disable virtualization, force-click an absent target, or convert an
-  application error into a retry-until-green gate.
+A task brief specifies one cause, one expected behavior and one gate. Investigation
+checkpoint after 45 minutes of active analysis or two targeted diagnostic attempts
+without decisive new evidence. Reassess or continue another useful product task;
+do not escalate automatically into a new full matrix or a complex probe framework.
 
-Bounded analysis, not assumed fixes:
+Plan one full functional milestone matrix. If it fails, group common causes, repair
+an evidenced batch, run affected cases, then recheck the candidate. Record why each
+extra broad run is necessary. Final performance/stability numbers and account-wide
+usage are different metrics; do not invent task credit totals from the account meter.
 
-- Embedded builds exist in `app.e2e.ts` and `viewer-idle.e2e.ts`. R04 evaluates
-  removing those duplicates in favor of one orchestration owner, while preserving
-  standalone test entrypoints and fresh output. Skip the refactor if it requires
-  broad runner changes; document the remaining overhead instead.
-- Separate deadlines for startup, a controlled operation, full workload drain,
-  and cleanup. A five-second scan-drain timeout is not the one-second first-visible
-  contract. Require progress/error evidence for any revised completion deadline.
-- Separate reference performance measurements from hosted-runner results. C10's
-  reference budgets remain unchanged. No Windows 329 ms gap becomes a pass merely
-  by relabeling it: document the environment and obtain an explicit acceptance
-  decision if a different hosted timing gate is proposed. CI calibration is a
-  finite analysis task, not permission to tune until green.
+Automation remains paused. If explicitly re-enabled later, use compact status checks,
+leave active work undisturbed, and intervene only for genuine drift/blockage. Main
+push/publication and remote-machine setup remain outside authorization.
 
-## Concrete remaining product scope
+## Acceptance and residuals
 
-1. **Small-window preview:** finish the preserved CSS repair for a zero-height
-   viewer at 900x600. Verify >=160px stage height for the affected layout, usable
-   preview, reachable footer controls through scrolling, both themes, and no
-   regression at 1280x800/1920x1080. Do not redesign the panel.
-2. **Windows scan responsiveness:** explain and address the synchronous database
-   work correlated with the latest 315ms metadata span/329ms heartbeat gap. First
-   distinguish transaction work, scope updates, notification work, checkpoint and
-   I/O costs using existing timing evidence. Do not accept the dirty 128-page WAL
-   setting without evidence of both responsiveness benefit and acceptable total
-   throughput. Do not relax SQLite durability, bypass transactions or alter schema
-   merely to improve a test. A failed hypothesis is removed from the candidate
-   only after its patch is safely preserved.
-3. **Residual failures:** classify fresh failures once. Windows metadata retry,
-   watcher and intermittent anchor/thumbnail cases are not assumed current product
-   defects simply because a historical run failed. Carry exact reproductions and
-   current-source evidence forward; keep genuine unresolved findings visible.
+Product completion, green functional validation, measured performance, harness
+stability and code cleanup are separate statuses. A single passing run is evidence
+for that candidate, not proof the entire harness is stable. The final independent
+review covers product code and feature outcomes; later maintenance batches do not
+reopen it without behavior changes.
 
-Do not reopen the verified Linux lifecycle/file-access/thumbnail-publication
-repairs without a concrete new regression. Preserve their guard tests and disclosed
-limits, including PID-reuse TOCTOU and parent-directory replacement races.
+Retain existing safety tests for file access, transactional recovery, stale-result
+fences and process ownership. Moving tight timing assertions must not remove their
+functional coverage. Keep the Linux orphan fix: it solved real shutdown behavior,
+not just a numeric target. Do not rework it without a concrete new defect.
 
-## Run budget and stop conditions
-
-These are proposed control limits for the restart, not promises of token cost:
-
-- One task/issue at a time; no repeated full history inspection.
-- Before a diagnostic run, record hypothesis, distinguishing observations,
-  acceptance criteria and the next action for each possible outcome.
-- Spend at most 45 minutes of active investigation on one unresolved hypothesis
-  before checkpointing/reassessing. Do not spend the time budget in polling.
-- At most two focused remote diagnostic attempts for one hypothesis. A second
-  attempt must collect missing decisive evidence or verify a concrete correction.
-  No new evidence means stop that line of inquiry, not launch a larger matrix.
-- Target one full matrix for the frozen candidate. A failed gate can require
-  another, but only after a classified cause and reviewed self-check; recheck the
-  affected platform first. Record every extra full run's reason.
-- At budget exhaustion, continue another independent bounded task if useful;
-  otherwise pause and present the actual choice (defer, change scope/acceptance,
-  or fund more investigation). Do not ask routine continuation questions.
-- Automation stays paused now. If later re-enabled, one compact hourly status
-  check; no duplicate reviews/runs and no repeated unchanged-blocker notices.
-
-## Evidence and final acceptance
-
-Keep one current checkpoint in the restart tracker: owner, task, checkout/SHA,
-dirty-file disposition, next action and blocker. Keep detailed raw evidence in
-scratch; use a single consolidated final report with links to prior evidence.
-
-For each verification record: issue/task, exact source/test/config snapshot,
-command, platform/runtime/native state, fixture identity, outcome, duration and
-log/artifact path. Reuse evidence only when relevant inputs match. Record failed
-attempts, investigation time, number of model review dispatches and broad CI runs;
-these distinguish productive fixes from churn without inventing billed credits.
-
-After all restart tasks pass their local gates, freeze the candidate, run final
-validation, and dispatch **one** independent Sol/high reviewer. The reviewer
-checks the changed high-risk code, error/recovery/cancellation paths, scope and
-assertion changes, actual feature journeys and screenshot/UAT evidence. It returns
-one severity-ranked list with concrete triggers and evidence, not cosmetic cleanup.
-It does not independently rerun unchanged full suites or create another reviewer.
-The worker owns repairs; re-review the affected delta only.
-
-Completion requires the agreed functionality and tests on the same final tree,
-no unresolved blocking reviewer findings, accurate docs, and a final limitations
-list. Hosted screenshots plus agent visual inspection are evidence; do not claim
-human Windows/Linux UAT. Remote manual setup stays deferred. Windows uninterrupted
-live-root disappearance is currently unverified; restart-offline recovery is tested.
-The historical non-reproduced 107ms multipart observation remains disclosed.
-Optional raw Chromium listener census, aggregate backlog/decoded-memory census,
-other GPU vendors and real base.3mf are not newly mandatory work.
-
-G02/G03 remain open until their actual requirements are satisfied or the user
-explicitly accepts a documented limitation. No publication or main push follows
-automatically from a passing final review.
+Keep disclosed limitations: Windows restart-with-missing-root is tested; uninterrupted
+live disappearance is not. Remote manual Windows/Linux UAT is deferred. The historical
+107ms multipart observation, parent-directory race, PID-reuse TOCTOU and accidental
+host-profile probe remain documented. No claim of all original G02/G03 requirements
+being met is made solely from the new product-quality milestone.
