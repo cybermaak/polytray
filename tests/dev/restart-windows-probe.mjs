@@ -6,7 +6,7 @@ const originals = new Map();
 function patch(file, edit) {
   const original = fs.readFileSync(file, 'utf8');
   originals.set(file, original);
-  fs.writeFileSync(file, edit(original));
+  fs.writeFileSync(file, edit(original.replace(/\r\n/g, '\n')));
 }
 function replace(source, before, after) {
   if (!source.includes(before)) throw new Error(`Probe insertion missing: ${before.slice(0, 80)}`);
