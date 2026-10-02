@@ -455,3 +455,11 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **Shared Test Support:** `tests/support/helpers/`, `tests/support/fixtures/`
 - **One-off Engineering Test Utilities:** `tests/dev/`
 - **Docs / Design Notes / Capture Scripts:** `docs/plans/`, `docs/mockups/`, `docs/assets/`, `scripts/capture-readme-media.ts`, `scripts/run-node-tests.mjs`
+
+## Product-first restart checkpoint (2026-10-01)
+
+P00-P02 are explicitly resumed under the [restart plan](docs/plans/2026-09-30-execution-reset-plan.md).
+The isolated candidate imports reviewed ci/sandbox `cdf7967`. Focused task checks
+precede the P04 broad gate; one independent review remains P05. Track current
+outcomes in the [restart tracker](docs/plans/2026-09-30-execution-reset-tracker.md).
+Primary marketing WIP is excluded. Automation, main push and publication remain paused.

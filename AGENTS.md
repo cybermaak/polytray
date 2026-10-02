@@ -53,6 +53,17 @@ This file captures the repo-specific rules of engagement for AI/code agents work
 
 ## Verification Rules
 
+For the authorized product-first restart, follow
+`docs/plans/2026-09-30-execution-reset-plan.md` and its tracker. One owner
+implements, self-reviews and runs focused checks for P00-P03; the broad functional
+gate is P04 and the independent final review is P05. The staged schedule
+supersedes per-change full Product/unit runs and early PR matrix requirements
+below. Keep the Node -> marker cleanup -> units -> Electron -> E2E sequence
+when running the full gate. Main push and publication remain unauthorized.
+Non-main CI dispatch/results retrieval is authorized with bounded monitoring;
+the old ten-minute manual-report and three-attempt rules do not govern this restart.
+
+
 Choose the smallest verification set that proves the change, but include all affected layers.
 
 ## Pre-Push Requirement
