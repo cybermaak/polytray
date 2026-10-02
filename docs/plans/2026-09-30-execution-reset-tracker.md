@@ -1,7 +1,7 @@
 # Product-first restart tracker
 
 Updated October 2, 2026. Authority: [execution plan](2026-09-30-execution-reset-plan.md).
-**P00/P01 complete; P02 temporarily accepted by user at <=400ms Windows scan heartbeat. P03 DONE scoped; P04 COMPLETE: required Product/Build gates green on 2b61aa1. P05 interaction fix is verified; P06 is ACTIVE with explicit Linux300ms/Windows850ms provisional scan policy; tests remain enabled. Automation/deferred work remain paused.**
+**P00/P01 complete; P02 temporarily accepted by user at <=400ms Windows scan heartbeat. P03 DONE scoped; P04 COMPLETE: required Product/Build gates green on 2b61aa1. P05 interaction fix is verified; P06 DONE locally; functional CI green with explicit Linux/Windows scan-timing report exceptions. Automation/deferred work remain paused.**
 
 One Sol/high owner performs implementation, self-review and focused verification.
 One independent reviewer is reserved for P05, after the coherent product candidate.
@@ -521,3 +521,46 @@ convention; ignored `.DS_Store` exists). These paths existed before this integra
 no source/test contract altered, task/user artifacts not deleted to manufacture green.
 Product/test/config indexed tree equals exactCI candidate6fdb549 byte-for-byte. Required
 Product/functional Build gates green; repository hygiene result remains separately red.
+
+### P06 completion SHA, exact equivalence and preservation
+
+Normal local integration commit: `f21c6e8d56506d30915810deec80454ad344e95d` (main), combining primary7aab2d6
+and exact tested6fdb549c8af6db18e1a54c0db5a3e32799c8b605. The staged and final working
+product/test/workflow/build/dependency/config tree equals that tested candidate. Main's
+historical reviews/UAT reports and newer public workflows remain; only four routine
+document conflicts were reconciled. Source evidence is reused only for this verified
+identity. Local primary build/typecheck passes; Repo43/45 reports two unchanged workspace
+hygiene conditions (`.agent-tmp`, ignored `.DS_Store`) rather than a Product failure.
+
+After normal targeted stash/apply, added/removed user delta lines match the original
+AGENTS.md, DEV_CONTEXT.md and capture-readme-media.ts exactly. Untracked marketing and
+superpowers path inventory is unchanged. Index clean; user hunks remain uncommitted.
+Backup patch/original files/task stash retained; no index-blob staging workaround or reset.
+No main push/publication, automation, real profile/library/slicer test or remote setup.
+
+Final [Build37047833281](https://github.com/cybermaak/polytray/actions/runs/37047833281)
+functional gate: eachOS507 unit passes/1 platform skip,73 E2E passes/1 optional skip,
+packagingPASS (macOS unsigned DMG/ZIP, Linux AppImage, Windows NSIS/portable).
+Measured scan heartbeat: macOS90.13ms (250 gated), Linux50.06ms (300 report-only,
+targetMettrue), Windows441.68ms (850 report-only,targetMettrue). These different-host
+samples are not a speedup claim. Windows still exceeds the desired250ms reference goal;
+DB-WORKER-01 owns worker ownership/messaging and controlled latency/throughput/durability
+proof, recalibration/restoration of strict numeric checks. Prior1495/751/253/953/1672ms
+misses and red/cancelled histories remain recorded under their original criteria.
+
+Important fixes/proof: e1bc384 scan-excluding restore admission;4298174 focus-return
+readiness; d5fd38c exact-ID real-wheel tail remount;8866ea9 healthy ID/revision preservation
+through real search;6fdb549 existing recovery-resolved wait before reading settings.
+Application logic matches4298174 local full Product507 units/73 E2Es; affected policies/
+fixtures verified by focused cases and exact current three-platform functional Build.
+Astra's sole P05 interaction finding is resolved by regression/runtime evidence without
+another reviewer cycle. G03 scoped docs/local handoffDONE (32/33 ledger);G02REVIEW.
+
+Automated screenshots remain linked above (copied to primary task scratch); no human UAT
+claim. Optional realbase.3mf, Windows O_NOFOLLOW unit skip, unsupported Linux/Windows GPU
+elapsed timing, Windows uninterrupted live disappearance, manual cross-platform UAT,
+signing/notarization, stability/reference repetitions/raw resource coverage and previously
+recorded host-profile incident/parent-directory/PID-reuse residuals remain disclosed.
+Completion changes after the integration commit are documentation only. Selected immutable
+logs are copied to primary `.agent-tmp/p06-evidence/`; preservation proof is
+`.agent-tmp/p06-preserved/`. P06 is complete; STOP. Deferred work/automation remain paused.
