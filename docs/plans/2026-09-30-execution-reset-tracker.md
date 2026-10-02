@@ -480,3 +480,15 @@ unchanged; no scroll-cache product fix is claimed. Focused background+controlled
 cases pass2/2 (21.4s). One coherent test-only correction follows; no app/budget changes,
 no dropped functional assertions. Current failures remain recorded. P06 still waits for
 non-waived green gate; no unbounded harness work.
+
+The completed Windows job from37045048450 also found a recovery-readiness fixture race:
+product-workflows readsettings.autoScan immediately after the shell became visible,
+before its existing30s unresolved=false poll. It observed the oldtrue value during
+legitimate roll-forward. Move that same recovery-resolved check before reading/restored
+state assertions; no timeout/assertion or product logic changed. Windows controlled-tail
+and restore exclusion cases passed; reported scan timing still missed comparison.
+37047082224 was cancelled as superseded before accepting a partial platform result.
+The coherent background+tail+all product-workflow focused set passes12/12 (31.8s),
+including committed and acknowledgment-failure recovery. This consolidates the completed
+platform findings into one narrow fixture batch before final matrix. No more general
+harness expansion; subsequent unrelated failures require a bounded blocker decision.

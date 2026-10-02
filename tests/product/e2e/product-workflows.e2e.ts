@@ -448,13 +448,14 @@ test('startup rolls a committed restore forward when the renderer has not applie
   app = await launchWorkflowApp();
   page = await findMainWindow(app);
   await expect(page.locator('#search-input')).toBeVisible({ timeout: 30000 });
+  // The shell is visible before the committed restore has rolled renderer state forward.
+  await expect.poll(async () => page.evaluate(async () => (await window.polytray.getMetadataRestoreStatus()).unresolved), { timeout: 30000 }).toBe(false);
   const recoveredState = await page.evaluate(() => ({
     library: JSON.parse(localStorage.getItem('polytray-library-state') ?? '{}') as { libraryFolders: string[] },
     settings: JSON.parse(localStorage.getItem('polytray-settings') ?? '{}') as { autoScan: boolean },
   }));
   expect(recoveredState.library.libraryFolders).toEqual([library]);
   expect(recoveredState.settings.autoScan).toBe(false);
-  await expect.poll(async () => page.evaluate(async () => (await window.polytray.getMetadataRestoreStatus()).unresolved), { timeout: 30000 }).toBe(false);
   const status = await page.evaluate(() => window.polytray.getMetadataRestoreStatus());
   expect(status.error).toBeNull();
 });
