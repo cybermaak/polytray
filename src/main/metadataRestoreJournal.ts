@@ -76,6 +76,39 @@ function parseRecord(value: unknown): MetadataRestoreJournalRecord {
   return record as MetadataRestoreJournalRecord;
 }
 
+const TRANSIENT_WINDOWS_RENAME_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
+
+/**
+ * Replace `target` with `source`. On Windows, renaming over a file fails with EPERM/EBUSY/EACCES
+ * while any other handle has the target open (a concurrent status read of the same journal
+ * record, antivirus or the indexer), so retry those briefly before giving up. Other platforms and
+ * other errors fail immediately.
+ */
+export async function renameReplacing(
+  source: string,
+  target: string,
+  options: {
+    platform?: NodeJS.Platform;
+    rename?: (from: string, to: string) => Promise<void>;
+    wait?: (ms: number) => Promise<void>;
+    maxAttempts?: number;
+  } = {},
+) {
+  const rename = options.rename ?? fs.promises.rename;
+  const wait = options.wait ?? ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)));
+  const maxAttempts = options.maxAttempts ?? 10;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await rename(source, target);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? '';
+      if ((options.platform ?? process.platform) !== 'win32' || !TRANSIENT_WINDOWS_RENAME_CODES.has(code) || attempt >= maxAttempts) throw error;
+      await wait(Math.min(50 * attempt, 250));
+    }
+  }
+}
+
 async function writeAtomic(target: string, value: string) {
   const directory = path.dirname(target);
   await fs.promises.mkdir(directory, { recursive: true, mode: 0o700 });
@@ -87,7 +120,7 @@ async function writeAtomic(target: string, value: string) {
     await handle.sync();
     await handle.close();
     handle = undefined;
-    await fs.promises.rename(temporary, target);
+    await renameReplacing(temporary, target);
     await syncDirectoryAsync(directory);
   } catch (error) {
     if (handle) await handle.close().catch(() => undefined);
