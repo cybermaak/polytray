@@ -449,7 +449,17 @@ test('startup rolls a committed restore forward when the renderer has not applie
   page = await findMainWindow(app);
   await expect(page.locator('#search-input')).toBeVisible({ timeout: 30000 });
   // The shell is visible before the committed restore has rolled renderer state forward.
-  await expect.poll(async () => page.evaluate(async () => (await window.polytray.getMetadataRestoreStatus()).unresolved), { timeout: 30000 }).toBe(false);
+  let lastRestoreStatus: unknown = null;
+  try {
+    await expect.poll(async () => {
+      const current = await page.evaluate(() => window.polytray.getMetadataRestoreStatus());
+      lastRestoreStatus = current;
+      return current.unresolved;
+    }, { timeout: 30000 }).toBe(false);
+  } catch (error) {
+    // The status error names why recovery is stuck (renderer acknowledgment, file lock, journal).
+    throw new Error(`Committed restore stayed unresolved; last status: ${JSON.stringify(lastRestoreStatus)}`, { cause: error });
+  }
   const recoveredState = await page.evaluate(() => ({
     library: JSON.parse(localStorage.getItem('polytray-library-state') ?? '{}') as { libraryFolders: string[] },
     settings: JSON.parse(localStorage.getItem('polytray-settings') ?? '{}') as { autoScan: boolean },

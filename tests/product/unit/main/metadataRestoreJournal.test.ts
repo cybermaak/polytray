@@ -49,3 +49,35 @@ test('journal rejects structurally incomplete JSON records and retains the evide
     assert.equal(fs.existsSync(file), true);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('journal replacement retries transient Windows rename locks', async () => {
+  const { renameReplacing } = await import('../../../../src/main/metadataRestoreJournal');
+  const lockError = (code: string) => Object.assign(new Error(code), { code });
+  const waits: number[] = [];
+  let calls = 0;
+  await renameReplacing('from', 'to', {
+    platform: 'win32',
+    wait: async (ms) => { waits.push(ms); },
+    rename: async () => { calls++; if (calls < 3) throw lockError(calls === 1 ? 'EPERM' : 'EBUSY'); },
+  });
+  assert.equal(calls, 3);
+  assert.deepEqual(waits, [50, 100]);
+
+  // Other platforms and non-lock errors fail on the first attempt.
+  for (const [platform, code] of [['linux', 'EPERM'], ['win32', 'ENOENT']] as const) {
+    let attempts = 0;
+    await assert.rejects(renameReplacing('from', 'to', {
+      platform, wait: async () => undefined,
+      rename: async () => { attempts++; throw lockError(code); },
+    }), { code });
+    assert.equal(attempts, 1);
+  }
+
+  // A lock that never clears gives up after the bounded attempts.
+  let attempts = 0;
+  await assert.rejects(renameReplacing('from', 'to', {
+    platform: 'win32', maxAttempts: 4, wait: async () => undefined,
+    rename: async () => { attempts++; throw lockError('EACCES'); },
+  }), { code: 'EACCES' });
+  assert.equal(attempts, 4);
+});
