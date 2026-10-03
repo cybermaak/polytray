@@ -87,6 +87,12 @@ If you are an AI assistant reading this file at the start of a session, use it t
 - **Hosted Product validation:** The local hardening candidate passes the complete Product gate (495 unit passes and 74 E2E passes, with one optional skip in each phase). [Sandbox run 36786572780](https://github.com/cybermaak/polytray/actions/runs/36786572780) passed full macOS and Linux Build jobs; Windows finished 72 E2E passes/2 failures because a completed 5,000-file scan exceeded the strict 250 ms main heartbeat gap and a tiny STL preview stayed loading for 30 seconds. Diagnostic work is ongoing; see `docs/performance/hosted-ci-36752768437.md` for exact evidence and limits.
   - Windows offline-root E2E stops the watcher before renaming its private fixture root because the open directory may return `EPERM`. It verifies restart with the root missing and recovery after return; disappearance during uninterrupted live watching remains unverified on Windows. macOS and Linux retain the live-disappearance test path.
 - **Docs State:** `README.md` was refreshed into a landing-page style product overview, and the demo media under `docs/assets/` is now generated from the live app via `scripts/capture-readme-media.ts`.
+- **Release procedure (consolidated 2026-10-02):** [docs/RELEASING.md](docs/RELEASING.md)
+  is the canonical candidate-to-publication runbook, including versioning, gates,
+  actual media capture, local macOS signing/notarization, Windows/Linux release
+  CI, and separate central-site deployment. `docs/marketing-site-refresh.md`
+  remains the website's product-SOP pointer. Documentation changes do not
+  authorize release, asset upload, site deployment or credential access.
 - **Agent Docs State:** Root `AGENTS.md` now captures repo-specific working agreements, architecture gotchas, and a verification matrix for future contributors/agents.
 - **Next Focus:** Remaining `v1.2` product work (`F7`-`F10`) plus the outstanding `v1.1.x` correctness and performance follow-ups.
 - **Dev-mode localStorage note:** The vite renderer dev server is now pinned to port 5173 (`strictPort: true` in `electron.vite.config.mjs`). This prevents silent origin changes between sessions that previously caused all `localStorage`-backed state (collections, settings, folders) to appear cleared on restart. If `npm run dev` fails with a port conflict, kill the orphaned process with `lsof -ti:5173 | xargs kill`.

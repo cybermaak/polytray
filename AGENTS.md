@@ -11,6 +11,14 @@ This file captures the repo-specific rules of engagement for AI/code agents work
 
 ## Project Shape
 
+For release preparation, signing/notarization, README media or promotional-site
+updates, follow `docs/RELEASING.md`. `docs/marketing-site-refresh.md` remains the
+website's product-SOP entrypoint. Product capture tooling stays here; central
+website content lives in `cybermaak.github.io/public/polytray/`. Confirm the
+authorized scope before running publication commands: `npm run release:mac`
+uploads assets, and a release-tag push triggers Windows/Linux publication.
+Honor an explicit request to leave changes uncommitted.
+
 - Electron desktop app with React renderer and Vite build.
 - TypeScript everywhere, strict mode enabled.
 - Three.js powers parsing/rendering for `stl`, `obj`, and `3mf`.

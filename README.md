@@ -102,6 +102,11 @@ npm run build:linux    # package for Linux
 
 ### README media
 
+Follow the [release runbook](docs/RELEASING.md) for candidate verification,
+isolated media capture, macOS signing/notarization, platform publication, and
+the separate marketing-site update. The [marketing SOP](docs/marketing-site-refresh.md)
+is the website's product-specific entrypoint.
+
 ```bash
 npx tsx scripts/capture-readme-media.ts   # regenerate screenshot + demo from live app
 ```
