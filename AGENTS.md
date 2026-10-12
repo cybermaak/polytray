@@ -67,7 +67,7 @@ implements, self-reviews and runs focused checks for P00-P03; the broad function
 gate is P04 and the independent final review is P05. The staged schedule
 supersedes per-change full Product/unit runs and early PR matrix requirements
 below. Keep the Node -> marker cleanup -> units -> Electron -> E2E sequence
-when running the full gate. Main push and publication remain unauthorized.
+when running the full gate. Main pushes and publication require the user's explicit authorization for the current task.
 Non-main CI dispatch/results retrieval is authorized with bounded monitoring;
 the old ten-minute manual-report and three-attempt rules do not govern this restart.
 The October 2 user-approved C10 exception keeps scan tests enabled with provisional

@@ -58,6 +58,23 @@ If you are an AI assistant reading this file at the start of a session, use it t
 
 ## 🚦 Current State
 
+- **v1.2.0 release preparation (2026-10-11):** Version 1.2.0 and public notes
+  are prepared in [the release notes](docs/release-notes/v1.2.0.md). The local
+  Build/Product gate passed 508 unit tests and 73 Electron E2Es, with one
+  documented skip in each phase. The real synthetic-library screenshot and
+  five-frame WebP were regenerated and visually reviewed. Signed/notarized
+  macOS and hosted Windows/Linux publication require their actual artifact
+  and CI checks before release completion is reported. Deferred database-worker
+  and harness work remains deferred.
+
+- **Release verification environment:** Initial runs from a system-temporary
+  checkout failed three watcher/mock-launch checks, including a focused trace
+  reproduction. Moving the unchanged checkout to the normal user worktree
+  location produced a passing focused run and full Product gate. The underlying
+  environment cause is unproven; no source behavior, assertions or timeouts were
+  changed. Use a normal worktree location for local release verification and
+  retain the failed-run evidence instead of claiming a product fix.
+
 - **Current Version:** `v1.1.0` is released and the GitHub Release pipeline is green across Ubuntu, macOS, and Windows.
 - **Release State:** Tag `v1.1.0` now points at the post-release CI hardening fixes, and the GitHub Release entry is populated directly via Actions.
 - **CI/CD State:**
